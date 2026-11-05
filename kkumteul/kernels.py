@@ -76,7 +76,7 @@ FOOD_FIELDS = [
     ("fy", np.float64, True),
     ("f_alive", np.bool_, True),
     ("f_energy", np.float64, True),
-    ("f_kind", np.int8, True),       # 먹이 종류 0/1, 2는 늘 먹을 수 있는 것(사체)
+    ("f_kind", np.int8, True),       # 먹이 종류 0/1, 2는 늘 먹을 수 있는 것(사체), 3은 함께 있어야 먹는 큰 먹이
 ]
 OTHER_SAVED = ["counters", "ledger", "budget", "trail", "soil"]
 # 크기가 설정에 따라 달라도 되는 평생 상태(체크포인트와 크기가 다르면 0에서 시작한다)
@@ -106,6 +106,7 @@ C_DEATH_PASSIVE = 11
 C_STEP = 12
 C_DEATH_DISASTER = 13   # 각본의 재난으로 죽은 수
 C_POISONED = 17
+C_SHARED = 18
 N_COUNTERS = 24
 
 # ---- ledger 칸 (에너지 장부) ----
@@ -137,12 +138,12 @@ DEATH_DISASTER = 3       # 각본의 재난(운석)
  P_FOV, P_VRANGE, P_VNOISE, P_SMELL_LEN, P_SMELL_GAIN, P_INIT_WIN, P_INIT_WREC, P_INIT_WOUT,
  P_BIAS_THRUST, P_BIAS_REPRO, P_SIGMA_INIT, P_SIGMA_MIN, P_SIGMA_MAX, P_SIGMA_TAU,
  P_P_HIDDEN, P_COLOR_SIGMA, P_SYN, P_BACK_COST, P_ETA_INIT, P_ETA_MAX, P_ALPHA_INIT, P_POISON,
- N_FP) = range(48)
+ P_BIG_PROB, P_BIG_E, P_COOP_RANGE, N_FP) = range(51)
 
 # ---- 정수 설정 칸 ----
 (Q_SEED, Q_GW, Q_GH, Q_FOOD_CAP, Q_N_PATCH, Q_PATCH_LIFE, Q_MAX_AGE, Q_MIN_AGENTS,
  Q_SECTORS, Q_H_MAX, Q_H_INIT, Q_H_MIN, Q_REPRO_BRAIN, Q_REPRO_MIN_AGE, Q_MUT, Q_CORPSE,
- Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, N_IP) = range(20)
+ Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, Q_COOP, N_IP) = range(21)
 
 
 def pack_params(cfg):
@@ -195,6 +196,9 @@ def pack_params(cfg):
     fp[P_ETA_MAX] = cfg.eta_max
     fp[P_ALPHA_INIT] = cfg.alpha_init
     fp[P_POISON] = cfg.poison
+    fp[P_BIG_PROB] = cfg.big_food_prob
+    fp[P_BIG_E] = cfg.big_food_energy
+    fp[P_COOP_RANGE] = cfg.coop_range
     ip[Q_SEED] = cfg.seed
     ip[Q_GW] = cfg.grid_w
     ip[Q_GH] = cfg.grid_h
@@ -214,6 +218,7 @@ def pack_params(cfg):
     ip[Q_PASSIVE] = int(cfg.passive)
     ip[Q_KINDS] = int(cfg.food_kinds_enabled)
     ip[Q_KIND_PERIOD] = cfg.kind_flip_period
+    ip[Q_COOP] = int(cfg.coop_food_enabled)
     return fp, ip
 
 
@@ -324,11 +329,15 @@ def spawn_food(step, s, fp, ip):
             px = _wrap(cx + fp[P_PATCH_SIGMA] * normal(seed, S_FOOD, serial, 4), w)
             py = _wrap(cy + fp[P_PATCH_SIGMA] * normal(seed, S_FOOD, serial, 5), h)
         kind = 0
+        e_this = e_food
         if ip[Q_KINDS] != 0 and u01(seed, S_KIND, serial, 0) < 0.5:
             kind = 1
-        if _place_food(s, px, py, e_food, kind):
-            s.ledger[L_SPAWN] += e_food
-            s.budget[0] -= e_food
+        if ip[Q_COOP] != 0 and s.budget[0] >= fp[P_BIG_E] and u01(seed, S_KIND, serial, 2) < fp[P_BIG_PROB]:
+            kind = 3
+            e_this = fp[P_BIG_E]
+        if _place_food(s, px, py, e_this, kind):
+            s.ledger[L_SPAWN] += e_this
+            s.budget[0] -= e_this
         else:
             s.ledger[L_DISCARD] += s.budget[0]
             s.budget[0] = 0.0
@@ -370,9 +379,10 @@ def build_grid(x, y, alive, inv_cell, gw, gh, start, items, cursor):
 
 # ---- 감각 ----
 @njit(cache=True, inline="always")
-def _see(obs, i, ch, nsec, ddx, ddy, d, rad, hi, fov, vrange, sgn):
+def _see(obs, i, ch, nsec, ddx, ddy, d, rad, hi, fov, vrange, sgn, big):
     """물체 하나를 시야 칸에 반영한다. 칸마다 가장 가까운 것 하나만 남는다(가림).
-    sgn이 -1이면 그 값을 음수로 적는다(먹이 종류 1). 가까움의 비교는 절댓값으로 한다."""
+    sgn이 -1이면 그 값을 음수로 적는다(먹이 종류 1). 가까움의 비교는 절댓값으로 한다.
+    big이면(함께 있어야 먹는 큰 먹이) 개체 칸에도 음수로 적어 다른 것과 구분되게 한다."""
     ang = math.atan2(ddy, ddx) - hi
     ang = ang - 6.283185307179586 * math.floor((ang + 3.141592653589793) / 6.283185307179586)
     if d <= rad:
@@ -399,11 +409,11 @@ def _see(obs, i, ch, nsec, ddx, ddy, d, rad, hi, fov, vrange, sgn):
     other = 1 - ch
     for sec in range(s_lo, s_hi + 1):
         cur = abs(obs[i, sec])
-        if obs[i, nsec + sec] > cur:
-            cur = obs[i, nsec + sec]
+        if abs(obs[i, nsec + sec]) > cur:
+            cur = abs(obs[i, nsec + sec])
         if c > cur:
             obs[i, ch * nsec + sec] = c * sgn
-            obs[i, other * nsec + sec] = 0.0
+            obs[i, other * nsec + sec] = -c if big else np.float32(0.0)
 
 
 @njit(cache=True, parallel=True)
@@ -460,7 +470,7 @@ def _sense_par(step, fp, ip, alive, x, y, heading, vx, vy, energy, age, touch, a
                         continue
                     smell += 1.0 / (1.0 + d2 / sl2)
                     _see(obs, i, 0, nsec, ddx, ddy, math.sqrt(d2), f_rad, hi, fov, vrange,
-                         np.float32(-1.0) if f_kind[j] == 1 else np.float32(1.0))
+                         np.float32(-1.0) if f_kind[j] == 1 else np.float32(1.0), f_kind[j] == 3)
                 for p in range(a_start[c], a_start[c + 1]):
                     j = a_items[p]
                     if j == i:
@@ -470,7 +480,7 @@ def _sense_par(step, fp, ip, alive, x, y, heading, vx, vy, energy, age, touch, a
                     d2 = ddx * ddx + ddy * ddy
                     if d2 > vr2:
                         continue
-                    _see(obs, i, 1, nsec, ddx, ddy, math.sqrt(d2), a_rad, hi, fov, vrange, np.float32(1.0))
+                    _see(obs, i, 1, nsec, ddx, ddy, math.sqrt(d2), a_rad, hi, fov, vrange, np.float32(1.0), False)
         if noise > 0.0:
             for k in range(base):
                 obs[i, k] += noise * normal(seed, S_NOISE, i * 64 + k, step)
@@ -657,6 +667,38 @@ def collide(s, fp, ip):
 
 # ---- 먹기 ----
 @njit(cache=True)
+def _helper_near(s, i, px, py, fp, ip):
+    """점 (px, py)에서 coop_range 안에 있는, i가 아닌 가장 가까운 살아 있는 개체. 없으면 -1."""
+    gw = ip[Q_GW]
+    gh = ip[Q_GH]
+    inv_cell = fp[P_INV_CELL]
+    cx = int(px * inv_cell)
+    cy = int(py * inv_cell)
+    if cx >= gw:
+        cx = gw - 1
+    if cy >= gh:
+        cy = gh - 1
+    best = -1
+    bd = fp[P_COOP_RANGE] * fp[P_COOP_RANGE]
+    for oy in range(-1, 2):
+        yy = (cy + oy) % gh
+        for ox in range(-1, 2):
+            xx = (cx + ox) % gw
+            c = yy * gw + xx
+            for p in range(s.a_start[c], s.a_start[c + 1]):
+                j = s.a_items[p]
+                if j == i or not s.alive[j]:
+                    continue
+                ddx = _wdiff(s.x[j] - px, fp[P_W])
+                ddy = _wdiff(s.y[j] - py, fp[P_H])
+                d2 = ddx * ddx + ddy * ddy
+                if d2 < bd:
+                    bd = d2
+                    best = j
+    return best
+
+
+@njit(cache=True)
 def eat(step, s, fp, ip):
     n = s.x.shape[0]
     kinds = ip[Q_KINDS] != 0
@@ -671,8 +713,9 @@ def eat(step, s, fp, ip):
     r = fp[P_A_RAD] + fp[P_F_RAD]
     r2 = r * r
     e_max = fp[P_E_MAX]
-    for i in range(n):
+    for i in range(n):          # 먼저 다 지운다(큰 먹이를 나눠 받은 쪽의 표시가 뒤에서 지워지지 않게)
         s.ate[i] = 0.0
+    for i in range(n):
         if not s.alive[i] or s.energy[i] >= e_max:
             continue
         xi = s.x[i]
@@ -701,10 +744,30 @@ def eat(step, s, fp, ip):
                     ddy = _wdiff(s.fy[j] - yi, hgt)
                     if ddx * ddx + ddy * ddy > r2:
                         continue
+                    if s.f_kind[j] == 3:
+                        # 큰 먹이: 먹이에서 가까운 다른 개체가 있어야 먹을 수 있다. 둘이 반씩 갖는다
+                        helper = _helper_near(s, i, s.fx[j], s.fy[j], fp, ip)
+                        if helper < 0:
+                            continue
+                        half = 0.5 * s.f_energy[j]
+                        s.f_alive[j] = False
+                        s.counters[C_NFOOD] -= 1
+                        s.counters[C_EATEN] += 1
+                        s.counters[C_SHARED] += 1
+                        s.energy[i] += half
+                        s.eaten[i] += half
+                        s.energy[helper] += half
+                        s.eaten[helper] += half
+                        s.ate[i] = 1.0
+                        s.ate[helper] = 1.0
+                        if s.energy[i] >= e_max:
+                            full = True
+                            break
+                        continue
                     s.f_alive[j] = False
                     s.counters[C_NFOOD] -= 1
                     s.counters[C_EATEN] += 1
-                    if kinds and s.f_kind[j] != 2 and s.f_kind[j] != good:
+                    if kinds and s.f_kind[j] < 2 and s.f_kind[j] != good:
                         # 독: 먹이의 에너지는 사라지고 먹은 쪽도 에너지를 잃는다
                         s.energy[i] -= fp[P_POISON]
                         s.ledger[L_LOST] += s.f_energy[j] + fp[P_POISON]
