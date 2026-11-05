@@ -235,6 +235,23 @@ def test_from_flip_starts_a_little_before_the_next_switch(kinds_run):
     assert flips and flips[0]["step"] == b and flips[0]["good"] == k.good_kind(cfg.seed, b, period)
 
 
+def test_overrides_change_the_replayed_world_and_are_noted(kinds_run):
+    """독 0 같은 대조는 같은 체크포인트를 설정 하나만 바꿔 다시 돌린다(placed.py --set)."""
+    path = ckpt_of(kinds_run, 400)
+    rep = replay.record(path, steps=120, every=2, overrides=["poison=0"])
+    w, _ = ckpt.load(path)
+    w.set_config(w.cfg.with_overrides(["poison=0"]))
+    pops = []
+    for _ in range(rep.n_frames):
+        pops.append(int(w.s.alive.sum()))
+        w.run(2)
+    assert list(rep.pop) == pops, "덮어쓴 설정으로 돈 세계와 장면이 같다"
+    assert rep.meta["overrides"] == ["poison=0"]
+    assert any("poison=0" in n for n in rep.meta["notes"])
+    plain = replay.record(path, steps=120, every=2)
+    assert plain.meta["overrides"] == [] and not any("설정을 바꿔" in n for n in plain.meta["notes"])
+
+
 def test_passive_control_checkpoint_is_refused(tmp_path):
     w = World(small(passive=True))
     path = ckpt.save(w, tmp_path / "checkpoints")
