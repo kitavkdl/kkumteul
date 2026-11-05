@@ -1,0 +1,40 @@
+# 꿈틀 24시간 가동용 사용자 서비스(관리자 권한 없이 쓴다).
+#
+#   mkdir -p ~/.config/systemd/user && cp deploy/kkumteul.user.service ~/.config/systemd/user/kkumteul.service
+#   systemctl --user daemon-reload && systemctl --user enable --now kkumteul
+#   journalctl --user -u kkumteul -f          # 기록 보기
+#   systemctl --user stop kkumteul            # 저장하고 멈춤
+#
+# 로그아웃해도 돌게 하려면 한 번 `loginctl enable-linger $USER`가 필요하다.
+# 처음 한 번은 실행 폴더를 만든다:
+#   .venv/bin/python -m kkumteul.run new --run runs/main --steps 0 --set threads=4
+
+[Unit]
+Description=kkumteul world simulation
+# 같은 실패를 되풀이하는 경우(디스크 가득, NaN 등) 끝없이 다시 띄우지 않는다.
+StartLimitIntervalSec=3600
+StartLimitBurst=5
+
+[Service]
+Type=notify
+NotifyAccess=main
+WorkingDirectory=%h/git/kkumteul
+ExecStart=%h/git/kkumteul/.venv/bin/python -m kkumteul.run resume --run runs/main --quiet
+KillSignal=SIGTERM
+TimeoutStopSec=120
+TimeoutStartSec=300
+Restart=on-failure
+RestartSec=30
+WatchdogSec=900
+Nice=15
+CPUWeight=20
+CPUQuota=400%
+Environment=NUMBA_NUM_THREADS=4
+Environment=OMP_NUM_THREADS=1
+Environment=PYTHONUNBUFFERED=1
+MemoryHigh=1500M
+MemoryMax=2G
+OOMScoreAdjust=500
+
+[Install]
+WantedBy=default.target
