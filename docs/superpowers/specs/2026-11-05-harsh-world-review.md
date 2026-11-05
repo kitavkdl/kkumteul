@@ -148,3 +148,18 @@ sonnet 둘이 서로 모르게. **반영 전 — 다음 세션이 코드로 확�
 6. (낮음) `evict_stored`는 내려놓은 알만 치워 사체가 `max_agents`를 채우면 들기가 막힘 — 2부-나의 고기에서 커짐.
 7. 과제 5에 부패 재기(`C_SPOILED`) 빠짐.
 확인된 것: 가을 식 1.02, 꺼짐 값이 1부와 비트까지 같음, 번호표가 설계와 같음, `load` 순서에서 `recount_field`가 맞게 돎.
+
+### 규칙 축 (받은 요지)
+치명 0 — `PINNED_HASH_300`을 깨는 경로 없음(꺼진 세계는 길이 그대로, 새 필드 기본값, 가을 끈 식 비트까지 같음, 난수 19~ 겹침 없음, `N_COUNTERS`는 kernels.py 밖에서 안 씀).
+- 위반 1(경미): 계획 Global Constraints 시험 명령에 `~/.local/bin/memcap`, `../../../.venv`, "서버 `/tmp`" — 1부 계획처럼 일반화.
+- 위반 2: 장부 시험이 과제 3(손을 시험이 직접 맞춤)에만. 과제 2에 없고, 과제 4의 실제 `carry` 커널·무게 비용이 도는 세계의 잔차를 아무도 안 봄.
+- 위반 3: 설계 시험 목록의 "옛 체크포인트를 `harsh2`로 갈라 켜기"와 "스레드 수 불변"(`_sense_par`는 prange, `f_holder`를 더함) 빠짐.
+- 사실 1(중요): 새 필드를 `NEW_SINCE_STAGE1`에 넣으면 `load_arrays`가 `missing` → `exact=False` → `checkpoint.py:107`이 저장 해시 검증을 건너뜀. `elig_*`는 world.py:226~230에서 `continue`로 예외 처리 → `HASH_DEFAULTS` 필드도 같은 예외로(기본값으로 채우고 빠진 것으로 치지 않음).
+- 사실 2: 다시 보기 기록 한 줄 `[x, y, kind, in, out, why]`(replay.py:162,203,486) — 자리 갱신은 `FOOD_DTYPE`·15MB 상한·뷰어 변경. `self.seen`에 키를 더하면 `tests/test_replay.py:152`의 사전 전체 비교가 깨짐. `_food_snapshot`(229)에 `f_dropped`/`f_holder` 없음. `evict_stored` 재구성 없음.
+- 사실 3: `_remove`(1037)에 `ip` 없음 → 시그니처와 호출처(`process_deaths`, `passive_events`, `strike` 등) 변경 필요. `spawn_food`(385,402)·`niche_world`(686~687)가 `field_cap`을 넘긴다는 말이 본문에 없음.
+- 사실 4: `harsh2`에 `carry_enabled`를 더하는 과제가 3/4로 엇갈림(명세 축 4와 같음).
+- 사실 5: "1부 194건 + 새 2건" 미확인(parametrize 때문에 `def test_` 151개).
+- 판단: 들기 켠 세계에서 사체가 `max_agents`칸 상한에 들어감(동작 변화), 사체를 들 수 있는지 계획이 말 안 함, `autumn_len>0`·겨울 꺼짐을 `validate`가 안 막음(명세 축 4와 같음). 바깥 호출 호환은 맞음(`inject_agent`가 유일, 계획에 있음).
+
+### 다음 세션이 할 것
+두 축 지적을 코드로 확인 → 판단(반영/기각+근거)을 이 절에 표로 → 계획 2부-가를 고침(특히: 놓는 곳 셋과 `_remove` 시그니처, `load`의 해시 검증 예외, 다시 보기 기록 형식을 이번에 바꿀지 아니면 "든 알은 자리 고정 기록 + 들림 사건 따로"로 줄일지, 잠들 때 떨굼, 1부 코드로 ext/harsh 해시 박기, 장부·스레드·갈라 켜기 시험) → SDD 구현.
