@@ -35,6 +35,7 @@ S_ASSAY = 11
 S_INIT_AGE = 12
 S_BIRTH_ORDER = 13
 S_SCENARIO = 14     # 각본의 재난(운석): 떨어지는 자리와 죽는 개체
+S_FERTILE = 15      # 거름 땅에 나는 먹이의 자리
 
 
 @njit(cache=True, inline="always")

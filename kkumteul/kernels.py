@@ -12,7 +12,7 @@ from collections import namedtuple
 import numpy as np
 from numba import njit, prange
 
-from .config import ACT_REPRO, ACT_THRUST, ACT_TURN, N_REWARD
+from .config import ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_THRUST, ACT_TURN, N_REWARD
 from .rng import (S_BIRTH_ORDER, S_BIRTH_POS, S_FOOD, S_INIT_AGE, S_INIT_GENOME, S_INIT_POS, S_MUT_GENE,
                   S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, normal, u01)
 
@@ -767,6 +767,8 @@ def random_genome(s, j, aid, fp, ip):
         s.bout[j, o] = 0.0
     s.bout[j, ACT_THRUST] = fp[P_BIAS_THRUST]
     s.bout[j, ACT_REPRO] = fp[P_BIAS_REPRO]
+    s.bout[j, ACT_GIVE] = -1.0       # 주기·쌓기는 처음에는 꺼진 쪽으로 기울여 둔다
+    s.bout[j, ACT_DEPOSIT] = -1.0
     s.n_hidden[j] = ip[Q_H_INIT]
     s.sigma[j] = fp[P_SIGMA_INIT]
     for c in range(3):

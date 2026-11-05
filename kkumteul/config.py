@@ -128,7 +128,8 @@ class Config:
 
     # --- 4단계: 판이 바뀌는 세계 (기본은 꺼짐) ---
     niche_enabled: bool = False   # 다닌 자리가 길이 되고, 쌓은 거름이 먹이를 끌어온다
-    wear_rate: float = 0.02       # 지나갈 때 그 칸에 남는 흔적 = wear_rate * 속도
+    wear_rate: float = 0.002      # 지나갈 때 그 칸에 남는 흔적 = wear_rate * 속도.
+                                  # 세계 평균이 포화의 0.1~0.2배에 머물게 잡았다(0.02면 세계 전체가 길이 된다)
     trail_decay: float = 0.0005   # 흔적이 스텝마다 흐려지는 정도
     trail_sat: float = 5.0        # 흔적이 이만큼 쌓이면 "다 닦인 길"
     path_bonus: float = 0.5       # 다 닦인 길에서 이동 비용이 줄어드는 비율
@@ -137,7 +138,7 @@ class Config:
     soil_decay: float = 0.0002    # 거름이 스텝마다 사라지는 정도
     soil_ref: float = 50.0        # 세계 전체 거름이 이만큼이면 먹이 유입의 fert_frac이 거름 땅에 난다
     fert_frac: float = 0.5
-    soil_use: float = 0.2         # 먹이 한 알이 날 때 그 칸에서 줄어드는 거름
+    soil_use: float = 1.0         # 먹이 한 알이 날 때 그 칸에서 줄어드는 거름(1이면 넣은 만큼만 끌어온다)
 
     # --- 대조 실행 (T14) ---
     passive: bool = False         # True면 자연 출생·사망을 끄고 기록된 사건을 무작위 개체에 적용
@@ -211,9 +212,17 @@ class Config:
             raise ValueError("vision_fov는 pi 이하여야 한다(뒤쪽에 걸친 물체를 놓친다)")
         if self.n_spare_in < N_STAGE_IN or self.n_spare_out < N_STAGE_OUT:
             raise ValueError(f"n_spare_in은 {N_STAGE_IN} 이상, n_spare_out은 {N_STAGE_OUT} 이상이어야 한다")
-        for name in ("give_loss", "deposit_loss", "path_bonus", "fert_frac", "sleep_basal", "trace_decay"):
+        for name in ("give_loss", "deposit_loss", "path_bonus", "fert_frac", "sleep_basal", "trace_decay",
+                     "hormone_rate_hunger", "hormone_rate_stress", "hormone_rate_dopamine",
+                     "hormone_rate_boredom", "reward_baseline_rate", "proto_lr", "sleep_forget",
+                     "trail_decay", "soil_decay", "hebb_decay"):
             if not (0.0 <= getattr(self, name) <= 1.0):
                 raise ValueError(f"{name}은 0과 1 사이여야 한다")
+        if self.eta_max <= 0 or self.sleep_recover <= 0:
+            raise ValueError("eta_max와 sleep_recover는 0보다 커야 한다")
+        for name in ("soil_use", "link_cap", "give_min_energy", "alpha_init"):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name}은 0 이상이어야 한다")
         for name in ("eta_init", "eta_max", "plast_cost", "signal_cost", "give_rate", "deposit_rate",
                      "wear_rate", "trail_decay", "soil_decay", "hebb_decay", "fatigue_rate", "sleep_recover"):
             if getattr(self, name) < 0:
@@ -283,7 +292,7 @@ ACT_SIG0 = 4
 ACT_SIG1 = 5
 ACT_GIVE = 6
 ACT_DEPOSIT = 7
-N_STAGE_OUT = 5
+N_STAGE_OUT = 6      # 잠, 신호 2, 주기, 쌓기, 예비 1
 # 2~4단계 입력: 시야·내부 감각 뒤에 이 순서로 붙는다
 IN_HORM = 0      # 스트레스, 도파민, 지루함, 피로
 IN_HEAR = 4      # 신호1 앞·뒤, 신호2 앞·뒤
