@@ -52,7 +52,7 @@ class FrameIndex:
                         while done + HEAD.size <= size:
                             f.seek(done)
                             magic, total, step = HEAD.unpack(f.read(HEAD.size))
-                            if magic != b"WSF1" or total < HEAD.size or done + total > size:
+                            if magic not in (b"WSF1", b"WSF2") or total < HEAD.size or done + total > size:
                                 break
                             entries.append((step, done, total))
                             done += total

@@ -189,7 +189,7 @@ def test_frame_format():
     magic, total, step, n, m, ww, wh = FRAME_HEADER.unpack_from(data)
     assert magic == FRAME_MAGIC and total == len(data) and step == 20
     assert n == int(w.s.alive.sum()) and m == int(w.s.f_alive.sum())
-    assert total == FRAME_HEADER.size + n * 40 + m * 4
+    assert total == FRAME_HEADER.size + n * 40 + m * 4 + n * 4 + 8   # 2~4단계 볼거리와 꼬리
 
 
 def test_mutation_off_copies_genome_exactly():

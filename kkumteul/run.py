@@ -27,8 +27,9 @@ from . import kernels as k
 from .config import Config
 from .world import World
 
-FRAME_MAGIC = b"WSF1"
+FRAME_MAGIC = b"WSF2"
 FRAME_HEADER = struct.Struct("<4sIqIIff")   # magic, 전체 바이트, step, 개체 수, 먹이 수, 세계 너비, 높이
+FRAME_TAIL = struct.Struct("<HHBBH")        # 격자 너비, 높이, 켜진 단계(비트: 1 마음, 2 사회, 4 판), 예비, 예비
 
 
 def encode_frame(world: World) -> bytes:
@@ -53,9 +54,24 @@ def encode_frame(world: World) -> bytes:
     food = np.empty((m, 2), dtype="<u2")
     food[:, 0] = np.minimum(s.fx[f] / cfg.world_w * 65536.0, 65535).astype("<u2")
     food[:, 1] = np.minimum(s.fy[f] / cfg.world_h * 65536.0, 65535).astype("<u2")
-    total = FRAME_HEADER.size + body.nbytes + ids.nbytes + col.nbytes + food.nbytes
+    # 2~4단계 볼거리: 개체마다 잠·신호 2개·학습률, 그리고 칸마다 길과 거름(판이 켜져 있을 때만)
+    extra = np.zeros((n, 4), dtype=np.uint8)
+    extra[:, 0] = np.where(s.asleep[a] > 0, 255, 0)
+    extra[:, 1] = np.clip((s.sig[a, 0] + 1.0) * 127.5, 0, 255).astype(np.uint8)
+    extra[:, 2] = np.clip((s.sig[a, 1] + 1.0) * 127.5, 0, 255).astype(np.uint8)
+    extra[:, 3] = np.clip(s.eta[a] / max(cfg.eta_max, 1e-9) * 255.0, 0, 255).astype(np.uint8)
+    flags = int(cfg.mind_enabled) | (int(cfg.social_enabled) << 1) | (int(cfg.niche_enabled) << 2)
+    tail = FRAME_TAIL.pack(cfg.grid_w, cfg.grid_h, flags, 0, 0)
+    grids = b""
+    if cfg.niche_enabled:
+        trail = np.clip(s.trail / cfg.trail_sat * 255.0, 0, 255).astype(np.uint8)
+        soil = np.clip(np.sqrt(s.soil) * 64.0, 0, 255).astype(np.uint8)   # 거름 16이면 가득
+        grids = trail.tobytes() + soil.tobytes()
+    total = (FRAME_HEADER.size + body.nbytes + ids.nbytes + col.nbytes + food.nbytes
+             + extra.nbytes + FRAME_TAIL.size + len(grids))
     head = FRAME_HEADER.pack(FRAME_MAGIC, total, world.step_no, n, m, cfg.world_w, cfg.world_h)
-    return b"".join([head, body.tobytes(), ids.tobytes(), col.tobytes(), food.tobytes()])
+    return b"".join([head, body.tobytes(), ids.tobytes(), col.tobytes(), food.tobytes(),
+                     extra.tobytes(), tail, grids])
 
 
 def _sd_notify(msg: str) -> None:

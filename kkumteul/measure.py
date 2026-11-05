@@ -31,7 +31,7 @@ from . import kernels as k
 from .config import Config
 from .world import World
 
-GENOME = ("Win", "Wrec", "bh", "Wout", "bout", "n_hidden", "sigma", "color")
+GENOME = ("Win", "Wrec", "bh", "Wout", "bout", "n_hidden", "sigma", "color", "rw", "eta", "alpha")
 _T95 = {1: 12.71, 2: 4.30, 3: 3.18, 4: 2.78, 5: 2.57, 6: 2.45, 7: 2.36, 8: 2.31, 9: 2.26, 10: 2.23,
         12: 2.18, 15: 2.13, 20: 2.09, 30: 2.04}
 
