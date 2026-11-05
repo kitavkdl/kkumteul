@@ -80,7 +80,7 @@ FOOD_FIELDS = [
     ("f_alive", np.bool_, True),
     ("f_energy", np.float64, True),
     ("f_kind", np.int8, True),       # 먹이 종류 0/1, 2는 늘 먹을 수 있는 것(사체)
-    ("f_born", np.int64, True),      # 놓인 스텝(상한에서 가장 오래된 것을 고를 때 쓴다)
+    ("f_born", np.int64, True),      # 놓인 스텝(상한에서 가장 오래된 것을 고를 때, 부패의 나이를 셀 때 쓴다)
 ]
 # ---- 먹이 종류 (f_kind) ----
 KIND_A = 0           # 시야에서 양수로 보이는 종류
@@ -124,6 +124,7 @@ C_POISONED = 17
 C_FOOD_REPLACED = 18    # 상한에서 새 먹이에 자리를 내주고 사라진 먹이 수(food_cap_replace)
 C_DEATH_KILLED = 19     # 공격을 맞은 스텝에 에너지가 바닥나 죽은 수
 C_MIGRANTS = 20         # 다른 세계에서 옮겨 심은 개체 수(pack.migrate). 0이 아니면 이주가 있었던 세계다
+C_SPOILED = 21          # 썩어서 사라진 먹이 수(spoil_food)
 N_COUNTERS = 24         # 번호는 이 파일에만 둔다. 남는 칸은 다음 장치가 쓴다(늘리지 않아도 되게 비워 둔 것)
 
 # ---- ledger 칸 (에너지 장부) ----
@@ -133,7 +134,7 @@ L_BRAIN = 2      # 뇌 유지비
 L_MOVE = 3       # 이동·회전 비용
 L_BIRTH = 4      # 번식 때 사라진 에너지
 L_LOST = 5       # 세계에서 사라진 에너지: 죽을 때 먹이로 못 돌아간 것(굶어 죽으면 음수 잔액 포함),
-                 # 독·재난·상한에서 밀려나 없어진 먹이, 건네기·공격·거름의 손실
+                 # 독·재난·상한에서 밀려나 없어진 먹이, 썩어 줄어든 먹이, 건네기·공격·거름의 손실
 L_INJECT = 6     # 처음·재주입·대조 실행에서 개체에게 직접 준 에너지
 L_DISCARD = 7    # 먹이 상한 때문에 버린 유입(세계에 들어오지 않음)
 N_LEDGER = 8
@@ -157,12 +158,12 @@ DEATH_KILLED = 4         # 공격을 맞은 스텝에 에너지가 바닥남
  P_FOV, P_VRANGE, P_VNOISE, P_SMELL_LEN, P_SMELL_GAIN, P_INIT_WIN, P_INIT_WREC, P_INIT_WOUT,
  P_BIAS_THRUST, P_BIAS_REPRO, P_SIGMA_INIT, P_SIGMA_MIN, P_SIGMA_MAX, P_SIGMA_TAU,
  P_P_HIDDEN, P_COLOR_SIGMA, P_SYN, P_BACK_COST, P_ETA_INIT, P_ETA_MAX, P_ALPHA_INIT, P_POISON,
- P_KIND_RATIO, N_FP) = range(49)
+ P_KIND_RATIO, P_SPOIL_RATE, P_SPOIL_MIN, N_FP) = range(51)
 
 # ---- 정수 설정 칸 ----
 (Q_SEED, Q_GW, Q_GH, Q_FOOD_CAP, Q_N_PATCH, Q_PATCH_LIFE, Q_MAX_AGE, Q_MIN_AGENTS,
  Q_SECTORS, Q_H_MAX, Q_H_INIT, Q_H_MIN, Q_REPRO_BRAIN, Q_REPRO_MIN_AGE, Q_MUT, Q_CORPSE,
- Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, Q_CAP_REPLACE, N_IP) = range(21)
+ Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, Q_CAP_REPLACE, Q_SPOIL_AFTER, N_IP) = range(22)
 
 
 def pack_params(cfg):
@@ -216,6 +217,8 @@ def pack_params(cfg):
     fp[P_ALPHA_INIT] = cfg.alpha_init
     fp[P_POISON] = cfg.poison
     fp[P_KIND_RATIO] = cfg.kind_ratio
+    fp[P_SPOIL_RATE] = cfg.spoil_rate
+    fp[P_SPOIL_MIN] = cfg.spoil_min_frac * cfg.food_energy
     ip[Q_SEED] = cfg.seed
     ip[Q_GW] = cfg.grid_w
     ip[Q_GH] = cfg.grid_h
@@ -236,6 +239,7 @@ def pack_params(cfg):
     ip[Q_KINDS] = int(cfg.food_kinds_enabled)
     ip[Q_KIND_PERIOD] = cfg.kind_flip_period
     ip[Q_CAP_REPLACE] = int(cfg.food_cap_replace)
+    ip[Q_SPOIL_AFTER] = cfg.spoil_after
     return fp, ip
 
 
@@ -333,6 +337,13 @@ def _place_food(s, px, py, e, kind, step):
 
 
 @njit(cache=True)
+def _drop_food_slot(s, j):
+    """먹이 칸 j를 비운다(f_alive 끄고 먹이 수를 하나 줄인다). 에너지 장부는 부르는 쪽이 쓴다."""
+    s.f_alive[j] = False
+    s.counters[C_NFOOD] -= 1
+
+
+@njit(cache=True)
 def _evict_oldest(s):
     """가장 먼저 놓인 먹이 하나를 없앤다(같은 스텝에 놓인 것끼리는 낮은 칸부터, 사체도 가리지 않는다).
     없앤 에너지는 장부의 L_LOST로 간다. 없앨 먹이가 없으면 False."""
@@ -395,6 +406,26 @@ def spawn_food(step, s, fp, ip, mult=1.0):
             s.ledger[L_DISCARD] += s.budget[0]
             s.budget[0] = 0.0
             break
+
+
+@njit(cache=True)
+def spoil_food(step, s, fp, ip, rate_mult=1.0):
+    """난 지 spoil_after 스텝이 지난 먹이(사체 포함)를 스텝마다 spoil_rate * rate_mult 비율로 줄인다.
+    줄어든 에너지는 장부의 L_LOST로 가고, 남은 것이 하한(spoil_min_frac * food_energy) 아래면 남은 것도
+    L_LOST로 넣고 칸을 비운다. 순차 커널이다."""
+    after = ip[Q_SPOIL_AFTER]
+    rate = fp[P_SPOIL_RATE] * rate_mult
+    floor = fp[P_SPOIL_MIN]
+    for j in range(s.fx.shape[0]):
+        if not s.f_alive[j] or step - s.f_born[j] < after:
+            continue
+        lost = s.f_energy[j] * rate
+        s.f_energy[j] -= lost
+        s.ledger[L_LOST] += lost
+        if s.f_energy[j] < floor:
+            s.ledger[L_LOST] += s.f_energy[j]
+            _drop_food_slot(s, j)
+            s.counters[C_SPOILED] += 1
 
 
 # ---- 격자 ----

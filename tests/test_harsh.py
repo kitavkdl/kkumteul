@@ -159,3 +159,133 @@ def test_niche_share_follows_season_mult(mult):
     assert share < w.cfg.food_energy
     assert w.s.budget[1] == pytest.approx(share, rel=1e-6)
     assert w.s.budget[0] == pytest.approx(-share, rel=1e-6)
+
+
+# ---- 부패 ----
+def _empty_world(*presets, **kw):
+    """먹는 개체가 없는 세계(init_agents=0, min_agents=0). 먹이는 시험이 직접 놓는다."""
+    return World(small(*presets, init_agents=0, min_agents=0, food_inflow=0.0, **kw))
+
+
+def _place(w, e=1.0, born=0, kind=k.KIND_A):
+    """먹이 하나를 놓고 칸 번호를 돌려준다. 에너지 장부에도 들어온 것으로 적는다."""
+    before = w.s.f_alive.copy()
+    assert k._place_food(w.s, 10.0, 10.0, e, kind, born)
+    w.s.ledger[k.L_SPAWN] += e
+    return int(np.flatnonzero(w.s.f_alive & ~before)[0])
+
+
+def test_food_spoils_after_delay_with_half_life():
+    w = _empty_world("ext", spoil_enabled=True)
+    j = _place(w)
+    w.run(400)
+    assert w.s.f_energy[j] == pytest.approx(1.0)                       # 난 지 400스텝까지는 그대로
+    w.run(600)
+    assert w.s.f_energy[j] == pytest.approx((1 - 0.00115) ** 600, rel=1e-9)
+    assert 0.49 < w.s.f_energy[j] < 0.51                                # 반감기 약 600
+    w.run(2500)
+    assert not w.s.f_alive[j] and w.s.counters[k.C_SPOILED] == 1 and w.s.counters[k.C_NFOOD] == 0
+    assert rel_residual(w) < 1e-9
+    assert w.s.ledger[k.L_LOST] == pytest.approx(1.0, rel=1e-9)         # 줄어든 양과 남은 것이 모두 L_LOST로
+
+
+def test_spoil_off_leaves_food_alone():
+    w = _empty_world("ext")
+    j = _place(w)
+    w.run(1500)
+    assert w.s.f_energy[j] == 1.0 and w.s.counters[k.C_SPOILED] == 0
+
+
+def test_corpse_spoils_too():
+    w = _empty_world("ext", spoil_enabled=True)
+    j = _place(w, born=-1000, kind=k.KIND_CORPSE)
+    w.run(1)
+    assert w.s.f_energy[j] == pytest.approx(1 - 0.00115, rel=1e-12)
+
+
+def test_drop_food_slot_clears_slot_and_count():
+    w = _empty_world("ext")
+    j = _place(w)
+    k._drop_food_slot(w.s, j)
+    assert not w.s.f_alive[j] and w.s.counters[k.C_NFOOD] == 0
+
+
+@pytest.mark.parametrize("t0,mult", [(0, 1.0), (199, 1.0), (200, 0.2), (399, 0.2)])
+def test_spoil_slows_in_winter(t0, mult):
+    w = _empty_world("ext", spoil_enabled=True, season_enabled=True, season_period=400, winter_len=200)
+    j = _place(w, born=-1000)
+    w.step_no = t0
+    w.run(1)
+    assert w.s.f_energy[j] == pytest.approx(1.0 - 0.00115 * mult, rel=1e-12)   # 겨울(200~399)에는 0.2배
+    assert rel_residual(w) < 1e-9
+
+
+def test_spoil_without_season_ignores_winter_mult():
+    w = _empty_world("ext", spoil_enabled=True, season_period=400, winter_len=200)
+    j = _place(w, born=-1000)
+    w.step_no = 300
+    w.run(1)
+    assert w.s.f_energy[j] == pytest.approx(1.0 - 0.00115, rel=1e-12)           # 겨울이 꺼져 있으면 늘 1배
+
+
+def test_spoil_config_validated():
+    for bad in (dict(spoil_after=-1), dict(spoil_rate=1.5), dict(spoil_rate=-0.1),
+                dict(spoil_min_frac=1.0), dict(spoil_winter_mult=1.5)):
+        with pytest.raises(ValueError):
+            small("ext", spoil_enabled=True, **bad)
+
+
+def test_spoil_world_runs_and_conserves_energy():
+    w = World(small("stage4", "ext", spoil_enabled=True))
+    w.run(1500)
+    w.check_sane()
+    assert w.summary()["pop"] > 20 and rel_residual(w) < 1e-9
+
+
+def test_fast_spoil_drops_food_and_conserves_energy():
+    # 기본값으로는 1500스텝 안에 사라지는 먹이가 없다. 빠르게 썩혀 칸이 비워지는 길까지 장부로 본다
+    w = World(small("stage4", "ext", spoil_enabled=True, spoil_after=100, spoil_rate=0.01))
+    w.run(1500)
+    w.check_sane()
+    assert w.s.counters[k.C_SPOILED] > 20 and rel_residual(w) < 1e-9
+    assert w.s.counters[k.C_NFOOD] == int(w.s.f_alive.sum())
+
+
+def test_spoil_with_cap_replace_conserves_energy():
+    w = World(small("ext", spoil_enabled=True, food_cap_replace=True))
+    w.run(1500)
+    assert rel_residual(w) < 1e-9
+    # 상한에 닿은 세계에서도 마찬가지다
+    w = World(small("ext", spoil_enabled=True, food_cap_replace=True, food_cap=150))
+    w.run(1500)
+    assert w.s.counters[k.C_FOOD_REPLACED] > 0 and rel_residual(w) < 1e-9
+
+
+def test_spoil_and_cap_replace_in_one_step_both_go_to_lost():
+    # 상한(4)이 찬 세계에 새 먹이가 하나 나는 스텝: 가장 오래된 하나는 밀려나고, 하한 아래로 내려간 둘은 썩어 사라진다
+    w = World(small("ext", spoil_enabled=True, food_cap_replace=True, food_cap=4, init_agents=0, min_agents=0,
+                    food_inflow=1.0))
+    old = [_place(w, born=-1000), _place(w)]
+    rotten = [_place(w, e=0.05001, born=-400), _place(w, e=0.05001, born=-400)]
+    w.run(1)
+    c = w.s.counters
+    assert c[k.C_FOOD_REPLACED] == 1 and c[k.C_SPOILED] == 2 and c[k.C_NFOOD] == int(w.s.f_alive.sum()) == 2
+    assert not w.s.f_alive[old[0]] and not w.s.f_alive[rotten[0]] and not w.s.f_alive[rotten[1]]
+    assert w.s.f_alive[old[1]]
+    assert w.s.ledger[k.L_LOST] == pytest.approx(1.0 + 2 * 0.05001, rel=1e-9)   # 밀려난 하나 + 썩은 둘의 전부
+    assert rel_residual(w) < 1e-9
+
+
+def test_replay_tells_spoiled_food_from_eaten():
+    w = World(small("ext", spoil_enabled=True, spoil_after=60, spoil_rate=0.02))
+    w.run(300)
+    c0 = w.s.counters.copy()
+    rec = replay.Recorder(w, every=5)
+    rec.advance(300)
+    rep = rec.finish()
+    dc = w.s.counters - c0
+    eaten, spoiled = int(dc[k.C_EATEN]), int(dc[k.C_SPOILED])
+    assert eaten > 50 and spoiled > 5
+    assert rep.seen["spoiled"] == spoiled
+    assert int((rep.food["why"] == replay.WHY_SPOILED).sum()) == spoiled
+    assert rep.seen["unknown"] <= 0.02 * eaten

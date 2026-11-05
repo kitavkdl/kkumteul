@@ -44,6 +44,7 @@ WHY_POISON = 2      # 누가 먹었다(독)
 WHY_UNKNOWN = 3     # 먹혔지만 누가 먹었는지 모른다
 WHY_EVICTED = 4     # 먹이 상한 장치가 새 먹이에 자리를 내줬다
 WHY_BURNT = 5       # 운석에 사라졌다
+WHY_SPOILED = 6     # 썩어서 사라졌다
 
 BORN_BEFORE = 255   # 다시 보기가 시작될 때 이미 살아 있던 개체의 출생 종류
 NO_CAUSE = 255      # 다시 보기가 끝날 때까지 살아 있었다
@@ -165,7 +166,7 @@ class Recorder:
         # 장면
         self.frames: list[dict] = []
         self.per: dict[str, list] = {n: [] for n in ("good", "food", "eaten", "poisoned", "blind", "gifts", "attacks")}
-        self.seen = {"good": 0, "poison": 0, "unknown": 0, "evicted": 0, "burnt": 0, "gave": 0}
+        self.seen = {"good": 0, "poison": 0, "unknown": 0, "evicted": 0, "burnt": 0, "gave": 0, "spoiled": 0}
         self._acc_good: dict[int, int] = {}
         self._acc_poison: dict[int, int] = {}
         self._acc_gave: set[int] = set()
@@ -218,7 +219,7 @@ class Recorder:
 
     def _food_snapshot(self):
         s = self.w.s
-        return (s.f_alive.copy(), s.f_born.copy(), s.f_kind.copy(), s.fx.copy(), s.fy.copy())
+        return (s.f_alive.copy(), s.f_born.copy(), s.f_kind.copy(), s.fx.copy(), s.fy.copy(), s.f_energy.copy())
 
     # ---- 한 스텝 ----
     def advance(self, n: int) -> None:
@@ -308,7 +309,7 @@ class Recorder:
     def _read_food(self, t: int, pre, cfg: Config, good: int, n_evicted: int) -> None:
         """스텝 전후의 먹이를 (칸, 놓인 스텝, 종류, 위치)로 견주어, 사라진 것과 새로 난 것을 가린다."""
         s = self.w.s
-        p_alive, p_born, p_kind, p_x, p_y = pre
+        p_alive, p_born, p_kind, p_x, p_y, p_energy = pre
         same = s.f_alive & p_alive & (s.f_born == p_born) & (s.f_kind == p_kind) & (s.fx == p_x) & (s.fy == p_y)
         gone = np.flatnonzero(p_alive & ~same)
         if len(gone):
@@ -320,6 +321,14 @@ class Recorder:
                     self._food_gone(j, t + 1, WHY_EVICTED)
                     self.seen["evicted"] += 1
                 gone = np.setdiff1d(gone, oldest)
+        if len(gone) and cfg.spoil_enabled:
+            # 썩음은 먹기보다 앞에 일어나고, 남은 에너지가 하한 아래로 떨어진 먹이를 비운다(커널과 같은 계산)
+            left = p_energy[gone] - p_energy[gone] * (cfg.spoil_rate * self.w.spoil_mult(t))
+            rotten = (t - p_born[gone] >= cfg.spoil_after) & (left < cfg.spoil_min_frac * cfg.food_energy)
+            for j in gone[rotten].tolist():
+                self._food_gone(j, t + 1, WHY_SPOILED)
+                self.seen["spoiled"] += 1
+            gone = gone[~rotten]
         if len(gone):
             # 나머지는 먹힌 것이다. 이 스텝에 먹은 개체(ate) 가운데 닿는 거리 안의, 커널이 먼저 훑는 낮은 칸의 개체가 먹었다
             eaters = np.flatnonzero(s.ate > 0)

@@ -146,12 +146,18 @@ class Config:
     # --- 혹독한 세계 장치 (기본은 꺼짐. 켜려면 확장 크기: preset=ext) ---
     season_enabled: bool = False  # 겨울: 해마다 해의 끝 winter_len 스텝 동안 풀이 줄고 기초 대사가 는다.
                                   # 해의 위상(sin, cos)이 입력 두 칸으로 들어온다
-    spoil_enabled: bool = False   # 부패: 난 지 오래된 먹이가 줄어든다
+    spoil_enabled: bool = False   # 부패: 난 지 spoil_after 스텝이 지난 먹이(사체 포함)가 스텝마다 spoil_rate 비율로 줄고,
+                                  # spoil_min_frac * food_energy 아래로 내려가면 사라진다. 줄어든 에너지는 장부의 L_LOST로 간다
     season_period: int = 4000     # 한 해의 길이(스텝). 임시 결정
     winter_len: int = 1200        # 겨울의 길이(해의 끝 이만큼). 해 길이의 3할. 임시 결정
     winter_mult: float = 0.3      # 겨울의 풀(먹이 유입) 배수. 겨울 밖은 해 평균이 1이 되도록 1보다 크게 잡힌다. 임시 결정
     winter_basal_mult: float = 1.5  # 겨울의 기초 대사 배수. 지구 온혈동물의 겨울/여름 1.0~1.5배
                                   # (docs/research/earth-references.md). 임시 결정
+    spoil_after: int = 400        # 먹이가 난 뒤 이만큼 지나야 썩기 시작한다. 임시 결정
+    spoil_rate: float = 0.00115   # 썩는 동안 스텝마다 줄어드는 비율(반감기 약 600스텝). 임시 결정
+    spoil_min_frac: float = 0.05  # 남은 에너지가 food_energy의 이 비율 아래면 먹이가 사라진다. 임시 결정
+    spoil_winter_mult: float = 0.2  # 겨울의 부패 속도 배수. 지구는 여름이 겨울보다 3~7배 빨리 썩는다
+                                  # (docs/research/earth-references.md). 겨울이 꺼져 있으면 쓰이지 않는다. 임시 결정
 
     # --- 4단계: 판이 바뀌는 세계 (기본은 꺼짐) ---
     niche_enabled: bool = False   # 다닌 자리가 길이 되고, 쌓은 거름이 먹이를 끌어온다
@@ -241,6 +247,10 @@ class Config:
             raise ValueError("winter_len은 1 이상 season_period 미만이어야 한다")
         if not (0.0 <= self.winter_mult <= 1.0) or self.winter_basal_mult < 1.0:
             raise ValueError("winter_mult는 0~1, winter_basal_mult는 1 이상이어야 한다")
+        if self.spoil_after < 0 or not (0.0 <= self.spoil_rate <= 1.0):
+            raise ValueError("spoil_after는 0 이상, spoil_rate는 0~1이어야 한다")
+        if not (0.0 <= self.spoil_min_frac < 1.0) or not (0.0 <= self.spoil_winter_mult <= 1.0):
+            raise ValueError("spoil_min_frac는 0 이상 1 미만, spoil_winter_mult는 0~1이어야 한다")
         if self.back_cost_mult < 1.0:
             raise ValueError("back_cost_mult는 1 이상이어야 한다(환급 금지)")
         for name in ("stats_every", "frame_every", "frames_per_segment", "frame_ring_segments",

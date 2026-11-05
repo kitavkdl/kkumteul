@@ -98,6 +98,11 @@ class World:
         return b, d
 
     # ---- 계절 ----
+    def in_winter(self, t: int) -> bool:
+        """스텝 t가 겨울인가: 해의 끝 winter_len 스텝. 겨울이 꺼져 있으면 늘 False."""
+        cfg = self.cfg
+        return cfg.season_enabled and t % cfg.season_period >= cfg.season_period - cfg.winter_len
+
     def season(self, t: int) -> tuple[float, float, float, float]:
         """스텝 t의 계절: (풀 배수, 기초 대사 배수, 해 위상 sin, cos).
         겨울은 해의 끝 winter_len 스텝이다(갈라 켜는 스텝이 해의 배수면 봄에서 시작한다).
@@ -106,11 +111,14 @@ class World:
         if not cfg.season_enabled:
             return 1.0, 1.0, 0.0, 0.0
         P, W = cfg.season_period, cfg.winter_len
-        r = t % P
-        ang = 2.0 * math.pi * (r / P)
-        if r >= P - W:
+        ang = 2.0 * math.pi * ((t % P) / P)
+        if self.in_winter(t):
             return float(cfg.winter_mult), float(cfg.winter_basal_mult), math.sin(ang), math.cos(ang)
         return (P - float(cfg.winter_mult) * W) / (P - W), 1.0, math.sin(ang), math.cos(ang)
+
+    def spoil_mult(self, t: int) -> float:
+        """스텝 t의 부패 속도 배수: 겨울이면 spoil_winter_mult, 아니면 1."""
+        return float(self.cfg.spoil_winter_mult) if self.in_winter(t) else 1.0
 
     # ---- 한 스텝 ----
     def step(self) -> None:
@@ -125,6 +133,8 @@ class World:
         if niche:
             st.niche_world(t, s, fs, isp, grass)
         k.spawn_food(t, s, fp, ip, grass)
+        if cfg.spoil_enabled:
+            k.spoil_food(t, s, fp, ip, self.spoil_mult(t))
         k.build_grid(s.x, s.y, s.alive, inv_cell, gw, gh, s.a_start, s.a_items, s.cursor)
         k.build_grid(s.fx, s.fy, s.f_alive, inv_cell, gw, gh, s.f_start, s.f_items, s.cursor)
         k.sense(t, s, fp, ip)
