@@ -65,6 +65,16 @@ python3 -m kkumteul.pack export --from runs/main --out mine.pack.npz --label "�
 python3 -m kkumteul.pack info mine.pack.npz
 python3 -m kkumteul.measure assay --a mine.pack.npz --b yours.pack.npz
 
+# 2~4단계 장치를 켠 세계 (stage2 마음, stage3 +사회, stage4 +판이 바뀌는 세계). 덧붙이는 묶음: kinds(먹이 두 종류와 독), conflict(공격)
+python3 -m kkumteul.run new --run runs/world4 --set preset=stage4
+python3 -m kkumteul.run branch --from runs/main --run runs/main-mind --set preset=stage2 --set preset=kinds
+
+# 장치 실험 비교: 같은 체크포인트에서 가른 "끈 세계"와 "켠 세계"의 생물을 양쪽 규칙에서 겨루게 한다
+python3 -m kkumteul.compare --control runs/ctrl --treatment runs/main-mind
+
+# 이주: 다른 세계에서 온 생물 묶음을 넣은 새 실행을 만든다
+python3 -m kkumteul.pack migrate --from runs/main --pack other.pack.npz --run runs/main-migrants --n 50
+
 # 속도·램 실측
 python3 -m kkumteul.bench
 
@@ -105,6 +115,8 @@ python3 -m pytest -q
 | `experiments/` | 올라온 실험 카드와 올리는 방법 |
 | `kkumteul/analyze.py` | 기록 분석(세대, 출생 비, Fitness Transmission) |
 | `kkumteul/viewer.py`, `viewer.html` | 관찰 화면 |
+| `kkumteul/stages.py` | 2~4단계 장치의 커널(마음, 사회, 판이 바뀌는 세계, 공격) |
+| `kkumteul/compare.py` | 장치 실험 비교(켠 세계 대 끈 세계) |
 | `kkumteul/bench.py` | 속도·램 실측 |
 | `deploy/kkumteul.service` | 24시간 가동용 서비스 등록 초안(아직 설치 안 함) |
 
