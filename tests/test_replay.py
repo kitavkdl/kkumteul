@@ -5,6 +5,7 @@
 import json
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -345,7 +346,9 @@ def test_export_widens_the_frame_gap_to_stay_under_the_size_limit(kinds_run, tmp
     rep = replay.write(path, out, steps=200, every=2)
     full = out.stat().st_size
     assert rep.every == 2
-    limit = int(full * 0.8)
+    # 상한은 "장면이 차지하는 몫의 1/3을 덜어야 맞는" 크기로 잡는다(화면 틀은 간격을 넓혀도 줄지 않는다)
+    frames = sum(v.nbytes for v in rep.cols.values()) * 4 // 3
+    limit = full - frames // 3
     rep = replay.write(path, out, steps=200, every=2, max_bytes=limit)
     assert rep.every > 2 and out.stat().st_size <= limit
     with pytest.raises(ValueError, match="크기"):
@@ -359,3 +362,92 @@ def test_command_line_writes_under_runs_by_default(kinds_run, tmp_path, monkeypa
     out = tmp_path / "runs" / "replay-kinds-world.html"
     assert out.exists() and out.stat().st_size > 10000
     assert "replay-kinds-world.html" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- 화면의 계산 (node가 있으면)
+NODE = shutil.which("node")
+SCREEN_CHECK = Path(__file__).with_name("replay_screen_check.js")
+
+
+@pytest.mark.skipif(NODE is None, reason="node가 없어 화면의 계산을 돌릴 수 없다")
+def test_screen_logic_agrees_with_the_recording(kinds_run, tmp_path):
+    """화면이 자료에서 스스로 만드는 것(일생 자막, 사건, 최근 구간의 숫자)이 적은 자료와 맞는지 node로 본다."""
+    out = tmp_path / "screen.html"
+    rep = replay.write(ckpt_of(kinds_run, 400), out, steps=300, every=2)
+    run = subprocess.run([NODE, str(SCREEN_CHECK), str(out)], capture_output=True, text=True, timeout=300)
+    assert run.returncode == 0, run.stderr[-2000:]
+    got = json.loads(run.stdout)
+    ag, n_frames, n_agents = rep.agents, rep.n_frames, len(rep.agents)
+    assert got["nF"] == n_frames and got["nA"] == n_agents
+    idx = rep.cols["idx"].astype(np.int64)
+    flags = rep.cols["flags"].astype(np.int64)
+    row_frame = np.repeat(np.arange(n_frames), rep.pop)
+    first = np.full(n_agents, n_frames)
+    np.minimum.at(first, idx, row_frame)
+    first[first == n_frames] = -1
+    last = np.full(n_agents, -1)
+    np.maximum.at(last, idx, row_frame)
+    good = np.bincount(idx, weights=flags & 3, minlength=n_agents).astype(np.int64)
+    poison = np.bincount(idx, weights=(flags >> 2) & 3, minlength=n_agents).astype(np.int64)
+    natural = (ag["parent"] >= 0) & (ag["kind"] == k.BIRTH_NATURAL)
+    kids = np.bincount(ag["parent"][natural], minlength=n_agents)
+    assert good.sum() > 0 and poison.sum() > 0 and kids.sum() > 0 and (ag["died"] >= 0).sum() > 0
+    assert kids.tolist() == ag["kids"].tolist()
+
+    # 개체마다: 처음·마지막으로 보이는 장면, 일생 자막의 끼니 수·독 수·자식 수, 나고 죽은 스텝
+    for n, a in enumerate(got["agents"]):
+        assert (a["first"], a["last"]) == (first[n], last[n]), n
+        assert (a["good"], a["poison"], a["kids"]) == (good[n], poison[n], kids[n]), n
+        assert a["sorted"] and a["texts"] and a["inRange"], n
+        assert a["born"] == (None if ag["kind"][n] == replay.BORN_BEFORE else int(ag["born"][n])), n
+        assert a["died"] == (None if ag["died"][n] < 0 else int(ag["died"][n])), n
+        assert a["cause"] == (None if ag["died"][n] < 0 else int(ag["cause"][n])), n
+    # 보이는 장면은 "born + 1부터 died까지의 상태"와 같다
+    seen = first >= 0
+    lo = np.maximum(0, -(-(ag["born"] + 1 - rep.start) // rep.every))
+    hi = np.where(ag["died"] >= 0, (ag["died"] - rep.start) // rep.every, n_frames - 1)
+    assert first[seen].tolist() == lo[seen].tolist() and last[seen].tolist() == hi[seen].tolist()
+    assert not (lo <= hi)[~seen].any(), "장면에 안 보인 개체는 장면 사이에만 살았다"
+
+    # 한 장면에서 개체 찾기
+    mid = got["mid"]
+    a0, a1 = int(rep.off[mid]), int(rep.off[mid + 1])
+    assert got["found"] == [[int(i), int(x), int(y)] for i, x, y in
+                            zip(rep.cols["idx"][a0:a1], rep.cols["x"][a0:a1], rep.cols["y"][a0:a1])]
+
+    # 최근 구간(100스텝 = 50장면)의 숫자
+    for f, w in got["windows"].items():
+        f = int(f)
+        lo_f = max(0, f - 49)
+        assert w["eaten"] == int(rep.c_eaten[lo_f:f + 1].sum())
+        assert w["poisoned"] == int(rep.c_poisoned[lo_f:f + 1].sum())
+        assert w["gifts"] == int(rep.gifts[lo_f:f + 1].sum()) and w["attacks"] == int(rep.attacks[lo_f:f + 1].sum())
+        assert w["blind"] == pytest.approx(float(rep.blind[lo_f:f + 1].mean()), abs=1e-6)
+
+    # 지도에 뜨는 사건: 장면 순으로 놓이고, 수가 자료와 같다
+    ev, t = got["events"], got["evTypes"]
+    assert got["evSorted"]
+    assert ev.get(str(t["good"]), 0) == int(((flags & 3) > 0).sum())
+    assert ev.get(str(t["poison"]), 0) == int(((flags & 12) > 0).sum())
+    assert ev.get(str(t["gave"]), 0) == int(((flags & replay.F_GAVE) > 0).sum())
+    assert ev.get(str(t["hit"]), 0) == int(((flags & replay.F_HIT) > 0).sum())
+    assert ev.get(str(t["born"]), 0) == int(((ag["kind"] != replay.BORN_BEFORE) & seen).sum())
+    assert ev.get(str(t["died"]), 0) == int(((ag["died"] >= 0) & seen & (last + 1 <= n_frames - 1)).sum())
+
+    # 사람 말 한 줄
+    # 한 구간만 보면 "덜 먹는다"까지만 말하고, 독이 바뀌기 앞 구간과 견주어 독을 가리는지 모양을 가리는지 가른다
+    tones = [v["tone"] for v in got["verdicts"]]
+    assert tones == ["flat", "maybe", "bad", "few", "plain", "good", "shape", "shape", "maybe"]
+    assert "가려 먹지 않습니다" in got["verdicts"][0]["text"] and all(v["text"] for v in got["verdicts"])
+    # 구간: 독이 바뀐 장면부터 새 구간이고, 숫자는 그다음 장면부터 센다(바뀐 장면의 계수기에는 앞 구간의 끼니가 섞인다)
+    cuts = [0] + [e["frame"] for e in rep.meta["flips"] if 0 < e["frame"] <= n_frames - 1]
+    assert len(cuts) >= 2, "시험 세계는 다시 보는 동안 독이 한 번은 바뀐다"
+    for f, seg in zip([0, 1, mid, n_frames - 1], got["segs"]):
+        j = max(i for i, c in enumerate(cuts) if c <= f)
+        assert seg["a"] == cuts[j] + (1 if j else 0)
+        assert seg["prev"] == (None if j == 0 else {"a": cuts[j - 1] + (1 if j > 1 else 0), "b": cuts[j] - 1})
+    assert got["frameOf"] == [0, 0, 1, 1, 2, n_frames - 1]
+    dark, navy, white = got["lifted"]
+    lum = lambda c: 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]   # noqa: E731
+    assert lum(dark) >= 100 and lum(navy) >= 100 and white == [250, 250, 250]
+    assert navy[2] > navy[0], "어두운 색을 밝혀도 빛깔은 남는다"
