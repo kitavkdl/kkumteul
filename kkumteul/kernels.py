@@ -13,7 +13,7 @@ import numpy as np
 from numba import njit, prange
 
 from .config import ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_THRUST, ACT_TURN, N_REWARD
-from .rng import (S_BIRTH_ORDER, S_BIRTH_POS, S_FOOD, S_INIT_AGE, S_INIT_GENOME, S_INIT_POS, S_MUT_GENE,
+from .rng import (S_BIRTH_ORDER, S_BIRTH_POS, S_FOOD, S_KIND, S_INIT_AGE, S_INIT_GENOME, S_INIT_POS, S_MUT_GENE,
                   S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, normal, u01)
 
 # ---- 상태 묶음 ----
@@ -76,6 +76,7 @@ FOOD_FIELDS = [
     ("fy", np.float64, True),
     ("f_alive", np.bool_, True),
     ("f_energy", np.float64, True),
+    ("f_kind", np.int8, True),       # 먹이 종류 0/1, 2는 늘 먹을 수 있는 것(사체)
 ]
 OTHER_SAVED = ["counters", "ledger", "budget", "trail", "soil"]
 # 크기가 설정에 따라 달라도 되는 평생 상태(체크포인트와 크기가 다르면 0에서 시작한다)
@@ -104,6 +105,7 @@ C_NALIVE = 10
 C_DEATH_PASSIVE = 11
 C_STEP = 12
 C_DEATH_DISASTER = 13   # 각본의 재난으로 죽은 수
+C_POISONED = 17
 N_COUNTERS = 24
 
 # ---- ledger 칸 (에너지 장부) ----
@@ -134,13 +136,13 @@ DEATH_DISASTER = 3       # 각본의 재난(운석)
  P_CHILD_FRAC, P_BIRTH_COST, P_BASAL, P_BRAIN, P_BRAIN_ACT, P_THRUST_COST, P_TURN_COST,
  P_FOV, P_VRANGE, P_VNOISE, P_SMELL_LEN, P_SMELL_GAIN, P_INIT_WIN, P_INIT_WREC, P_INIT_WOUT,
  P_BIAS_THRUST, P_BIAS_REPRO, P_SIGMA_INIT, P_SIGMA_MIN, P_SIGMA_MAX, P_SIGMA_TAU,
- P_P_HIDDEN, P_COLOR_SIGMA, P_SYN, P_BACK_COST, P_ETA_INIT, P_ETA_MAX, P_ALPHA_INIT,
- N_FP) = range(47)
+ P_P_HIDDEN, P_COLOR_SIGMA, P_SYN, P_BACK_COST, P_ETA_INIT, P_ETA_MAX, P_ALPHA_INIT, P_POISON,
+ N_FP) = range(48)
 
 # ---- 정수 설정 칸 ----
 (Q_SEED, Q_GW, Q_GH, Q_FOOD_CAP, Q_N_PATCH, Q_PATCH_LIFE, Q_MAX_AGE, Q_MIN_AGENTS,
  Q_SECTORS, Q_H_MAX, Q_H_INIT, Q_H_MIN, Q_REPRO_BRAIN, Q_REPRO_MIN_AGE, Q_MUT, Q_CORPSE,
- Q_PASSIVE, N_IP) = range(18)
+ Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, N_IP) = range(20)
 
 
 def pack_params(cfg):
@@ -192,6 +194,7 @@ def pack_params(cfg):
     fp[P_ETA_INIT] = cfg.eta_init
     fp[P_ETA_MAX] = cfg.eta_max
     fp[P_ALPHA_INIT] = cfg.alpha_init
+    fp[P_POISON] = cfg.poison
     ip[Q_SEED] = cfg.seed
     ip[Q_GW] = cfg.grid_w
     ip[Q_GH] = cfg.grid_h
@@ -209,6 +212,8 @@ def pack_params(cfg):
     ip[Q_MUT] = int(cfg.mutation_enabled)
     ip[Q_CORPSE] = int(cfg.corpse_to_food)
     ip[Q_PASSIVE] = int(cfg.passive)
+    ip[Q_KINDS] = int(cfg.food_kinds_enabled)
+    ip[Q_KIND_PERIOD] = cfg.kind_flip_period
     return fp, ip
 
 
@@ -268,7 +273,13 @@ def patch_center(seed, k, step, n_patches, patch_life, w, h):
 
 
 @njit(cache=True)
-def _place_food(s, px, py, e):
+def good_kind(seed, step, period):
+    """지금 먹어도 되는 먹이 종류(0 또는 1). 구간마다 무작위로 다시 정해진다."""
+    return int(u01(seed, S_KIND, step // period, 1) * 2.0)
+
+
+@njit(cache=True)
+def _place_food(s, px, py, e, kind):
     """빈 먹이 칸에 놓는다. 자리가 없으면 False."""
     nslots = s.fx.shape[0]
     cur = s.counters[C_FOOD_CURSOR]
@@ -279,6 +290,7 @@ def _place_food(s, px, py, e):
             s.fx[cur] = px
             s.fy[cur] = py
             s.f_energy[cur] = e
+            s.f_kind[cur] = kind
             s.f_alive[cur] = True
             s.counters[C_NFOOD] += 1
             s.counters[C_FOOD_CURSOR] = cur + 1
@@ -311,7 +323,10 @@ def spawn_food(step, s, fp, ip):
             cx, cy = patch_center(seed, k, step, n_patches, ip[Q_PATCH_LIFE], w, h)
             px = _wrap(cx + fp[P_PATCH_SIGMA] * normal(seed, S_FOOD, serial, 4), w)
             py = _wrap(cy + fp[P_PATCH_SIGMA] * normal(seed, S_FOOD, serial, 5), h)
-        if _place_food(s, px, py, e_food):
+        kind = 0
+        if ip[Q_KINDS] != 0 and u01(seed, S_KIND, serial, 0) < 0.5:
+            kind = 1
+        if _place_food(s, px, py, e_food, kind):
             s.ledger[L_SPAWN] += e_food
             s.budget[0] -= e_food
         else:
@@ -355,8 +370,9 @@ def build_grid(x, y, alive, inv_cell, gw, gh, start, items, cursor):
 
 # ---- 감각 ----
 @njit(cache=True, inline="always")
-def _see(obs, i, ch, nsec, ddx, ddy, d, rad, hi, fov, vrange):
-    """물체 하나를 시야 칸에 반영한다. 칸마다 가장 가까운 것 하나만 남는다(가림)."""
+def _see(obs, i, ch, nsec, ddx, ddy, d, rad, hi, fov, vrange, sgn):
+    """물체 하나를 시야 칸에 반영한다. 칸마다 가장 가까운 것 하나만 남는다(가림).
+    sgn이 -1이면 그 값을 음수로 적는다(먹이 종류 1). 가까움의 비교는 절댓값으로 한다."""
     ang = math.atan2(ddy, ddx) - hi
     ang = ang - 6.283185307179586 * math.floor((ang + 3.141592653589793) / 6.283185307179586)
     if d <= rad:
@@ -382,17 +398,17 @@ def _see(obs, i, ch, nsec, ddx, ddy, d, rad, hi, fov, vrange):
         return
     other = 1 - ch
     for sec in range(s_lo, s_hi + 1):
-        cur = obs[i, sec]
+        cur = abs(obs[i, sec])
         if obs[i, nsec + sec] > cur:
             cur = obs[i, nsec + sec]
         if c > cur:
-            obs[i, ch * nsec + sec] = c
+            obs[i, ch * nsec + sec] = c * sgn
             obs[i, other * nsec + sec] = 0.0
 
 
 @njit(cache=True, parallel=True)
 def _sense_par(step, fp, ip, alive, x, y, heading, vx, vy, energy, age, touch, ate, obs,
-               fx, fy, f_alive, a_start, a_items, f_start, f_items):
+               fx, fy, f_alive, f_kind, a_start, a_items, f_start, f_items):
     # 주의: prange 안에서 상태 묶음을 거쳐 배열에 쓰면 numba가 그 쓰기를 조용히 버린다.
     # 병렬 커널은 반드시 배열을 직접 받는다.
     n = x.shape[0]
@@ -443,7 +459,8 @@ def _sense_par(step, fp, ip, alive, x, y, heading, vx, vy, energy, age, touch, a
                     if d2 > vr2:
                         continue
                     smell += 1.0 / (1.0 + d2 / sl2)
-                    _see(obs, i, 0, nsec, ddx, ddy, math.sqrt(d2), f_rad, hi, fov, vrange)
+                    _see(obs, i, 0, nsec, ddx, ddy, math.sqrt(d2), f_rad, hi, fov, vrange,
+                         np.float32(-1.0) if f_kind[j] == 1 else np.float32(1.0))
                 for p in range(a_start[c], a_start[c + 1]):
                     j = a_items[p]
                     if j == i:
@@ -453,7 +470,7 @@ def _sense_par(step, fp, ip, alive, x, y, heading, vx, vy, energy, age, touch, a
                     d2 = ddx * ddx + ddy * ddy
                     if d2 > vr2:
                         continue
-                    _see(obs, i, 1, nsec, ddx, ddy, math.sqrt(d2), a_rad, hi, fov, vrange)
+                    _see(obs, i, 1, nsec, ddx, ddy, math.sqrt(d2), a_rad, hi, fov, vrange, np.float32(1.0))
         if noise > 0.0:
             for k in range(base):
                 obs[i, k] += noise * normal(seed, S_NOISE, i * 64 + k, step)
@@ -476,7 +493,7 @@ def _sense_par(step, fp, ip, alive, x, y, heading, vx, vy, energy, age, touch, a
 @njit(cache=True)
 def sense(step, s, fp, ip):
     _sense_par(step, fp, ip, s.alive, s.x, s.y, s.heading, s.vx, s.vy, s.energy, s.age, s.touch,
-               s.ate, s.obs, s.fx, s.fy, s.f_alive, s.a_start, s.a_items, s.f_start, s.f_items)
+               s.ate, s.obs, s.fx, s.fy, s.f_alive, s.f_kind, s.a_start, s.a_items, s.f_start, s.f_items)
 
 
 # ---- 뇌 ----
@@ -640,8 +657,12 @@ def collide(s, fp, ip):
 
 # ---- 먹기 ----
 @njit(cache=True)
-def eat(s, fp, ip):
+def eat(step, s, fp, ip):
     n = s.x.shape[0]
+    kinds = ip[Q_KINDS] != 0
+    good = 0
+    if kinds:
+        good = good_kind(ip[Q_SEED], step, ip[Q_KIND_PERIOD])
     gw = ip[Q_GW]
     gh = ip[Q_GH]
     w = fp[P_W]
@@ -683,6 +704,13 @@ def eat(s, fp, ip):
                     s.f_alive[j] = False
                     s.counters[C_NFOOD] -= 1
                     s.counters[C_EATEN] += 1
+                    if kinds and s.f_kind[j] != 2 and s.f_kind[j] != good:
+                        # 독: 먹이의 에너지는 사라지고 먹은 쪽도 에너지를 잃는다
+                        s.energy[i] -= fp[P_POISON]
+                        s.ledger[L_LOST] += s.f_energy[j] + fp[P_POISON]
+                        s.counters[C_POISONED] += 1
+                        s.ate[i] = 1.0
+                        continue
                     s.energy[i] += s.f_energy[j]
                     s.eaten[i] += s.f_energy[j]
                     s.ate[i] = 1.0
@@ -899,7 +927,7 @@ def _remove(s, i, cause, step, recycle, nd):
     s.alive[i] = False
     s.counters[C_NALIVE] -= 1
     e = s.energy[i]
-    if recycle and e > 0.0 and _place_food(s, s.x[i], s.y[i], e):
+    if recycle and e > 0.0 and _place_food(s, s.x[i], s.y[i], e, 2):
         pass
     else:
         s.ledger[L_LOST] += e

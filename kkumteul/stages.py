@@ -16,7 +16,7 @@ from .config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT
                      IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL, N_INTERNAL)
 from .kernels import (C_NFOOD, L_BASAL, L_BRAIN, L_DISCARD, L_LOST, L_MOVE, L_SPAWN, _place_food,
                       _wdiff, _wrap)
-from .rng import S_FERTILE, u01
+from .rng import S_FERTILE, S_KIND, u01
 
 C_GIFTS = 14            # counters 칸: 건넨 횟수
 C_FERTILE = 15          # counters 칸: 거름 땅에 난 먹이 수
@@ -31,7 +31,8 @@ C_ATTACKS = 16          # counters 칸: 공격이 맞은 횟수
  F_WEAR, F_TRAIL_DECAY, F_TRAIL_SAT, F_PATH_BONUS, F_DEP_RATE, F_DEP_LOSS, F_SOIL_DECAY,
  F_SOIL_REF, F_FERT_FRAC, F_SOIL_USE, F_CELL, F_ATK_DMG, F_ATK_GAIN, F_ATK_COST, N_FS) = range(46)
 # ---- 정수 설정 칸 ----
-(I_SEED, I_GW, I_GH, I_SECTORS, I_H_MAX, I_MIND, I_SOCIAL, I_NICHE, I_FOOD_CAP, I_STAGE_IN, N_IS) = range(11)
+(I_SEED, I_GW, I_GH, I_SECTORS, I_H_MAX, I_MIND, I_SOCIAL, I_NICHE, I_FOOD_CAP, I_STAGE_IN, I_KINDS,
+ N_IS) = range(12)
 
 
 def pack_stage_params(cfg):
@@ -58,6 +59,7 @@ def pack_stage_params(cfg):
     isp[I_SECTORS], isp[I_H_MAX] = cfg.vision_sectors, cfg.h_max
     isp[I_MIND], isp[I_SOCIAL], isp[I_NICHE] = int(cfg.mind_enabled), int(cfg.social_enabled), int(cfg.niche_enabled)
     isp[I_FOOD_CAP] = cfg.food_cap
+    isp[I_KINDS] = int(cfg.food_kinds_enabled)
     isp[I_STAGE_IN] = 2 * cfg.vision_sectors + N_INTERNAL
     return fs, isp
 
@@ -600,7 +602,10 @@ def niche_world(step, s, fs, isp):
             break
         px = (pick % gw + u01(isp[I_SEED], S_FERTILE, step, 3 * k + 1)) * cell
         py = (pick // gw + u01(isp[I_SEED], S_FERTILE, step, 3 * k + 2)) * cell
-        if not _place_food(s, _wrap(px, fs[F_W]), _wrap(py, fs[F_H]), e_food):
+        kind = 0
+        if isp[I_KINDS] != 0 and u01(isp[I_SEED], S_KIND, step, 1000003 + k) < 0.5:
+            kind = 1
+        if not _place_food(s, _wrap(px, fs[F_W]), _wrap(py, fs[F_H]), e_food, kind):
             s.ledger[L_DISCARD] += s.budget[1]
             s.budget[1] = 0.0
             break

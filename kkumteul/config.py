@@ -126,6 +126,11 @@ class Config:
     give_loss: float = 0.1        # 건네는 중에 사라지는 비율
     give_min_energy: float = 1.0  # 이보다 에너지가 적으면 주지 못한다
 
+    # --- 먹이 종류 (기본은 꺼짐. 어느 단계 묶음에도 들어 있지 않다) ---
+    food_kinds_enabled: bool = False  # 먹이가 두 종류이고 한쪽은 독이다. 어느 쪽이 독인지는 때때로 바뀐다
+    kind_flip_period: int = 1500  # 이 스텝마다 어느 종류가 독인지 다시 정한다(무작위라 안 바뀔 때도 있다)
+    poison: float = 1.0           # 독인 먹이를 먹으면 잃는 에너지(먹이 자체의 에너지도 사라진다)
+
     # --- 다툼 (기본은 꺼짐. 어느 단계 묶음에도 들어 있지 않다) ---
     conflict_enabled: bool = False  # 공격: 닿은 이웃의 에너지를 깎고 일부를 얻는다(포식·처벌의 수단)
     attack_damage: float = 0.2    # 공격 출력 1일 때 스텝당 상대가 잃는 에너지
@@ -228,7 +233,9 @@ class Config:
             raise ValueError("eta_max와 sleep_recover는 0보다 커야 한다")
         if not (0.0 <= self.attack_gain <= 1.0):
             raise ValueError("attack_gain은 0과 1 사이여야 한다(1을 넘으면 에너지가 생긴다)")
-        for name in ("soil_use", "link_cap", "give_min_energy", "alpha_init", "attack_damage", "attack_cost"):
+        if self.kind_flip_period < 1:
+            raise ValueError("kind_flip_period는 1 이상이어야 한다")
+        for name in ("soil_use", "link_cap", "give_min_energy", "alpha_init", "attack_damage", "attack_cost", "poison"):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name}은 0 이상이어야 한다")
         for name in ("eta_init", "eta_max", "plast_cost", "signal_cost", "give_rate", "deposit_rate",
@@ -320,7 +327,8 @@ def preset(name: str) -> dict:
         "stage3": dict(mind_enabled=True, social_enabled=True, niche_enabled=False),
         "stage4": dict(mind_enabled=True, social_enabled=True, niche_enabled=True),
         "conflict": dict(conflict_enabled=True),     # 다른 묶음에 덧붙여 쓴다: preset=stage3 preset=conflict
+        "kinds": dict(food_kinds_enabled=True),      # 먹이 두 종류와 독. 덧붙여 쓴다: preset=stage2 preset=kinds
     }
     if name not in table:
-        raise ValueError(f"모르는 preset: {name} (stage1~stage4, conflict)")
+        raise ValueError(f"모르는 preset: {name} (stage1~stage4, conflict, kinds)")
     return table[name]

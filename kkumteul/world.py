@@ -12,7 +12,7 @@ from .config import Config, N_REWARD
 # 2~4단계에서 새로 생긴 저장 필드. 옛 체크포인트에는 없어도 된다(그 밖의 필드가 없으면 깨진 것이다)
 NEW_SINCE_STAGE1 = frozenset({"rw", "eta", "alpha", "horm", "mod", "exp_r", "e_prev", "fatigue", "asleep",
                               "epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link", "last_proto",
-                              "sig", "trail", "soil"})
+                              "sig", "trail", "soil", "f_kind"})
 
 BIRTH_DTYPE = np.dtype([("id", "<i8"), ("parent", "<i8"), ("step", "<i8"),
                         ("gen", "<i4"), ("n_hidden", "<i4"), ("kind", "<i4")])
@@ -110,7 +110,7 @@ class World:
             st.after_move(s, fs, isp)
         k.build_grid(s.x, s.y, s.alive, inv_cell, gw, gh, s.a_start, s.a_items, s.cursor)
         k.collide(s, fp, ip)
-        k.eat(s, fp, ip)
+        k.eat(t, s, fp, ip)
         if social:
             st.give(s, fs, isp)
         if cfg.conflict_enabled:
@@ -168,11 +168,12 @@ class World:
     def state_arrays(self) -> dict:
         return {name: getattr(self.s, name) for name in k.SAVED_FIELDS}
 
-    def load_arrays(self, arrays: dict) -> None:
+    def load_arrays(self, arrays: dict) -> bool:
         """저장된 배열을 읽는다. 옛 체크포인트(입출력 자리가 적거나 2~4단계 배열이 없는 것)도 받는다:
         모자란 입출력 자리는 0 가중치로 채우고, 없는 유전자는 기본값으로, 평생 상태는 0에서 시작한다."""
         s = self.s
         missing = []
+        exact = True        # 저장된 것과 모양까지 똑같이 읽었는가(아니면 저장 때의 상태 해시와 견줄 수 없다)
         for name in k.SAVED_FIELDS:
             dst = getattr(s, name)
             if name not in arrays:
@@ -183,7 +184,9 @@ class World:
             src = arrays[name]
             if dst.shape == src.shape:
                 dst[...] = src
-            elif name in k.LIFETIME_FLEX:
+                continue
+            exact = False
+            if name in k.LIFETIME_FLEX:
                 dst[...] = 0
             elif (src.ndim == dst.ndim and all(a <= b for a, b in zip(src.shape, dst.shape))
                   and (name in ("budget", "counters") or (name in ("Win", "Wout", "bout")
@@ -204,6 +207,7 @@ class World:
         if "e_prev" in missing:
             s.e_prev[:] = s.energy
         self.step_no = int(s.counters[k.C_STEP])
+        return exact and not missing
 
     def state_hash(self) -> str:
         """저장되는 상태 전체의 해시. 재현성 점검에 쓴다."""
@@ -273,6 +277,9 @@ class World:
                 })
             if cfg.conflict_enabled:
                 out["attacks"] = int(c[st.C_ATTACKS])
+            if cfg.food_kinds_enabled:
+                out["poisoned"] = int(c[k.C_POISONED])
+                out["good_kind"] = int(k.good_kind(cfg.seed, self.step_no, cfg.kind_flip_period))
             if (s.tag[a] != 0).any():      # 이주해 온 생물과 그 후손의 비율
                 out["migrant_frac"] = float((s.tag[a] != 0).mean())
             if cfg.niche_enabled:
