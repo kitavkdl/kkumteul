@@ -8,6 +8,18 @@
 - (11/04→11/05) numba 캐시는 정의된 파일의 수정 시각만 본다. `_cache.py`가 소스 해시로 캐시를 지운다.
 - (11/04→11/05) The Bibites 위키는 열리지 않았다(HTTP 402). 그쪽 수치는 확인되지 않은 것이다.
 
+## 2026-11-05 04:07 ET wrap에서 빼낸 것
+
+요약: 노드 섭동 학습 규칙(`perturb_sigma`, 기본 꺼짐)을 TDD로 넣었다. 첫 판은 손 개체가 거꾸로 배워서 연결별 흔적으로 고쳤다. 이제 거꾸로 배우지는 않지만 **가려 먹기를 배운다는 증거는 아직 없다.** 230만 이어 돌리기는 둘 다 독 비율 0.50 그대로다. 대표님이 03:38에 시각화를 지시하셨다.
+
+- **노드 섭동 장치**: `kkumteul/stages.py`의 `_think_plastic_par`. `perturb_sigma > 0`이면 은닉 뉴런이 출력으로 보내는 값을 흔들고, 연결마다 "그 순간 들어온 값 × 흔든 양"을 쌓는다(새 저장 필드 `elig_in`, `elig_rec`, 켰을 때만 크게 잡음). 은닉 상태는 흔들지 않는다. 이 규칙에서 `epost`는 "이번 스텝에 흔든 양"이다. 시험 `tests/test_perturb.py` 20건, 전체 127건 통과. 꺼지면 옛 코드와 상태 해시가 같다(여섯 설정).
+- **검토 기록** `wayfinder/stage2-4/perturb-design-review.md` "둘째 판": 규칙 축은 다 반영. 명세 축에서 **반영 예정 둘**이 남았다.
+- **결과** `wayfinder/stage2-4/results.md` "230만 스텝", "다섯 번째 시도"(예측, 결과 1, 결과 2). 손 개체 도구는 `hand_learner.py grid`.
+- 실험 유닛 `k4-ctrl-b`, `k4-s2-b`는 끝났다(230만 체크포인트 있음). 서버 세계 `runs/main`, `runs/world4`는 옛 코드로 돈다.
+- 손 개체 격자(한 칸 약 10초): `PYTHONPATH=. HAND_SEEDS=102,100 HAND_VARIANTS=fixed,fast,blank NUMBA_NUM_THREADS=2 memcap --max 1500M -E PYTHONPATH -E HAND_SEEDS -E HAND_VARIANTS -E NUMBA_NUM_THREADS -- nice -n 10 <venv>/bin/python wayfinder/stage2-4/hand_learner.py grid <runs>/k4-s2/checkpoints/ckpt_000001300000.npz 3000 <runs>/<출력>.json "perturb_sigma=0.1" "perturb_sigma=0.1,sleep_forget=0"`
+- 갈래: `memcap --bg kkumteul-<이름> --log <runs>/<이름>.log --max 1500M -- nice -n 15 <venv>/bin/python -m kkumteul.run branch --run <runs>/<이름> --from <runs>/k4-s2 --at 1300000 --steps 300000 --quiet --set perturb_sigma=0.1 --set threads=2 --set stats_every=1000`. 실험 경로는 원래 폴더의 `runs/`를 직접 쓴다.
+- 02:53~03:08 ET (서버 4, Opus로 잘못 뜸): 손 개체 시험(네 번째 시도), 노드 섭동 설계 검토 둘.
+
 ## 2026-11-05 02:52 ET wrap에서 빼낸 것
 
 ### 현재 상태에서
