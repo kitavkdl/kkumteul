@@ -258,6 +258,8 @@ class Runner:
         cfg = world.cfg
         d = cfg.to_dict()
         edits = world.calm_new_outputs(cmeta["enlarged_out"][0])
+        if cmeta["lifetime_reset"]:
+            edits.append("lifetime_reset: " + ", ".join(cmeta["lifetime_reset"]))
         if calm_attack or (cfg.conflict_enabled and not old.conflict_enabled):
             world.s.bout[world.s.alive, ACT_ATTACK] = -1.0
             edits.append("bout[ACT_ATTACK]=-1")

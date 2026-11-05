@@ -261,6 +261,8 @@ def test_passive_control_checkpoint_is_refused(tmp_path):
     path = ckpt.save(w, tmp_path / "checkpoints")
     with pytest.raises(ValueError, match="대조 실행"):
         replay.record(path, steps=10)
+    with pytest.raises(ValueError, match="대조 실행"):      # 덮어쓰기로 passive를 끄고 피할 수는 없다
+        replay.record(path, steps=10, overrides=["passive=0"])
 
 
 def test_scenario_run_is_replayed_with_its_scenario(tmp_path):
@@ -294,6 +296,24 @@ def test_scenario_run_is_replayed_with_its_scenario(tmp_path):
     (run_dir / "scenario.json").unlink()
     rep2 = replay.record(ckpt_of(run_dir, 400), steps=10, every=2)
     assert rep2.meta["scenario"] is None and any("각본 적용 안 함" in n for n in rep2.meta["notes"])
+
+
+def test_scenario_run_replays_with_overrides(tmp_path):
+    # 각본이 걸린 실행의 체크포인트를 설정을 바꿔(크기 포함) 다시 보면, 첫 스텝에 각본이 바탕 설정을 다시 맞춰도
+    # 덮어쓰기가 남는다(크기가 달라 죽거나, 덮어쓰기가 조용히 지워지면 안 된다)
+    scn = Scenario.from_dict({"name": "시험 가뭄", "description": "먹이가 줄어든다", "events": [
+        {"at": 420, "for": 40, "scale": {"food_inflow": 0.5}}]})
+    run_dir = tmp_path / "scn"
+    r = Runner.new(run_dir, small(), scenario=scn)
+    r.loop(400, quiet=True)
+    r.close()
+    rep = replay.record(ckpt_of(run_dir, 400), steps=100, every=2, overrides=["preset=ext", "poison=0"])
+    assert rep.meta["cfg"]["poison"] == 0.0                         # 덮어쓴 값이 각본이 맞춘 설정에도 남는다
+    assert rep.meta["scenario"]["name"] == "시험 가뭄"
+    assert [c["step"] for c in rep.meta["scenario"]["changes"]] == [420, 460]
+    assert any("poison=0" in n for n in rep.meta["notes"])
+    # 비교: 덮어쓰지 않으면 원래 값이다
+    assert replay.record(ckpt_of(run_dir, 400), steps=10, every=2).meta["cfg"]["poison"] == 1.0
 
 
 def test_history_reads_only_whole_rows_up_to_the_checkpoint(kinds_run, tmp_path):

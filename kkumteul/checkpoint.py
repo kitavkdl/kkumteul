@@ -110,6 +110,7 @@ def load(path: Path, cfg: Config | None = None, verify: bool = True) -> tuple[Wo
         world.set_config(Config.from_dict({**cfg.to_dict(), "n_spare_in": saved_cfg.n_spare_in,
                                            "n_spare_out": saved_cfg.n_spare_out}))
     meta["enlarged_out"] = (N_ACTIONS + meta["config"].get("n_spare_out", 0), world.cfg.n_out)
+    meta["lifetime_reset"] = list(world.lifetime_reset)    # 크기를 올려 읽어 0에서 다시 시작한 평생 학습 배열
     if meta.get("source_hash") not in (None, SOURCE_HASH):
         print(f"주의: {path.name}은 지금과 다른 계산 코드로 저장됐다. 이어 돌린 결과가 "
               "끊지 않고 돌린 결과와 달라질 수 있다.", flush=True)

@@ -29,7 +29,7 @@ from . import SOURCE_HASH
 from . import checkpoint as ckpt
 from . import kernels as k
 from . import scenario as scn_mod
-from .config import ACT_GIVE, N_STAGE_IN, N_STAGE_OUT, Config
+from .config import ACT_GIVE, Config
 from .scenario import Scenario
 
 # 장면의 개체 표시(한 바이트): 아래 두 비트씩은 그 사이에 먹은 좋은 먹이 수와 독 수(3에서 멈춘다)
@@ -525,8 +525,11 @@ def _run_name(path: Path) -> str:
     return path.parent.parent.name if path.parent.name == "checkpoints" else path.stem
 
 
-def _read_scenario(run_dir: Path, world, notes: list[str]):
-    """실행 폴더의 각본과 바탕 설정. 각본이 없으면 (None, 세계의 설정, 0)."""
+def _read_scenario(run_dir: Path, world, notes: list[str], overrides: list[str] | None = None):
+    """실행 폴더의 각본과 바탕 설정. 각본이 없으면 (None, 세계의 설정, 0).
+    바탕 설정은 저장된 config.json에 덮어쓰기를 얹고, 배열 크기(입출력 자리)는 실제 세계의 것으로 맞춘다.
+    각본이 첫 스텝에 바탕 설정으로 세계를 다시 맞추기 때문에, 바탕이 세계와 크기가 다르면 죽고
+    덮어쓰기가 빠져 있으면 조용히 지워진다."""
     try:
         meta = json.loads((run_dir / "run.json").read_text())
     except (OSError, ValueError):
@@ -536,10 +539,9 @@ def _read_scenario(run_dir: Path, world, notes: list[str]):
     try:
         scn = Scenario.load(run_dir / "scenario.json")
         d = json.loads((run_dir / "config.json").read_text())
-        # 옛 실행은 입출력 자리가 적다. 체크포인트를 읽을 때와 같이 지금 크기로 올린다
-        d["n_spare_in"] = max(d.get("n_spare_in", 0), N_STAGE_IN)
-        d["n_spare_out"] = max(d.get("n_spare_out", 0), N_STAGE_OUT)
-        base = Config.from_dict(d)
+        # 옛 실행이나 갈라 켠 실행은 저장된 크기가 세계와 다르다. 체크포인트를 읽은 세계의 크기에 맞춘다
+        d["n_spare_in"], d["n_spare_out"] = world.cfg.n_spare_in, world.cfg.n_spare_out
+        base = Config.from_dict(d).with_overrides(overrides)
     except (OSError, ValueError, TypeError):
         notes.append("이 실행에는 각본이 걸려 있었지만 읽을 수 없어, 다시 돌릴 때는 각본 적용 안 함.")
         return None, world.cfg, 0
@@ -635,12 +637,15 @@ def record(ckpt_path, steps: int | None = None, every: int = 2, from_flip: bool 
                          "(대조 일정 없이 돌리면 전혀 다른 세계가 된다). 본 실행의 체크포인트를 쓴다.")
     run_dir = path.parent.parent
     notes: list[str] = []
+    if cmeta["lifetime_reset"]:
+        notes.append("크기를 올려 읽어 개체의 평생 학습 상태(" + ", ".join(cmeta["lifetime_reset"])
+                     + ")는 0에서 다시 시작했습니다.")
     if overrides:
         notes.append("원래 실행과 설정을 바꿔 다시 돌렸습니다: " + ", ".join(overrides) + ".")
     if cmeta.get("source_hash") not in (None, SOURCE_HASH):
         notes.append("이 체크포인트는 지금과 다른 판의 코드로 저장됐습니다. 다시 돌린 장면이 원래 실행이 "
                      "그 뒤에 겪은 것과 스텝 단위로 같지는 않을 수 있습니다.")
-    scn, base, scn_start = _read_scenario(run_dir, world, notes)
+    scn, base, scn_start = _read_scenario(run_dir, world, notes, overrides)
     ckpt_step = world.step_no
     if steps is None:
         steps = default_steps(world.cfg)
