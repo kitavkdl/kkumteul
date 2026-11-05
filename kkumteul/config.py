@@ -126,6 +126,12 @@ class Config:
     give_loss: float = 0.1        # 건네는 중에 사라지는 비율
     give_min_energy: float = 1.0  # 이보다 에너지가 적으면 주지 못한다
 
+    # --- 다툼 (기본은 꺼짐. 어느 단계 묶음에도 들어 있지 않다) ---
+    conflict_enabled: bool = False  # 공격: 닿은 이웃의 에너지를 깎고 일부를 얻는다(포식·처벌의 수단)
+    attack_damage: float = 0.2    # 공격 출력 1일 때 스텝당 상대가 잃는 에너지
+    attack_gain: float = 0.5      # 깎은 에너지 중 공격한 쪽이 얻는 비율(나머지는 사라진다)
+    attack_cost: float = 0.02     # 공격 출력 1일 때 스텝당 드는 비용(빗나가도 든다)
+
     # --- 4단계: 판이 바뀌는 세계 (기본은 꺼짐) ---
     niche_enabled: bool = False   # 다닌 자리가 길이 되고, 쌓은 거름이 먹이를 끌어온다
     wear_rate: float = 0.002      # 지나갈 때 그 칸에 남는 흔적 = wear_rate * 속도.
@@ -220,7 +226,9 @@ class Config:
                 raise ValueError(f"{name}은 0과 1 사이여야 한다")
         if self.eta_max <= 0 or self.sleep_recover <= 0:
             raise ValueError("eta_max와 sleep_recover는 0보다 커야 한다")
-        for name in ("soil_use", "link_cap", "give_min_energy", "alpha_init"):
+        if not (0.0 <= self.attack_gain <= 1.0):
+            raise ValueError("attack_gain은 0과 1 사이여야 한다(1을 넘으면 에너지가 생긴다)")
+        for name in ("soil_use", "link_cap", "give_min_energy", "alpha_init", "attack_damage", "attack_cost"):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name}은 0 이상이어야 한다")
         for name in ("eta_init", "eta_max", "plast_cost", "signal_cost", "give_rate", "deposit_rate",
@@ -292,7 +300,8 @@ ACT_SIG0 = 4
 ACT_SIG1 = 5
 ACT_GIVE = 6
 ACT_DEPOSIT = 7
-N_STAGE_OUT = 6      # 잠, 신호 2, 주기, 쌓기, 예비 1
+ACT_ATTACK = 8
+N_STAGE_OUT = 6      # 잠, 신호 2, 주기, 쌓기, 공격
 # 2~4단계 입력: 시야·내부 감각 뒤에 이 순서로 붙는다
 IN_HORM = 0      # 스트레스, 도파민, 지루함, 피로
 IN_HEAR = 4      # 신호1 앞·뒤, 신호2 앞·뒤
@@ -310,7 +319,8 @@ def preset(name: str) -> dict:
         "stage2": dict(mind_enabled=True, social_enabled=False, niche_enabled=False),
         "stage3": dict(mind_enabled=True, social_enabled=True, niche_enabled=False),
         "stage4": dict(mind_enabled=True, social_enabled=True, niche_enabled=True),
+        "conflict": dict(conflict_enabled=True),     # 다른 묶음에 덧붙여 쓴다: preset=stage3 preset=conflict
     }
     if name not in table:
-        raise ValueError(f"모르는 preset: {name} (stage1~stage4)")
+        raise ValueError(f"모르는 preset: {name} (stage1~stage4, conflict)")
     return table[name]
