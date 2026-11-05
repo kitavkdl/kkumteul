@@ -153,6 +153,9 @@ class Config:
     season_period: int = 4000     # 한 해의 길이(스텝). 임시 결정
     winter_len: int = 1200        # 겨울의 길이(해의 끝 이만큼). 해 길이의 3할. 임시 결정
     winter_mult: float = 0.3      # 겨울의 풀(먹이 유입) 배수. 겨울 밖은 해 평균이 1이 되도록 1보다 크게 잡힌다. 임시 결정
+    autumn_len: int = 0           # 가을 열매철: 겨울 바로 앞 이만큼의 스텝 동안 풀이 autumn_mult배로 몰린다. 0이면 꺼짐.
+                                  # 겨울이 켜져 있어야 한다. 해 평균 1은 그대로 지켜진다(나머지 철 배수가 그만큼 낮아진다)
+    autumn_mult: float = 1.0      # 가을의 풀(먹이 유입) 배수. 1 이상. 지구의 가을 열매 몰림. 임시 결정
     winter_basal_mult: float = 1.5  # 겨울의 기초 대사 배수. 지구 온혈동물의 겨울/여름 1.0~1.5배
                                   # (docs/research/earth-references.md). 임시 결정
     spoil_after: int = 400        # 먹이가 난 뒤 이만큼 지나야 썩기 시작한다. 임시 결정
@@ -255,6 +258,19 @@ class Config:
             raise ValueError("winter_len은 1 이상 season_period 미만이어야 한다")
         if not (0.0 <= self.winter_mult <= 1.0) or self.winter_basal_mult < 1.0:
             raise ValueError("winter_mult는 0~1, winter_basal_mult는 1 이상이어야 한다")
+        if self.autumn_len < 0:
+            raise ValueError("autumn_len은 0 이상이어야 한다")
+        if self.autumn_len > 0:
+            if not self.season_enabled:
+                raise ValueError("autumn_len은 겨울(season_enabled)이 켜져 있어야 쓸 수 있다")
+            if self.autumn_len + self.winter_len >= self.season_period:
+                raise ValueError("autumn_len + winter_len은 season_period 미만이어야 한다")
+            if self.autumn_mult < 1.0:
+                raise ValueError("autumn_mult는 1 이상이어야 한다")
+            rest = (self.season_period - self.winter_len * self.winter_mult - self.autumn_len * self.autumn_mult) \
+                / (self.season_period - self.winter_len - self.autumn_len)
+            if rest < 0.0:
+                raise ValueError("autumn_mult가 너무 커서 나머지 철의 풀 배수가 음수가 된다")
         if self.spoil_after < 0 or not (0.0 <= self.spoil_rate <= 1.0):
             raise ValueError("spoil_after는 0 이상, spoil_rate는 0~1이어야 한다")
         if not (0.0 <= self.spoil_min_frac < 1.0) or not (0.0 <= self.spoil_winter_mult <= 1.0):
@@ -394,6 +410,7 @@ def preset(name: str) -> dict:
         "ext": dict(n_spare_in=N_STAGE_IN + N_EXT_IN, n_spare_out=N_STAGE_OUT + N_EXT_OUT),  # 크기만 올린다(대조 갈래용)
     }
     table["harsh"] = {**table["ext"], "season_enabled": True, "spoil_enabled": True}  # 확장 묶음에 덧붙이므로 표 뒤에 만든다
+    table["harsh2"] = {**table["harsh"], "autumn_len": 800, "autumn_mult": 2.0}
     if name not in table:
-        raise ValueError(f"모르는 preset: {name} (stage1~stage4, conflict, kinds, ext, harsh)")
+        raise ValueError(f"모르는 preset: {name} (stage1~stage4, conflict, kinds, ext, harsh, harsh2)")
     return table[name]

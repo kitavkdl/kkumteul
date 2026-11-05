@@ -162,6 +162,49 @@ def test_winter_cuts_grass_and_raises_basal():
     assert cold.s.ledger[k.L_SPAWN] < 0.5 * base.s.ledger[k.L_SPAWN]
 
 
+def test_autumn_off_keeps_season_values():
+    w = World(small("harsh"))
+    assert w.season(100)[0] == pytest.approx((4000 - 1200 * 0.3) / 2800)   # 1.3, 가을 없는 겨울과 같다
+    assert not w.in_autumn(2500)
+
+
+def test_autumn_mast_keeps_year_mean():
+    w = World(small("harsh2"))
+    P = w.cfg.season_period
+    g = [w.season(t)[0] for t in range(P)]
+    assert sum(g) / P == pytest.approx(1.0, rel=1e-12)
+    assert w.season(2000)[0] == pytest.approx(2.0) and w.in_autumn(2000)    # 2000..2799 가을
+    assert not w.in_autumn(1999) and not w.in_autumn(2800)
+    assert w.season(100)[0] == pytest.approx(1.02)
+    assert w.season(2000)[1] == 1.0                                          # 가을 기초 대사는 그대로
+
+
+def test_autumn_validate():
+    with pytest.raises(ValueError):
+        small("harsh", autumn_len=2800)                    # 가을 + 겨울이 해 전체
+    with pytest.raises(ValueError):
+        small("harsh", autumn_len=800, autumn_mult=0.5)    # 가을 배수는 1 이상
+    with pytest.raises(ValueError):
+        small("harsh", autumn_len=800, autumn_mult=5.0)    # 나머지 철 배수가 음수
+    with pytest.raises(ValueError):
+        small("ext", autumn_len=800, autumn_mult=2.0)      # 겨울이 꺼진 세계에 가을만
+
+
+def test_autumn_ledger_closes():
+    # 세 해(1,800스텝)를 돌려도 장부가 닫힌다. 가을 150스텝(300~449)은 나머지 철(0~299)보다 풀이 많이 들어온다
+    kw = dict(season_period=600, winter_len=150, autumn_len=150)
+    w = World(small("harsh2", **kw))
+    w.run(1800)
+    assert rel_residual(w) < 1e-9
+    fall = World(small("harsh2", **kw))
+    rest = World(small("harsh2", **kw))
+    fall.step_no = 300
+    for x in (fall, rest):
+        x.run(150)
+    assert fall.in_autumn(300) and not rest.in_autumn(0)
+    assert fall.s.ledger[k.L_SPAWN] > 1.5 * rest.s.ledger[k.L_SPAWN]
+
+
 def _one_step_basal(w, t):
     """스텝 t를 한 번 돌리고, 그 스텝에 기초 대사로 장부에 오른 양과 move 직전의 산 개체 수를 돌려준다
     (move는 출생·사망보다 앞이라 개체 수는 스텝 시작 때와 같다)."""
