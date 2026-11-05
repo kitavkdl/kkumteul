@@ -14,7 +14,8 @@
   - 협력 먹이(곁에 다른 개체가 있어야 먹는 큰 먹이, `preset=coop`)를 쓰다 말았다. 가지 `wip/coop-food`에 있고 시험을 끝까지 돌리지 못했다. `main`에는 없다. 쓸지 말지는 서버 세션이 정한다. 넣은 까닭은 `wayfinder/stage2-4/results.md`의 "그래서 하는 것".
 
 ## 다음에 할 것 (위에서부터)
-- [ ] "배워야 먹는 세계" 실험 — `preset=kinds`(먹이 두 종류와 독)에서 학습이 값을 하는지. 서버의 `runs/main` 100만 스텝에서 `--set preset=kinds`(대조, `runs/k-ctrl`)와 `--set preset=stage2 --set preset=kinds`(`runs/k-s2`)를 30만 스텝씩 가르고(02:00 ET 서버에서 시작, 각 2스레드) `kkumteul.compare`로 견준다. 학습률이 유지되는지도 본다. 완료 기준: 결과가 `wayfinder/stage2-4/results.md`에 적힘
+- [ ] "배워야 먹는 세계" 실험 — **첫 시도는 세계가 죽었다**(`wayfinder/stage2-4/results.md` 뒤쪽). 까닭은 독이 아니라 시야 부호(1단계 생물이 종류 1을 피함)와 먹이 상한(안 먹힌 먹이가 상한을 채우면 새 먹이가 안 떨어짐)이다.
+  다음: ① 상한에 닿으면 오래된 먹이를 바꾸는 장치를 설정으로 넣는다(기본 꺼짐, 에너지 장부 시험 포함. `kernels.py`의 `spawn_food`) ② 켠 채로 `runs/main` 100만 스텝에서 `preset=kinds`와 `preset=stage2 preset=kinds`를 다시 가른다 ③ 살아남으면 `kkumteul.compare`로 견준다. 완료 기준: 학습이 값을 하는지 "한다/안 한다/가를 수 없다"가 결과 문서에 적힘
 - [ ] 공격(`preset=conflict`) 세계가 무너지지 않는지 — `preset=stage3 preset=conflict`로 20만 스텝. 개체 수, 재주입, 공격 횟수. 무너지면 `attack_damage`·`attack_gain`을 낮춘다
 - [ ] 새로 넣은 것(공격, 먹이 종류, 이주, 비교 도구) 독립 검토 — 맥락 없는 검토자에게 `kkumteul/stages.py`의 `attack`, `kernels.py`의 먹이 종류(`good_kind`, `eat`, `_see`의 부호), `pack.migrate`, `compare.py`를 맡긴다
 - [ ] 서버의 세계 둘을 최신 코드로 다시 띄우기 — 서버 폴더의 코드는 01:55 ET에 최신으로 받았다. 돌고 있는 `kkumteul-main`, `kkumteul-world4`는 띄울 때의 옛 코드로 계속 돈다. 멈추고 `resume`으로 다시 띄우면 새 코드가 된다(옛 체크포인트는 채워 읽는다). 멈추고 띄우는 일이니 사용자에게 한 줄 알리고 한다
