@@ -109,8 +109,8 @@ class World:
         r = t % P
         ang = 2.0 * math.pi * (r / P)
         if r >= P - W:
-            return cfg.winter_mult, cfg.winter_basal_mult, math.sin(ang), math.cos(ang)
-        return (P - cfg.winter_mult * W) / (P - W), 1.0, math.sin(ang), math.cos(ang)
+            return float(cfg.winter_mult), float(cfg.winter_basal_mult), math.sin(ang), math.cos(ang)
+        return (P - float(cfg.winter_mult) * W) / (P - W), 1.0, math.sin(ang), math.cos(ang)
 
     # ---- 한 스텝 ----
     def step(self) -> None:
