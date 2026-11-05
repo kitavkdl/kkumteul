@@ -6,7 +6,8 @@ import hashlib
 import numpy as np
 
 from . import kernels as k
-from .config import Config
+from . import stages as st
+from .config import Config, N_REWARD
 
 BIRTH_DTYPE = np.dtype([("id", "<i8"), ("parent", "<i8"), ("step", "<i8"),
                         ("gen", "<i4"), ("n_hidden", "<i4"), ("kind", "<i4")])
@@ -19,6 +20,7 @@ class World:
         cfg.validate()
         self.cfg = cfg
         self.fp, self.ip = k.pack_params(cfg)
+        self.fs, self.isp = st.pack_stage_params(cfg)
         self.s = k.alloc_state(cfg)
         self.step_no = 0
         self.births: list[np.ndarray] = []   # 아직 파일에 안 쓴 사건
@@ -38,8 +40,14 @@ class World:
             if getattr(old, name) != getattr(cfg, name):
                 raise ValueError(f"{name}은 실행 중에 바꿀 수 없다(배열 크기가 달라진다)")
         cfg.validate()
+        if cfg.mind_enabled != old.mind_enabled or cfg.n_proto != old.n_proto:
+            # 마음을 켜거나 끄면 평생 학습 배열의 크기가 바뀐다. 새로 만들고 0에서 시작한다
+            fresh = k.alloc_state(cfg)
+            self.s = self.s._replace(**{name: getattr(fresh, name) for name in k.LIFETIME_FLEX})
+            self.s.last_proto[:] = 0
         self.cfg = cfg
         self.fp, self.ip = k.pack_params(cfg)
+        self.fs, self.isp = st.pack_stage_params(cfg)
 
     # ---- 사건 버퍼 ----
     def _take_births(self, nb: int) -> None:
@@ -68,18 +76,37 @@ class World:
     # ---- 한 스텝 ----
     def step(self) -> None:
         s, fp, ip = self.s, self.fp, self.ip
+        fs, isp = self.fs, self.isp
+        cfg = self.cfg
+        mind, social, niche = cfg.mind_enabled, cfg.social_enabled, cfg.niche_enabled
         t = self.step_no
         gw, gh = int(ip[k.Q_GW]), int(ip[k.Q_GH])
         inv_cell = fp[k.P_INV_CELL]
+        if niche:
+            st.niche_world(t, s, fs, isp)
         k.spawn_food(t, s, fp, ip)
         k.build_grid(s.x, s.y, s.alive, inv_cell, gw, gh, s.a_start, s.a_items, s.cursor)
         k.build_grid(s.fx, s.fy, s.f_alive, inv_cell, gw, gh, s.f_start, s.f_items, s.cursor)
         k.sense(t, s, fp, ip)
-        k.think(s)
+        if social:
+            st.social_sense(s, fs, isp)
+        if niche:
+            st.trail_sense(s, fs, isp)
+        if mind:
+            st.mind_update(s, fs, isp)
+            st.think_plastic(s, fs)
+        else:
+            k.think(s)
+        if mind or social:
+            st.after_think(s, fs, isp)
         k.move(s, fp, ip)
+        if mind or niche:
+            st.after_move(s, fs, isp)
         k.build_grid(s.x, s.y, s.alive, inv_cell, gw, gh, s.a_start, s.a_items, s.cursor)
         k.collide(s, fp, ip)
         k.eat(s, fp, ip)
+        if social:
+            st.give(s, fs, isp)
         nd = k.process_deaths(t, s, fp, ip)
         self._take_deaths(nd)
         nb = k.process_births(t, s, fp, ip)
@@ -119,13 +146,35 @@ class World:
         return {name: getattr(self.s, name) for name in k.SAVED_FIELDS}
 
     def load_arrays(self, arrays: dict) -> None:
+        """저장된 배열을 읽는다. 옛 체크포인트(입출력 자리가 적거나 2~4단계 배열이 없는 것)도 받는다:
+        모자란 입출력 자리는 0 가중치로 채우고, 없는 유전자는 기본값으로, 평생 상태는 0에서 시작한다."""
+        s = self.s
+        missing = []
         for name in k.SAVED_FIELDS:
-            dst = getattr(self.s, name)
+            dst = getattr(s, name)
+            if name not in arrays:
+                missing.append(name)
+                continue
             src = arrays[name]
-            if dst.shape != src.shape:
+            if dst.shape == src.shape:
+                dst[...] = src
+            elif name in k.LIFETIME_FLEX:
+                dst[...] = 0
+            elif (src.ndim == dst.ndim and all(a <= b for a, b in zip(src.shape, dst.shape))
+                  and (name == "budget" or (name in ("Win", "Wout", "bout")
+                                            and src.shape[0] == dst.shape[0]))):
+                dst[...] = 0
+                dst[tuple(slice(0, n) for n in src.shape)] = src
+            else:
                 raise ValueError(f"{name}: 크기가 다르다 {src.shape} != {dst.shape}")
-            dst[...] = src
-        self.step_no = int(self.s.counters[k.C_STEP])
+        if "eta" in missing:
+            s.eta[:] = self.cfg.eta_init
+        if "rw" in missing:
+            s.rw[:] = 0.0
+            s.rw[:, :N_REWARD] = np.array([1.0, 0.5, 0.0, 0.2, 0.5, -0.2, 0.2, 0.0], dtype=np.float32)
+        if "e_prev" in missing:
+            s.e_prev[:] = s.energy
+        self.step_no = int(s.counters[k.C_STEP])
 
     def state_hash(self) -> str:
         """저장되는 상태 전체의 해시. 재현성 점검에 쓴다."""
@@ -175,17 +224,38 @@ class World:
                 "sigma_mean": float(s.sigma[a].mean()),
                 "speed_mean": float(np.hypot(s.vx[a], s.vy[a]).mean()),
             })
+            cfg = self.cfg
+            if cfg.mind_enabled:
+                out.update({
+                    "eta_mean": float(s.eta[a].mean()),
+                    "alpha_abs_mean": float(np.abs(s.alpha[a]).mean()),
+                    "asleep_frac": float((s.asleep[a] > 0).mean()),
+                    "hebb_abs_mean": float(np.abs(s.Hrec[a]).mean()),
+                    "dopamine_mean": float(s.horm[a, 2].mean()),
+                })
+            if cfg.social_enabled:
+                out.update({
+                    "signal_abs_mean": float(np.abs(s.sig[a]).mean()),
+                    "gifts": int(c[st.C_GIFTS]),
+                })
+            if cfg.niche_enabled:
+                out.update({
+                    "trail_mean": float(s.trail.mean()),
+                    "soil_total": float(s.soil.sum()),
+                    "fertile_food": int(c[st.C_FERTILE]),
+                })
         return out
 
     def energy_balance(self) -> dict:
         """에너지 장부 점검. residual이 0에 가까워야 한다(새는 곳 감시)."""
         na, ea, nf, ef = k.totals(self.s)
         L = self.s.ledger
+        soil = float(self.s.soil.sum())    # 땅에 쌓인 거름도 세계 안의 에너지다
         expected = (L[k.L_SPAWN] + L[k.L_INJECT] - L[k.L_BASAL] - L[k.L_BRAIN]
                     - L[k.L_MOVE] - L[k.L_BIRTH] - L[k.L_LOST])
         return {
-            "agents": float(ea), "food": float(ef), "expected": float(expected),
-            "residual": float(ea + ef - expected),
+            "agents": float(ea), "food": float(ef), "soil": soil, "expected": float(expected),
+            "residual": float(ea + ef + soil - expected),
             "spawn": float(L[k.L_SPAWN]), "inject": float(L[k.L_INJECT]),
             "basal": float(L[k.L_BASAL]), "brain": float(L[k.L_BRAIN]),
             "move": float(L[k.L_MOVE]), "birth": float(L[k.L_BIRTH]),

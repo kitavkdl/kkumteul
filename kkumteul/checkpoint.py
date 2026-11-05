@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from . import SOURCE_HASH, STATE_VERSION, __version__
-from .config import Config
+from .config import N_STAGE_IN, N_STAGE_OUT, Config
 from .world import World
 
 _NAME = re.compile(r"^ckpt_(\d+)\.npz$")
@@ -74,12 +74,21 @@ def load(path: Path, cfg: Config | None = None, verify: bool = True) -> tuple[Wo
     meta = json.loads(path.with_suffix(".json").read_text())
     if meta["state_version"] != STATE_VERSION:
         raise ValueError(f"상태 형식이 다르다: {meta['state_version']} != {STATE_VERSION}")
-    saved_cfg = Config.from_dict(meta["config"])
+    cd = dict(meta["config"])
+    # 옛 체크포인트는 입출력 자리가 적다. 지금 크기로 올리고 배열은 읽을 때 0으로 채운다
+    cd["n_spare_in"] = max(cd.get("n_spare_in", 0), N_STAGE_IN)
+    cd["n_spare_out"] = max(cd.get("n_spare_out", 0), N_STAGE_OUT + 1)
+    upgraded = cd != meta["config"]
+    saved_cfg = Config.from_dict(cd)
     world = World(saved_cfg, populate=False)
     with np.load(path) as z:
         world.load_arrays({k: z[k] for k in z.files})
-    if verify and world.state_hash() != meta["state_hash"]:
-        raise ValueError(f"체크포인트가 깨졌다: {path}")
+    if verify and not upgraded and world.state_hash() != meta["state_hash"]:
+        # 옛 형식에서 올린 것은 배열 모양이 달라 해시를 견줄 수 없다(파일 자체는 npz가 지킨다)
+        with np.load(path) as z:
+            old_format = any(name not in z.files for name in ("rw", "trail"))
+        if not old_format:
+            raise ValueError(f"체크포인트가 깨졌다: {path}")
     if cfg is not None:
         world.set_config(cfg)
     if meta.get("source_hash") not in (None, SOURCE_HASH):
