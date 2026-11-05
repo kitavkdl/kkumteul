@@ -149,7 +149,7 @@ def test_one_poison_and_one_good_food_are_told_apart():
     assert len(food) == 2 and (food["f_in"] == 0).all() and (food["f_out"] == 1).all()
     by_kind = {int(r["kind"]): int(r["why"]) for r in food}
     assert by_kind[good] == replay.WHY_GOOD and by_kind[1 - good] == replay.WHY_POISON
-    assert rep.seen == {"good": 1, "poison": 1, "unknown": 0, "evicted": 0, "burnt": 0, "gave": 0}
+    assert rep.seen == {"good": 1, "poison": 1, "unknown": 0, "evicted": 0, "burnt": 0, "gave": 0, "spoiled": 0}
     assert int(rep.c_eaten[1]) == 2 and int(rep.c_poisoned[1]) == 1
 
 
