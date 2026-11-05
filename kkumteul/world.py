@@ -9,6 +9,11 @@ from . import kernels as k
 from . import stages as st
 from .config import Config, N_REWARD
 
+# 2~4단계에서 새로 생긴 저장 필드. 옛 체크포인트에는 없어도 된다(그 밖의 필드가 없으면 깨진 것이다)
+NEW_SINCE_STAGE1 = frozenset({"rw", "eta", "alpha", "horm", "mod", "exp_r", "e_prev", "fatigue", "asleep",
+                              "epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link", "last_proto",
+                              "sig", "trail", "soil"})
+
 BIRTH_DTYPE = np.dtype([("id", "<i8"), ("parent", "<i8"), ("step", "<i8"),
                         ("gen", "<i4"), ("n_hidden", "<i4"), ("kind", "<i4")])
 DEATH_DTYPE = np.dtype([("id", "<i8"), ("step", "<i8"), ("cause", "<i4"), ("age", "<i4"),
@@ -45,6 +50,7 @@ class World:
             fresh = k.alloc_state(cfg)
             self.s = self.s._replace(**{name: getattr(fresh, name) for name in k.LIFETIME_FLEX})
             self.s.last_proto[:] = 0
+            self.s.e_prev[:] = self.s.energy    # 켠 첫 스텝에 엉뚱한 "에너지 변화"가 보상에 들어가지 않게
         self.cfg = cfg
         self.fp, self.ip = k.pack_params(cfg)
         self.fs, self.isp = st.pack_stage_params(cfg)
@@ -168,6 +174,8 @@ class World:
         for name in k.SAVED_FIELDS:
             dst = getattr(s, name)
             if name not in arrays:
+                if name not in NEW_SINCE_STAGE1:
+                    raise ValueError(f"체크포인트에 {name}이 없다")
                 missing.append(name)
                 continue
             src = arrays[name]
@@ -184,6 +192,10 @@ class World:
                 raise ValueError(f"{name}: 크기가 다르다 {src.shape} != {dst.shape}")
         if "eta" in missing:
             s.eta[:] = self.cfg.eta_init
+        if "alpha" in missing:
+            # 전부 0이면 갈라낸 직후 한 세대 동안 학습이 아무 효과도 낼 수 없다
+            gen = np.random.default_rng(self.cfg.seed + 977)
+            s.alpha[:] = (self.cfg.alpha_init * gen.standard_normal(s.alpha.shape)).astype(np.float32)
         if "rw" in missing:
             s.rw[:] = 0.0
             s.rw[:, :N_REWARD] = np.array([1.0, 0.5, 0.0, 0.2, 0.5, -0.2, 0.2, 0.0], dtype=np.float32)
@@ -208,6 +220,9 @@ class World:
         m.update(s.counters.tobytes())
         m.update(s.ledger.tobytes())
         m.update(s.budget.tobytes())
+        if s.trail.any() or s.soil.any():   # 땅이 비어 있으면 넣지 않는다(1~3단계 해시가 그대로 유효하게)
+            m.update(s.trail.tobytes())
+            m.update(s.soil.tobytes())
         return m.hexdigest()
 
     # ---- 요약 ----

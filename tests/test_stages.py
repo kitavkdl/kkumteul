@@ -184,6 +184,7 @@ def test_old_checkpoint_with_fewer_inputs_loads(tmp_path):
     np.savez(p, **arrays)
     meta = json.loads(p.with_suffix(".json").read_text())
     meta["config"]["n_spare_in"], meta["config"]["n_spare_out"] = 4, 2
+    meta["npz_sha256"] = ckpt.file_sha256(p)
     p.with_suffix(".json").write_text(json.dumps(meta))
     w2, _ = ckpt.load(p)
     a = w2.s.alive
@@ -191,6 +192,7 @@ def test_old_checkpoint_with_fewer_inputs_loads(tmp_path):
     assert np.array_equal(w2.s.Win[a][:, :old_in, :], w.s.Win[a][:, :old_in, :])
     assert not w2.s.Win[a][:, old_in:, :].any()
     assert (w2.s.eta[a] == np.float32(w.cfg.eta_init)).all() and w2.s.rw[a][:, 0].min() == 1.0
+    assert np.abs(w2.s.alpha[a]).mean() > 0.01, "가소성 유전자가 전부 0이면 갈라낸 뒤 학습이 효과를 못 낸다"
     w2.run(200)
     w2.check_sane()
 
@@ -200,3 +202,56 @@ def test_preset_names():
     assert not Config().with_overrides(["preset=stage3"]).niche_enabled
     with pytest.raises(ValueError):
         Config().with_overrides(["preset=stage9"])
+
+
+def test_hash_and_checkpoint_cover_the_ground(tmp_path):
+    w = World(small("stage4"))
+    w.run(300)
+    h = w.state_hash()
+    w.s.trail[5] += 1.0
+    assert w.state_hash() != h, "길이 바뀌면 상태 해시도 바뀌어야 한다"
+    w.s.trail[5] -= 1.0
+    p = ckpt.save(w, tmp_path)
+    with np.load(p) as z:
+        arrays = {name: z[name] for name in z.files}
+    arrays["soil"] = arrays["soil"] + 3.0
+    np.savez(p, **arrays)
+    with pytest.raises(ValueError):
+        ckpt.load(p)                       # 파일이 기록(sha256)과 다르다
+    del arrays["energy"]
+    np.savez(p, **arrays)
+    meta = json.loads(p.with_suffix(".json").read_text())
+    meta["npz_sha256"] = ckpt.file_sha256(p)
+    p.with_suffix(".json").write_text(json.dumps(meta))
+    with pytest.raises(ValueError):
+        ckpt.load(p)                       # 꼭 있어야 하는 필드가 없다
+
+
+def test_assay_keeps_learning_genes_and_fresh_lifetime_state(tmp_path):
+    from kkumteul import measure
+    r = Runner.new(tmp_path / "r", small("stage2"))
+    r.loop(800, quiet=True)
+    r.close()
+    side = measure.load_side(ckpt.latest(tmp_path / "r" / "checkpoints"))
+    assert {"rw", "eta", "alpha"} <= set(side["genomes"])
+    acfg = measure.arena_config(side["cfg"], 3, 10)
+    arena = World(acfg, populate=False)
+    measure._inject(arena, side["genomes"], 0, 0, 10.0, 10.0, 0.0, 5)
+    j = int(np.flatnonzero(arena.s.alive)[0])
+    assert arena.s.eta[j] > 0 and np.abs(arena.s.rw[j]).sum() > 0 and np.abs(arena.s.alpha[j]).sum() > 0
+    assert arena.s.e_prev[j] == acfg.e_start and not arena.s.Hrec[j].any()
+
+
+def test_first_agents_do_not_give_or_deposit_by_default():
+    w = World(small("stage4"))
+    w.run(300)
+    s = w.summary()
+    assert s["gifts"] < 0.2 * 300 * s["pop"], "처음 개체는 주기 쪽으로 기울어 있지 않아야 한다"
+    assert w.s.trail.mean() < 0.5 * w.cfg.trail_sat, "길이 세계 전체에서 포화하면 길이 아니다"
+
+
+def test_stage_config_validation():
+    for bad in ("eta_max=0", "sleep_recover=0", "soil_use=-0.5", "trail_decay=1.5", "hormone_rate_dopamine=3",
+                "n_spare_out=5"):
+        with pytest.raises(ValueError):
+            Config().with_overrides([bad])

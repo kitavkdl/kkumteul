@@ -16,9 +16,8 @@ from .config import (ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT_SLEEP, ACT_
                      IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL, N_INTERNAL)
 from .kernels import (C_NFOOD, L_BASAL, L_BRAIN, L_DISCARD, L_LOST, L_MOVE, L_SPAWN, _place_food,
                       _wdiff, _wrap)
-from .rng import u01
+from .rng import S_FERTILE, u01
 
-S_FERTILE = 15          # rng 용도 번호(14는 각본용으로 비워 둔다)
 C_GIFTS = 14            # counters 칸: 건넨 횟수
 C_FERTILE = 15          # counters 칸: 거름 땅에 난 먹이 수
 
@@ -232,8 +231,10 @@ def _mind_par(fs, isp, alive, obs, energy, e_prev, ate, touch, horm, mod, exp_r,
             lp = last_proto[i]
             c = link[i, lp, best]
             cur = 1.0 / (1.0 + c)
-            if c < cap:
-                link[i, lp, best] = c + 1.0
+            c += 1.0
+            if c > cap:
+                c = cap
+            link[i, lp, best] = c
             last_proto[i] = best
             fatigue[i] += fs[F_FATIGUE]
             if fatigue[i] > 1.0:
@@ -299,7 +300,6 @@ def _think_plastic_par(fs, alive, n_hidden, obs, h, hnew, act, Win, Wrec, bh, Wo
                 hnew[i, k] += (Wrec[i, j, k] + alpha[i, k] * Hrec[i, j, k]) * hj
         for k in range(nh):
             hnew[i, k] = math.tanh(hnew[i, k])
-            epost[i, k] = lam * epost[i, k] + hnew[i, k]
         if asleep[i] > 0.0:
             # 잠: 약한 학습 흔적은 지우고 센 것만 남긴다
             fg = 1.0 - fs[F_SLEEP_FORGET]
@@ -314,28 +314,30 @@ def _think_plastic_par(fs, alive, n_hidden, obs, h, hnew, act, Win, Wrec, bh, Wo
                         Hrec[i, j, k] *= fg
         else:
             # 피곤할수록 덜 배운다. 보상 신호가 클수록 방금의 활동 짝이 더 세게 남는다
+            # 보상 신호(mod)는 지난 스텝 행동의 결과다. 그래서 흔적(epre, epost)은 지난 스텝까지의
+            # 활동만 담은 채로 쓰고, 이번 스텝의 활동은 학습 뒤에 흔적에 더한다.
+            # 배운 것은 배우지 않는 스텝에도 조금씩 흐려진다.
             g = eta[i] * (1.0 - fatigue[i]) * mod[i]
-            if g != 0.0:
-                for j in range(n_in):
-                    pj = epre_in[i, j]
-                    if pj != 0.0:
-                        for k in range(nh):
-                            v = Hin[i, j, k] * keep + g * pj * epost[i, k]
-                            if v > 1.0:
-                                v = 1.0
-                            if v < -1.0:
-                                v = -1.0
-                            Hin[i, j, k] = v
-                for j in range(nh):
-                    pj = epre_h[i, j]
-                    if pj != 0.0:
-                        for k in range(nh):
-                            v = Hrec[i, j, k] * keep + g * pj * epost[i, k]
-                            if v > 1.0:
-                                v = 1.0
-                            if v < -1.0:
-                                v = -1.0
-                            Hrec[i, j, k] = v
+            for j in range(n_in):
+                gp = g * epre_in[i, j]
+                for k in range(nh):
+                    v = Hin[i, j, k] * keep + gp * epost[i, k]
+                    if v > 1.0:
+                        v = 1.0
+                    if v < -1.0:
+                        v = -1.0
+                    Hin[i, j, k] = v
+            for j in range(nh):
+                gp = g * epre_h[i, j]
+                for k in range(nh):
+                    v = Hrec[i, j, k] * keep + gp * epost[i, k]
+                    if v > 1.0:
+                        v = 1.0
+                    if v < -1.0:
+                        v = -1.0
+                    Hrec[i, j, k] = v
+        for k in range(nh):
+            epost[i, k] = lam * epost[i, k] + hnew[i, k]
         for j in range(n_in):
             epre_in[i, j] = lam * epre_in[i, j] + obs[i, j]
         for j in range(nh):
@@ -501,6 +503,8 @@ def niche_world(step, s, fs, isp):
                 tn = 1.0
             weight += v * (1.0 + tn)     # 거름과 닦인 길이 함께 있으면 더 잘 난다
     if total <= 0.0:
+        s.budget[0] += s.budget[1]
+        s.budget[1] = 0.0
         return
     frac = total / fs[F_SOIL_REF]
     if frac > 1.0:

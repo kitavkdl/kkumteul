@@ -108,6 +108,12 @@ def _inject(world: World, genomes: dict, row: int, tag: int, x: float, y: float,
     s.n_off[j] = 0
     s.eaten[j] = s.touch[j] = s.ate[j] = 0.0
     s.h[j] = 0.0
+    # 평생 상태는 갓 태어난 개체와 같게 둔다(안 그러면 켠 세계의 생물을 학습이 꺼진 채로 재게 된다)
+    s.e_prev[j] = cfg.e_start
+    s.mod[j] = s.exp_r[j] = s.fatigue[j] = s.asleep[j] = 0.0
+    s.last_proto[j] = 0
+    for name in ("horm", "sig", "epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link"):
+        getattr(s, name)[j] = 0.0
     for name in GENOME:
         getattr(s, name)[j] = genomes[name][row]
 
