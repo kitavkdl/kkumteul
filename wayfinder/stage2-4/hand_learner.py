@@ -1,0 +1,147 @@
+"""손으로 만든 "배워서 가려 먹는 개체" 시험 (2026-11-05, 결과는 results.md "네 번째 시도").
+
+회로: 은닉 뉴런 0 하나. 먹이 시야 칸(값의 부호 = 먹이 종류) → 회전. 왼쪽/오른쪽 칸의 가중치 부호가 반대라
+종류 A(+)에는 다가가고 B(-)는 피한다. 평생 학습(Hin)이 이 가중치의 부호를 뒤집으면 반대 종류를 쫓는다.
+보상 가중치는 에너지 변화만 쓴다. 행동 편향: 앞으로 가기, 번식, 졸리면 자기.
+
+    PYTHONPATH=. python wayfinder/stage2-4/hand_learner.py solo <체크포인트.npz> <스텝> <출력.json>
+    PYTHONPATH=. python wayfinder/stage2-4/hand_learner.py assay <체크포인트.npz> <스텝> <출력.json>
+
+solo: 한 무리만 풀고 독 비율(독을 먹은 수 / 먹은 수, 처음 1/4은 버림)을 잰다.
+assay: 학습하는 손 설계 개체(B)를 체크포인트의 진화한 무리(A)와 겨루게 한다(measure.assay_sides).
+"""
+import json
+import os
+import math
+import sys
+from pathlib import Path
+
+import numpy as np
+
+from kkumteul import kernels as k
+from kkumteul import measure
+from kkumteul.config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT_SIG1,
+                             ACT_SLEEP, ACT_THRUST, ACT_TURN)
+from kkumteul.world import World
+
+VARIANTS = {
+    "learn": dict(eta=0.1, alpha=4.0, g=2.0),     # 배운다
+    "fixed": dict(eta=0.0, alpha=0.0, g=2.0),     # 같은 회로, 학습 없음(늘 A를 쫓는다)
+    "fast": dict(eta=0.2, alpha=10.0, g=2.0),     # 빨리 배운다(Hin 0.2면 뒤집힌다)
+    "fast_slow": dict(eta=0.2, alpha=10.0, g=2.0, thrust=0.4),   # 빨리 배우고 천천히 다닌다
+    "fixed_slow": dict(eta=0.0, alpha=0.0, g=2.0, thrust=0.4),
+    "fast_b": dict(eta=0.2, alpha=10.0, g=2.0, rw_bias=0.016),   # + reward_baseline_rate=0 으로 쓴다
+}
+
+
+def make_hand(tmpl: dict, n: int, eta: float, alpha: float, g: float, rw_energy: float = 1.0,
+              rw_ate: float = 0.0, nsec: int = 8, thrust: float = 1.0, rw_bias: float = 0.0) -> dict:
+    out = {name: np.repeat(v[:1], n, axis=0).copy() for name, v in tmpl.items()}
+    for name in ("Win", "Wrec", "bh", "Wout", "bout", "alpha", "rw"):
+        out[name][...] = 0
+    for s in range(nsec):
+        out["Win"][:, s, 0] = g if s >= nsec // 2 else -g     # 높은 번호 칸 = 왼쪽(반시계) → 회전 +
+    out["Wout"][:, ACT_TURN, 0] = 3.0
+    out["bout"][:, ACT_THRUST] = thrust
+    out["bout"][:, ACT_REPRO] = 1.0
+    out["bout"][:, ACT_SLEEP] = 1.0
+    for a in (ACT_GIVE, ACT_DEPOSIT, ACT_ATTACK):
+        out["bout"][:, a] = -1.0
+    out["bout"][:, ACT_SIG0] = out["bout"][:, ACT_SIG1] = 0.0
+    out["n_hidden"][:] = 1
+    out["eta"][:] = eta
+    out["alpha"][:, 0] = alpha
+    out["rw"][:, 0] = rw_ate
+    out["rw"][:, 1] = rw_energy
+    out["rw"][:, 7] = rw_bias       # 평소 대사 비용(에너지 변화 × 2)을 메워 먹지 않을 때 보상이 0 근처이게
+    return out
+
+
+def _flip(s, alive) -> float:
+    """시야→회전 실효 가중치가 타고난 부호와 같은 쪽인 정도(1 = 그대로 A를 쫓음, -1 = 뒤집혀 B를 쫓음)."""
+    if not alive.any():
+        return 0.0
+    w0 = s.Win[alive, :8, 0]
+    eff = w0 + s.alpha[alive, 0:1] * s.Hin[alive, :8, 0]
+    sg = np.sign(w0)
+    return float(np.mean(np.sign(eff) * sg)) if np.any(sg) else 0.0
+
+
+def solo(cfg, genomes: dict, n: int, steps: int, seed: int, every: int = 500) -> dict:
+    rng = np.random.default_rng(seed)
+    acfg = measure.arena_config(cfg, seed, n)
+    world = World(acfg, populate=False)
+    for _ in range(int(0.5 * acfg.food_cap * acfg.food_energy / max(acfg.food_inflow, 1e-9))):
+        k.spawn_food(0, world.s, world.fp, world.ip)
+    rows = rng.choice(len(genomes["n_hidden"]), size=n, replace=len(genomes["n_hidden"]) < n)
+    for i in range(n):
+        measure.inject_agent(world, genomes, int(rows[i]), 0, float(rng.random() * acfg.world_w),
+                             float(rng.random() * acfg.world_h), float(rng.random() * 2 * math.pi),
+                             int(rng.integers(0, max(1, acfg.max_age // 2))))
+    c = world.s.counters
+    series = []
+    pe, pp = int(c[k.C_EATEN]), int(c[k.C_POISONED])
+    for _ in range(0, steps, every):
+        world.run(every)
+        e, p = int(c[k.C_EATEN]), int(c[k.C_POISONED])
+        alive = world.s.alive
+        series.append({"step": world.step_no, "pop": int(alive.sum()), "eaten": e - pe, "poisoned": p - pp,
+                       "hin_abs": float(np.abs(world.s.Hin[alive, :8, 0]).mean()) if alive.any() else 0.0,
+                       "flip": _flip(world.s, alive),
+                       "mod": float(world.s.mod[alive].mean()) if alive.any() else 0.0,
+                       "de": float((world.s.energy[alive] - world.s.e_prev[alive]).mean()) if alive.any() else 0.0})
+        pe, pp = e, p
+        if not alive.any():
+            break
+    keep = [r for r in series if r["step"] > steps / 4] or series
+    eat = sum(r["eaten"] for r in keep)
+    poi = sum(r["poisoned"] for r in keep)
+    return {"ratio": poi / eat if eat else float("nan"), "eaten": eat, "pop_end": series[-1]["pop"],
+            "pop_mean": float(np.mean([r["pop"] for r in keep])), "series": series}
+
+
+def main():
+    mode, ck, steps, out = sys.argv[1], Path(sys.argv[2]), int(sys.argv[3]), Path(sys.argv[4])
+    side = measure.load_side(ck)
+    cfg = side["cfg"]
+    if os.environ.get("HAND_SET"):       # 예: HAND_SET=reward_baseline_rate=0
+        d = cfg.to_dict()
+        for kv in os.environ["HAND_SET"].split(","):
+            key, val = kv.split("=")
+            d[key] = type(d[key])(float(val)) if not isinstance(d[key], bool) else val == "true"
+        cfg = type(cfg).from_dict(d)
+        side = dict(side, cfg=cfg)
+    n = 400
+    res = {"checkpoint": ck.name, "steps": steps, "variants": VARIANTS}
+    if mode == "solo":
+        for name, kw in VARIANTS.items():
+            gnm = make_hand(side["genomes"], n, **kw)
+            res[name] = [solo(cfg, gnm, n, steps, 100 + r) for r in range(2)]
+        res["evolved"] = [solo(cfg, side["genomes"], n, steps, 100 + r) for r in range(2)]
+        for name in list(VARIANTS) + ["evolved"]:
+            print(name, [(round(x["ratio"], 3), x["eaten"], round(x["pop_mean"]), x["pop_end"])
+                         for x in res[name]], flush=True)
+            for x in res[name]:
+                x["series"] = x["series"][-6:]
+    elif mode == "diag":
+        # 구간마다 좋은 종류와 함께 본다(좋은 종류가 0=A면 독 = B를 먹은 것)
+        for name in sys.argv[5:] or list(VARIANTS):
+            gnm = make_hand(side["genomes"], n, **VARIANTS[name]) if name in VARIANTS else side["genomes"]
+            seed = int(os.environ.get("HAND_SEED", "100"))
+            x = solo(cfg, gnm, n, steps, seed, every=250)
+            print(name)
+            for r in x["series"]:
+                good = k.good_kind(seed, r["step"] - 1, cfg.kind_flip_period)
+                print(f"  {r['step']:6d} good={good} pop={r['pop']:4d} eat={r['eaten']:5d} "
+                      f"poi={r['poisoned']:5d} hin={r['hin_abs']:.3f} flip={r['flip']:+.2f} mod={r['mod']:+.4f}", flush=True)
+    elif mode == "assay":
+        hand = dict(side, path="hand-learn", genomes=make_hand(side["genomes"], 400, **VARIANTS["learn"]))
+        side = dict(side, path=ck.name)
+        r = measure.assay_sides(side, hand, 400, 8000, 4, 3000)
+        res["assay"] = r
+        print(r["verdict"], r["r_per_1000"], r["final_counts"], flush=True)
+    out.write_text(json.dumps(res, indent=1, ensure_ascii=False, default=float))
+
+
+if __name__ == "__main__":
+    main()
