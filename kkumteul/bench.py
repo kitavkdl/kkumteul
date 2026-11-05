@@ -60,7 +60,7 @@ def kernel_breakdown(world: World, steps: int) -> dict:
         k.move(s, fp, ip)
         k.build_grid(s.x, s.y, s.alive, inv, gw, gh, s.a_start, s.a_items, s.cursor)
         k.collide(s, fp, ip)
-        k.eat(s, fp, ip)
+        k.eat(t, s, fp, ip)
         e = time.perf_counter()
         k.process_deaths(t, s, fp, ip)
         nb = k.process_births(t, s, fp, ip)

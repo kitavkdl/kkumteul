@@ -315,3 +315,71 @@ def test_conflict_world_lives_and_conserves_energy():
     assert rel_residual(a) < 1e-9
     with pytest.raises(ValueError):
         Config().with_overrides(["attack_gain=1.5"])
+
+
+def test_food_kinds_poison_and_sign():
+    cfg = small("kinds", init_agents=1, min_agents=0, food_inflow=0.0)
+    w = World(cfg)
+    s = w.s
+    i = int(np.flatnonzero(s.alive)[0])
+    good = k.good_kind(cfg.seed, 0, cfg.kind_flip_period)
+    s.x[i], s.y[i], s.heading[i] = 100.0, 100.0, 0.0
+    s.vx[:] = s.vy[:] = 0.0
+    # 앞쪽 5 거리에 독인 종류 하나
+    bad = 1 - good
+    s.fx[0], s.fy[0], s.f_energy[0], s.f_kind[0], s.f_alive[0] = 105.0, 100.0, 1.0, bad, True
+    s.counters[k.C_NFOOD] = 1
+    s.ledger[k.L_SPAWN] += 1.0
+    gw, gh, inv = cfg.grid_w, cfg.grid_h, 1.0 / cfg.cell
+    k.build_grid(s.x, s.y, s.alive, inv, gw, gh, s.a_start, s.a_items, s.cursor)
+    k.build_grid(s.fx, s.fy, s.f_alive, inv, gw, gh, s.f_start, s.f_items, s.cursor)
+    k.sense(0, s, w.fp, w.ip)
+    vis = s.obs[i, :cfg.vision_sectors]
+    assert (vis != 0).any()
+    assert (np.sign(vis[vis != 0]) == (-1 if bad == 1 else 1)).all(), "먹이 종류 1은 음수로 보인다"
+    # 독을 먹으면 에너지를 잃고 장부에 적힌다
+    s.x[i] = 104.6
+    k.build_grid(s.x, s.y, s.alive, inv, gw, gh, s.a_start, s.a_items, s.cursor)
+    e0, lost = s.energy[i], s.ledger[k.L_LOST]
+    k.eat(0, s, w.fp, w.ip)
+    assert s.energy[i] == pytest.approx(e0 - cfg.poison)
+    assert s.ledger[k.L_LOST] == pytest.approx(lost + 1.0 + cfg.poison)
+    assert not s.f_alive[0] and s.counters[k.C_POISONED] == 1
+    assert rel_residual(w) < 1e-9
+    # 꺼져 있으면 종류는 전부 0이고 독이 없다
+    w1 = World(small())
+    w1.run(300)
+    assert not w1.s.f_kind[w1.s.f_alive & (w1.s.f_kind != 2)].any()
+
+
+def test_food_kinds_world_runs_and_conserves_energy():
+    w = World(small("stage2", "kinds"))
+    w.run(2000)
+    w.check_sane()
+    sm = w.summary()
+    assert sm["poisoned"] > 0 and rel_residual(w) < 1e-9
+    kinds = w.s.f_kind[w.s.f_alive]
+    assert (kinds == 0).any() and (kinds == 1).any()
+    b = World(small("stage2", "kinds"))
+    b.run(2000)
+    assert b.state_hash() == w.state_hash()
+
+
+def test_checkpoint_from_before_new_fields_still_resumes(tmp_path):
+    """장치를 더 넣기 전에 저장한 체크포인트(필드가 없거나 칸 수가 적은 것)도 이어 돌릴 수 있어야 한다."""
+    r = Runner.new(tmp_path / "r", small("stage3"))
+    r.loop(400, quiet=True)
+    r.close()
+    for step, p in ckpt.list_checkpoints(tmp_path / "r" / "checkpoints"):
+        with np.load(p) as z:
+            arrays = {name: z[name] for name in z.files}
+        arrays["counters"] = arrays["counters"][:16]
+        del arrays["f_kind"]
+        np.savez(p, **arrays)
+        meta = json.loads(p.with_suffix(".json").read_text())
+        meta["npz_sha256"] = ckpt.file_sha256(p)
+        p.with_suffix(".json").write_text(json.dumps(meta))
+    again = Runner.resume(tmp_path / "r")
+    assert again.world.step_no == 400
+    again.loop(200, quiet=True)
+    again.close()

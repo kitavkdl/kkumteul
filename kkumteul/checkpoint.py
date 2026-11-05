@@ -84,13 +84,11 @@ def load(path: Path, cfg: Config | None = None, verify: bool = True) -> tuple[Wo
     saved_cfg = Config.from_dict(cd)
     world = World(saved_cfg, populate=False)
     with np.load(path) as z:
-        world.load_arrays({k: z[k] for k in z.files})
-    if verify and not upgraded and world.state_hash() != meta["state_hash"]:
-        # 옛 형식에서 올린 것은 배열 모양이 달라 해시를 견줄 수 없다(파일 자체는 npz가 지킨다)
-        with np.load(path) as z:
-            old_format = any(name not in z.files for name in ("rw", "trail"))
-        if not old_format:
-            raise ValueError(f"체크포인트가 깨졌다: {path}")
+        exact = world.load_arrays({k: z[k] for k in z.files})
+    # 옛 형식(필드가 없거나 크기가 작던 것)을 채워 읽은 경우는 저장 때의 상태 해시와 견줄 수 없다.
+    # 그때도 파일 자체는 위의 sha256이 지킨다.
+    if verify and exact and not upgraded and world.state_hash() != meta["state_hash"]:
+        raise ValueError(f"체크포인트가 깨졌다: {path}")
     if cfg is not None:
         world.set_config(cfg)
     if meta.get("source_hash") not in (None, SOURCE_HASH):
