@@ -67,6 +67,49 @@ def share(path: Path, steps: int) -> dict:
     }
 
 
+def kin(path: Path, steps: int) -> dict:
+    """공격자가 누구 곁에서 공격하는가. 매 스텝 닿는 거리 안의 가장 가까운 이웃과의 거리를,
+    공격을 낸 개체와 내지 않은 개체로 나눠 모은다. 거리 둘:
+    - 색 유전자(color): 쓰이지 않고 천천히 떠도는 계통 표지라 혈연의 대용이다.
+    - 행동 유전체(Wout, bout): 하는 짓이 얼마나 닮았는가.
+    부모 번호는 개체 상태에 없어서(태어남 기록에만 있다) 이렇게 본다."""
+    world, _ = ckpt.load(path)
+    s, cfg = world.s, world.cfg
+    reach = 2.0 * cfg.agent_radius + 0.5
+    W, H = cfg.world_w, cfg.world_h
+    col = {"atk": [], "calm": []}
+    gen = {"atk": [], "calm": []}
+    rnd_col, rnd_gen = [], []
+    rng = np.random.default_rng(7)
+    for _ in range(steps):
+        world.run(1)
+        live = np.flatnonzero(s.alive)
+        if len(live) < 3:
+            continue
+        dx = np.abs(s.x[live][:, None] - s.x[live][None, :]); dx = np.minimum(dx, W - dx)
+        dy = np.abs(s.y[live][:, None] - s.y[live][None, :]); dy = np.minimum(dy, H - dy)
+        d2 = dx * dx + dy * dy
+        np.fill_diagonal(d2, np.inf)
+        nb = d2.argmin(1)
+        has = d2[np.arange(len(live)), nb] <= reach * reach
+        c = s.color[live].astype(float)
+        g = np.concatenate([s.Wout[live].reshape(len(live), -1), s.bout[live]], 1).astype(float)
+        dc = np.linalg.norm(c - c[nb], axis=1)
+        dg = np.linalg.norm(g - g[nb], axis=1)
+        atk = s.act[live, ACT_ATTACK] > 0.0
+        for key, m in (("atk", has & atk), ("calm", has & ~atk)):
+            col[key].extend(dc[m].tolist()); gen[key].extend(dg[m].tolist())
+        p = rng.integers(0, len(live), size=(64, 2))
+        p = p[p[:, 0] != p[:, 1]]
+        rnd_col.extend(np.linalg.norm(c[p[:, 0]] - c[p[:, 1]], axis=1).tolist())
+        rnd_gen.extend(np.linalg.norm(g[p[:, 0]] - g[p[:, 1]], axis=1).tolist())
+    world.drain_events()
+    q = lambda v: {"n": len(v), "mean": float(np.mean(v)), "median": float(np.median(v))} if v else {"n": 0}  # noqa: E731
+    return {"steps": steps, "reach": reach,
+            "color_dist": {"attacker_to_neighbor": q(col["atk"]), "non_attacker_to_neighbor": q(col["calm"]), "random_pair": q(rnd_col)},
+            "behavior_genome_dist": {"attacker_to_neighbor": q(gen["atk"]), "non_attacker_to_neighbor": q(gen["calm"]), "random_pair": q(rnd_gen)}}
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("ckpt", type=Path)
@@ -75,8 +118,12 @@ def main(argv=None) -> int:
     ap.add_argument("--reps", type=int, default=6)
     ap.add_argument("--seed", type=int, default=3000)
     ap.add_argument("--share", type=int, default=1000)
+    ap.add_argument("--kin", type=int, default=0, help="이만큼 돌리며 공격자와 이웃의 거리만 재고 끝낸다")
     args = ap.parse_args(argv)
 
+    if args.kin:
+        print(json.dumps({"ckpt": str(args.ckpt), "kin": kin(args.ckpt, args.kin)}, ensure_ascii=False, indent=1))
+        return 0
     out = {"ckpt": str(args.ckpt), "calm_bias": CALM_BIAS}
     if args.share:
         out["share"] = share(args.ckpt, args.share)
