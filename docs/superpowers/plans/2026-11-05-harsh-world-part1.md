@@ -131,7 +131,7 @@ def test_replay_record_with_ext_override(tmp_path):
 - Test: `tests/test_harsh.py`
 
 **Interfaces:**
-- 설정(임시 결정, 설계 ①): `season_period: int = 4000`, `winter_len: int = 1200`, `winter_mult: float = 0.3`, `winter_basal_mult: float = 2.0`. 검사: `1 <= winter_len < season_period`, `0 <= winter_mult <= 1`, `winter_basal_mult >= 1`.
+- 설정(임시 결정, 설계 ①): `season_period: int = 4000`, `winter_len: int = 1200`, `winter_mult: float = 0.3`, `winter_basal_mult: float = 1.5`(지구 여름 대비 1.0~1.5, `docs/research/earth-references.md`). 검사: `1 <= winter_len < season_period`, `0 <= winter_mult <= 1`, `winter_basal_mult >= 1`.
 - Produces: `World.season(t: int) -> tuple[float, float, float, float]` = `(grass_mult, basal_mult, sin, cos)`. 해 위상 `ph = (t % P) / P`, `sin/cos = sin/cos(2π·ph)`. **겨울은 해의 끝** `t % P >= P - winter_len`(갈라 켜는 스텝이 보통 P의 배수라 봄에서 시작하게). 겨울: `(winter_mult, winter_basal_mult)`, 나머지: `((P - winter_mult·W) / (P - W), 1.0)` — 해 평균 풀 배수 1. 꺼져 있으면 `(1.0, 1.0, 0.0, 0.0)`.
 - 커널 인자(기본 1.0): `spawn_food(step, s, fp, ip, mult=1.0)` — `budget[0] += P_INFLOW * mult`. `niche_world(step, s, fs, isp, mult=1.0)` — `share = F_INFLOW * mult * F_FERT_FRAC * frac`. `move(s, fp, ip, basal_mult=1.0)` — 기초 대사와 `L_BASAL`에 곱함. `after_move(s, fs, isp, basal_mult=1.0)` — 잠 환급 `back`에 곱함.
 - 감각: `season_enabled`이면 `World.step`이 감각 커널들 뒤·생각 앞에 살아 있는 개체의 `obs[:, ext_in0 + EXT_SEASON]`, `+1`에 sin, cos를 쓴다(작은 순차 커널 `kernels.write_ext2(alive, obs, col, a, b)`).
@@ -144,7 +144,7 @@ def test_season_schedule_keeps_yearly_mean():
     P, W = w.cfg.season_period, w.cfg.winter_len
     g = [w.season(t)[0] for t in range(P)]
     assert abs(np.mean(g) - 1.0) < 1e-12
-    assert w.season(0)[0] > 1.0 and w.season(P - 1) == (pytest.approx(0.3), 2.0, *w.season(P - 1)[2:])
+    assert w.season(0)[0] > 1.0 and w.season(P - 1) == (pytest.approx(0.3), 1.5, *w.season(P - 1)[2:])
 
 def test_winter_cuts_grass_and_raises_basal():
     on = World(small("ext", season_enabled=True, season_period=400, winter_len=200))
@@ -178,9 +178,10 @@ def test_winter_with_niche_conserves_energy():
 - Test: `tests/test_harsh.py`
 
 **Interfaces:**
-- 설정(임시 결정, 설계 ②): `spoil_after: int = 400`, `spoil_rate: float = 0.00115`, `spoil_min_frac: float = 0.05`. 검사: `spoil_after >= 0`, `0 <= spoil_rate <= 1`, `0 <= spoil_min_frac < 1`.
+- 설정(임시 결정, 설계 ②): `spoil_after: int = 400`, `spoil_rate: float = 0.00115`, `spoil_min_frac: float = 0.05`, `spoil_winter_mult: float = 0.2`(겨울엔 부패가 거의 멈춤: 지구 여름/겨울 속도비 3~7, `docs/research/earth-references.md`). 검사: `spoil_after >= 0`, `0 <= spoil_rate <= 1`, `0 <= spoil_min_frac < 1`, `0 <= spoil_winter_mult <= 1`.
+- 겨울 배수: `World.step`이 겨울(`season_enabled`이고 `t % P >= P - winter_len`)이면 `rate_mult = spoil_winter_mult`, 아니면 1.0을 `spoil_food`에 넘긴다. 겨울이 꺼져 있으면 늘 1.0. 시험 하나 더: 겨울 안의 한 스텝에 줄어든 양이 `f_energy * spoil_rate * spoil_winter_mult`이고 장부가 맞다.
 - Produces: `kernels._drop_food_slot(s, j) -> None` — `f_alive[j]=False`, `C_NFOOD -= 1`. 에너지 장부는 부르는 쪽이 쓴다. (2부 ③에서 먹힘·상한 교체·운석·약탈이 이 함수를 거치게 바꾸고 손을 푼다. 이 과제에서는 부패만 쓴다.)
-- Produces: `kernels.spoil_food(step, s, fp, ip) -> None` (순차) — 살아 있는 먹이 가운데 `step - f_born >= spoil_after`인 것은 `lost = f_energy * spoil_rate`를 빼 `L_LOST`에. 남은 것이 `spoil_min_frac * food_energy` 미만이면 남은 것도 `L_LOST`에 넣고 `_drop_food_slot`, `C_SPOILED += 1`. 사체(`KIND_CORPSE`)도 상한다. `N_COUNTERS`는 24 그대로(21번이 비어 있다).
+- Produces: `kernels.spoil_food(step, s, fp, ip, rate_mult=1.0) -> None` (순차) — 살아 있는 먹이 가운데 `step - f_born >= spoil_after`인 것은 `lost = f_energy * spoil_rate * rate_mult`를 빼 `L_LOST`에. 남은 것이 `spoil_min_frac * food_energy` 미만이면 남은 것도 `L_LOST`에 넣고 `_drop_food_slot`, `C_SPOILED += 1`. 사체(`KIND_CORPSE`)도 상한다. `N_COUNTERS`는 24 그대로(21번이 비어 있다).
 
 - [ ] **Step 1: 실패하는 시험 쓰기**
 
