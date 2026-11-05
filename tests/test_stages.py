@@ -381,6 +381,8 @@ def test_checkpoint_from_before_new_fields_still_resumes(tmp_path):
         arrays["counters"] = arrays["counters"][:16]
         del arrays["f_kind"]
         arrays.pop("f_born", None)
+        arrays.pop("elig_in", None)
+        arrays.pop("elig_rec", None)
         np.savez(p, **arrays)
         meta = json.loads(p.with_suffix(".json").read_text())
         meta["npz_sha256"] = ckpt.file_sha256(p)

@@ -118,6 +118,9 @@ class Config:
     sleep_basal: float = 0.6      # 자는 동안 기초 대사 배율
     sleep_forget: float = 0.01    # 자는 동안 약한 학습 흔적이 스텝마다 지워지는 정도
     sleep_keep: float = 0.3       # 이보다 센 학습 흔적은 자는 동안 지워지지 않는다
+    perturb_sigma: float = 0.0    # 0보다 크면 학습 규칙이 노드 섭동으로 바뀐다: 은닉 뉴런이 출력으로 보내는 값을
+                                  # 이 크기의 잡음으로 흔들고, 흔든 뒤 보상이 오면 그쪽으로 배운다. 0이면 헤브 학습(기본).
+                                  # 실행 중에 0과 양수 사이를 넘나들면(각본 포함) 학습 흔적이 0에서 다시 시작한다
 
     # --- 3단계: 사회 (기본은 꺼짐) ---
     social_enabled: bool = False  # 신호 내기·듣기, 혈연 알아보기, 이웃이 먹는 것 보기, 에너지 주기
@@ -228,7 +231,7 @@ class Config:
         for name in ("give_loss", "deposit_loss", "path_bonus", "fert_frac", "sleep_basal", "trace_decay",
                      "hormone_rate_hunger", "hormone_rate_stress", "hormone_rate_dopamine",
                      "hormone_rate_boredom", "reward_baseline_rate", "proto_lr", "sleep_forget",
-                     "trail_decay", "soil_decay", "hebb_decay"):
+                     "trail_decay", "soil_decay", "hebb_decay", "perturb_sigma"):
             if not (0.0 <= getattr(self, name) <= 1.0):
                 raise ValueError(f"{name}은 0과 1 사이여야 한다")
         if self.eta_max <= 0 or self.sleep_recover <= 0:

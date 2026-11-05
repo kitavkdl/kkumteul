@@ -65,6 +65,9 @@ AGENT_FIELDS = [
     ("link", np.float32, ("NP", "NP"), True),
     ("last_proto", np.int32, (), True),
     ("sig", np.float32, ("2",), True),        # 지난 스텝에 낸 신호
+    # 노드 섭동(perturb_sigma > 0)의 연결별 흔적: 무엇이 들어올 때 어느 뉴런을 흔들었는가. EI·EH는 꺼져 있으면 1이다
+    ("elig_in", np.float32, ("EI", "EH"), True),
+    ("elig_rec", np.float32, ("EH", "EH"), True),
     ("hnew", np.float32, ("H",), False),
     ("obs", np.float32, ("I",), False),
     ("act", np.float32, ("O",), False),
@@ -87,7 +90,9 @@ TOUCH_HIT = 2.0      # 이번 스텝에 공격을 맞은 개체의 닿음 감각
 
 OTHER_SAVED = ["counters", "ledger", "budget", "trail", "soil"]
 # 크기가 설정에 따라 달라도 되는 평생 상태(체크포인트와 크기가 다르면 0에서 시작한다)
-LIFETIME_FLEX = ("epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link")
+LIFETIME_FLEX = ("epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link", "elig_in", "elig_rec")
+# 노드 섭동을 켰을 때만 크게 잡는 배열
+PERTURB_FLEX = ("elig_in", "elig_rec")
 OTHER_SCRATCH = ["a_start", "a_items", "f_start", "f_items", "cursor", "bbuf", "dbuf", "dbuf_f"]
 
 State = namedtuple(
@@ -237,8 +242,10 @@ def pack_params(cfg):
 def alloc_state(cfg) -> State:
     n = cfg.max_agents
     mind = cfg.mind_enabled
+    perturb = mind and cfg.perturb_sigma > 0.0
     dims = {"3": 3, "4": 4, "2": 2, "I": cfg.n_in, "H": cfg.h_max, "O": cfg.n_out, "NR": N_REWARD,
             "PI": cfg.n_in if mind else 1, "PH": cfg.h_max if mind else 1,
+            "EI": cfg.n_in if perturb else 1, "EH": cfg.h_max if perturb else 1,
             "NP": cfg.n_proto if mind else 1, "ND": 2 * cfg.vision_sectors if mind else 1}
     d = {}
     for name, dt, extra, _ in AGENT_FIELDS:
@@ -822,6 +829,12 @@ def _reset_body(s, j, aid, parent, gen, tag, step, px, py, hd, e):
             s.proto[j, a, k] = 0.0
         for k in range(s.link.shape[2]):
             s.link[j, a, k] = 0.0
+    for a in range(s.elig_in.shape[1]):
+        for k in range(s.elig_in.shape[2]):
+            s.elig_in[j, a, k] = 0.0
+    for a in range(s.elig_rec.shape[1]):
+        for k in range(s.elig_rec.shape[2]):
+            s.elig_rec[j, a, k] = 0.0
     s.counters[C_NALIVE] += 1
 
 

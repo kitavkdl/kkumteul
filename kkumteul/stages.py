@@ -16,7 +16,7 @@ from .config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT
                      IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL, N_INTERNAL)
 from .kernels import (C_ATTACKS, C_FERTILE, C_GIFTS, C_NFOOD, KIND_A, L_BASAL, L_BRAIN, L_DISCARD, L_LOST,
                       L_MOVE, L_SPAWN, TOUCH_HIT, _place_food, _wdiff, _wrap, make_room, pick_kind)
-from .rng import S_ATTACK_ORDER, S_FERTILE, u01
+from .rng import S_ATTACK_ORDER, S_FERTILE, S_PERTURB, normal, u01
 
 # 거름 먹이의 종류를 뽑는 난수 번호의 밑. S_KIND 흐름에서 보통 먹이는 (일련번호, 0), 어느 쪽이 독인지는
 # (구간, 1)을 쓴다. 거름 먹이는 (스텝, 이 값 + 그 스텝의 몇 번째인지)를 써서 둘과 겹치지 않게 한다.
@@ -30,7 +30,7 @@ KIND_RNG_FERTILE = 1000003
  F_HEAR, F_SIG_COST, F_GIVE_RATE, F_GIVE_LOSS, F_GIVE_MIN,
  F_WEAR, F_TRAIL_DECAY, F_TRAIL_SAT, F_PATH_BONUS, F_DEP_RATE, F_DEP_LOSS, F_SOIL_DECAY,
  F_SOIL_REF, F_FERT_FRAC, F_SOIL_USE, F_CELL, F_ATK_DMG, F_ATK_GAIN, F_ATK_COST, F_KIND_RATIO,
- N_FS) = range(47)
+ F_PERTURB, N_FS) = range(48)
 # ---- 정수 설정 칸 ----
 (I_SEED, I_GW, I_GH, I_SECTORS, I_H_MAX, I_MIND, I_SOCIAL, I_NICHE, I_FOOD_CAP, I_STAGE_IN, I_KINDS,
  I_CAP_REPLACE, N_IS) = range(13)
@@ -57,6 +57,7 @@ def pack_stage_params(cfg):
     fs[F_SOIL_USE] = cfg.soil_use
     fs[F_ATK_DMG], fs[F_ATK_GAIN], fs[F_ATK_COST] = cfg.attack_damage, cfg.attack_gain, cfg.attack_cost
     fs[F_KIND_RATIO] = cfg.kind_ratio
+    fs[F_PERTURB] = cfg.perturb_sigma
     isp[I_SEED], isp[I_GW], isp[I_GH] = cfg.seed, cfg.grid_w, cfg.grid_h
     isp[I_SECTORS], isp[I_H_MAX] = cfg.vision_sectors, cfg.h_max
     isp[I_MIND], isp[I_SOCIAL], isp[I_NICHE] = int(cfg.mind_enabled), int(cfg.social_enabled), int(cfg.niche_enabled)
@@ -282,14 +283,24 @@ def mind_update(s, fs, isp):
 
 
 @njit(cache=True, parallel=True)
-def _think_plastic_par(fs, alive, n_hidden, obs, h, hnew, act, Win, Wrec, bh, Wout, bout,
-                       alpha, eta, mod, fatigue, asleep, Hin, Hrec, epre_in, epre_h, epost):
-    """뇌 계산 + 평생 학습. 쓰는 가중치 = 타고난 것 + alpha * 살면서 배운 것."""
+def _think_plastic_par(fs, seed, step, h_max, alive, ids, n_hidden, obs, h, hnew, act, Win, Wrec, bh, Wout, bout,
+                       alpha, eta, mod, fatigue, asleep, Hin, Hrec, epre_in, epre_h, epost, elig_in, elig_rec):
+    """뇌 계산 + 평생 학습. 쓰는 가중치 = 타고난 것 + alpha * 살면서 배운 것.
+
+    학습 규칙은 둘이다. 둘 다 "학습률 × 보상 신호 × 흔적"만큼 배운 것(Hin, Hrec)을 고치고, 흔적이 다르다.
+    - 헤브(perturb_sigma = 0, 기본): 흔적 = 입력의 흔적(epre) × 뉴런 활동의 흔적(epost).
+      보상이 오면 함께 활동한 짝이 세진다.
+    - 노드 섭동(perturb_sigma > 0): 은닉 뉴런이 출력으로 보내는 값을 잡음으로 흔들고, 연결마다
+      "그 순간 들어온 값 × 흔든 양"을 쌓는다(elig_in, elig_rec). 보상이 오면 흔든 쪽으로 옮긴다.
+      뉴런이 조용해도(출력 0) 배울 수 있다. 흔든 양은 그 순간의 입력과만 짝짓는다: 왼쪽으로 흔들면
+      그 뒤에는 먹이가 오른쪽에 보이므로, 나중에 본 것과 짝지으면 거꾸로 배운다.
+    """
     n = alive.shape[0]
     n_in = obs.shape[1]
     n_out = act.shape[1]
     lam = fs[F_TRACE]
     keep = 1.0 - fs[F_HEBB_DECAY]
+    sigma = fs[F_PERTURB]
     for i in prange(n):
         if not alive[i]:
             continue
@@ -325,24 +336,79 @@ def _think_plastic_par(fs, alive, n_hidden, obs, h, hnew, act, Win, Wrec, bh, Wo
             # 활동만 담은 채로 쓰고, 이번 스텝의 활동은 학습 뒤에 흔적에 더한다.
             # 배운 것은 배우지 않는 스텝에도 조금씩 흐려진다.
             g = eta[i] * (1.0 - fatigue[i]) * mod[i]
+            if sigma > 0.0:
+                # 노드 섭동: 지난 스텝까지 쌓인 연결별 흔적만큼 옮긴다. 쓰는 가중치가 alpha × 배운 것이라
+                # alpha가 음수인 뉴런은 부호를 뒤집어야 흔든 쪽으로 간다(alpha가 0이면 배울 것이 없다)
+                for k in range(nh):
+                    gk = g
+                    if alpha[i, k] < 0.0:
+                        gk = -g
+                    elif alpha[i, k] == 0.0:
+                        gk = 0.0
+                    for j in range(n_in):
+                        v = Hin[i, j, k] * keep + gk * elig_in[i, j, k]
+                        if v > 1.0:
+                            v = 1.0
+                        if v < -1.0:
+                            v = -1.0
+                        Hin[i, j, k] = v
+                    for j in range(nh):
+                        v = Hrec[i, j, k] * keep + gk * elig_rec[i, j, k]
+                        if v > 1.0:
+                            v = 1.0
+                        if v < -1.0:
+                            v = -1.0
+                        Hrec[i, j, k] = v
+            else:
+                for j in range(n_in):
+                    gp = g * epre_in[i, j]
+                    for k in range(nh):
+                        v = Hin[i, j, k] * keep + gp * epost[i, k]
+                        if v > 1.0:
+                            v = 1.0
+                        if v < -1.0:
+                            v = -1.0
+                        Hin[i, j, k] = v
+                for j in range(nh):
+                    gp = g * epre_h[i, j]
+                    for k in range(nh):
+                        v = Hrec[i, j, k] * keep + gp * epost[i, k]
+                        if v > 1.0:
+                            v = 1.0
+                        if v < -1.0:
+                            v = -1.0
+                        Hrec[i, j, k] = v
+        if sigma > 0.0:
+            # 노드 섭동. 흔든 값은 출력으로만 간다. 되먹임으로 남는 은닉 상태(h)는 흔들지 않은 값이라
+            # 되먹임 연결의 흔적에 잡음이 섞이지 않는다(섞이면 자기 연결에 잡음끼리의 곱이 쌓인다).
+            # 흔든 양은 tanh 뒤에서 실제로 바뀐 만큼이다: 포화한 뉴런은 흔들어도 거의 안 바뀐다.
+            # 자는 동안은 흔들지 않는다(행동이 꺼져 있어 흔들어도 결과가 없다). 흔적은 흐려지기만 한다.
+            # 이 규칙에서는 epost를 "이번 스텝에 흔든 양"을 담는 칸으로 쓰고 epre_in, epre_h는 쓰지 않는다.
+            awake = asleep[i] <= 0.0
+            for k in range(nh):
+                c = float(hnew[i, k])
+                d = 0.0
+                if awake:
+                    # tanh(a + b) = (tanh a + tanh b) / (1 + tanh a · tanh b): tanh 앞에 잡음을 더한 것과 같다
+                    tn = math.tanh(sigma * normal(seed, S_PERTURB, ids[i], step * h_max + k))
+                    d = (c + tn) / (1.0 + c * tn) - c
+                epost[i, k] = d
             for j in range(n_in):
-                gp = g * epre_in[i, j]
+                xj = obs[i, j]
                 for k in range(nh):
-                    v = Hin[i, j, k] * keep + gp * epost[i, k]
-                    if v > 1.0:
-                        v = 1.0
-                    if v < -1.0:
-                        v = -1.0
-                    Hin[i, j, k] = v
+                    elig_in[i, j, k] = lam * elig_in[i, j, k] + xj * epost[i, k]
             for j in range(nh):
-                gp = g * epre_h[i, j]
+                hj = h[i, j]        # 지난 스텝의 흔들지 않은 상태
                 for k in range(nh):
-                    v = Hrec[i, j, k] * keep + gp * epost[i, k]
-                    if v > 1.0:
-                        v = 1.0
-                    if v < -1.0:
-                        v = -1.0
-                    Hrec[i, j, k] = v
+                    elig_rec[i, j, k] = lam * elig_rec[i, j, k] + hj * epost[i, k]
+            for k in range(nh):
+                h[i, k] = hnew[i, k]
+            for o in range(n_out):
+                acc = bout[i, o]
+                for k in range(nh):
+                    acc += Wout[i, o, k] * (h[i, k] + epost[i, k])
+                act[i, o] = math.tanh(acc)
+            continue
         for k in range(nh):
             epost[i, k] = lam * epost[i, k] + hnew[i, k]
         for j in range(n_in):
@@ -359,10 +425,14 @@ def _think_plastic_par(fs, alive, n_hidden, obs, h, hnew, act, Win, Wrec, bh, Wo
 
 
 @njit(cache=True)
-def think_plastic(s, fs):
-    _think_plastic_par(fs, s.alive, s.n_hidden, s.obs, s.h, s.hnew, s.act, s.Win, s.Wrec, s.bh,
-                       s.Wout, s.bout, s.alpha, s.eta, s.mod, s.fatigue, s.asleep, s.Hin, s.Hrec,
-                       s.epre_in, s.epre_h, s.epost)
+def think_plastic(step, s, fs, isp):
+    if fs[F_PERTURB] > 0.0 and (s.elig_in.shape[1] != s.obs.shape[1] or s.elig_in.shape[2] != s.h.shape[1]
+                                or s.elig_rec.shape[1] != s.h.shape[1]):
+        # 커널은 배열의 범위를 보지 않는다. 설정만 켜지고 배열이 작으면 다른 개체의 칸에 쓰게 된다
+        raise ValueError("perturb_sigma > 0인데 연결별 흔적 배열이 작다(설정은 World.set_config로 바꾼다)")
+    _think_plastic_par(fs, isp[I_SEED], step, isp[I_H_MAX], s.alive, s.ids, s.n_hidden, s.obs, s.h, s.hnew, s.act,
+                       s.Win, s.Wrec, s.bh, s.Wout, s.bout, s.alpha, s.eta, s.mod, s.fatigue, s.asleep,
+                       s.Hin, s.Hrec, s.epre_in, s.epre_h, s.epost, s.elig_in, s.elig_rec)
 
 
 @njit(cache=True)
