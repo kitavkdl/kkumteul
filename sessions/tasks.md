@@ -20,12 +20,12 @@
   - [x] 기본값(독 1.0·주기 1,500)에 장치만 켬 → 좋은 구간에만 오르는 톱니, 마음을 켠 쪽은 계속 하한
   - [x] 독 0.3 갈래 둘(30만 스텝) 읽기 — 둘 다 하한에서 벗어났다. 독 비율은 0.50(아무거나 먹는다). 결과 문서 "세 번째 시도"
   - [x] 겨루기(130만, `wayfinder/stage2-4/results/compare-k4.json`) — 마음 켠 규칙에서 s2가 이김, 끈 규칙에서는 가를 수 없음. **판정: 학습은 아직 값을 하지 않는다**(가려 먹지 않고, 뇌 1.2개·학습률 0.005)
-  - [ ] **230만까지 이어 돌린 결과 읽기** — 유닛 `kkumteul-k4-ctrl-b`, `kkumteul-k4-s2-b`(02:50 ET 시작). 예측은 결과 문서의 "이어서 하는 것"(ctrl은 0.50 유지, s2가 0.45 아래면 가려 먹기)
+  - [ ] **230만까지 이어 돌린 결과 읽기** — 유닛 `kkumteul-k4-ctrl-b`, `kkumteul-k4-s2-b`(02:35 ET 시작). 예측은 결과 문서의 "이어서 하는 것"(ctrl은 0.50 유지, s2가 0.45 아래면 가려 먹기)
   - [ ] **손으로 만든 "배워서 가려 먹는 개체"** — 이 장치로 가려 먹기를 배울 수 있는지, 진화한 무리를 이기는지. 안 되면 무엇이 모자란지 적는다(보상 가중치의 처음 값, 학습이 실리는 자리, 흔적의 길이). 예측 먼저
   - [ ] 무작위 유전체에서 시작한 먹이 종류 세계(마음 켠 것과 끈 것)
   완료 기준: 가려 먹기가 이 장치로 가능한지 "된다/안 된다"와 그 까닭이 결과 문서에 적힘
 - [ ] 공격(`preset=conflict`) 세계가 무너지지 않는지 — `preset=stage3 preset=conflict`로 20만 스텝. 개체 수, 재주입, 공격 횟수. 무너지면 `attack_damage`·`attack_gain`을 낮춘다. 갈라내며 켜면 공격 편향을 -1로 맞춘다(결함-3 반영). 견줄 대조 갈래는 `--calm-attack`
-- [x] 새 장치 독립 검토 반영 — 23건 모두 처리(03시대 ET에 남은 12건 반영). 기록은 `wayfinder/stage2-4/code-review-2026-11-05b.md`. 새로 생긴 것: `kind_ratio`, `deaths_killed`·`w_killed`, 공격 순서 돌리기, `pack migrate --tag`, 이주 실패 때 폴더 안 남김
+- [x] 새 장치 독립 검토 반영 — 23건 모두 처리(02:40대 ET에 남은 12건 반영). 기록은 `wayfinder/stage2-4/code-review-2026-11-05b.md`. 새로 생긴 것: `kind_ratio`, `deaths_killed`·`w_killed`, 공격 순서 돌리기, `pack migrate --tag`, 이주 실패 때 폴더 안 남김
 - [ ] 서버의 세계 둘을 최신 코드로 다시 띄우기 — 서버 폴더의 코드는 01:55 ET에 최신으로 받았다. 돌고 있는 `kkumteul-main`, `kkumteul-world4`는 띄울 때의 옛 코드로 계속 돈다. 멈추고 `resume`으로 다시 띄우면 새 코드가 된다(옛 체크포인트는 채워 읽는다). 멈추고 띄우는 일이니 대표님께 한 줄 알리고 한다
 - [ ] 관찰 화면: 먹이 종류(독) 색, 공격 표시. 프레임에는 아직 먹이 종류가 없다(`run.py`의 `encode_frame`)
 - [ ] 씨앗 세계 공개 — 새 형식 체크포인트 하나를 GitHub 릴리스에 올리고 `CONTRIBUTING.md`에 받는 법을 적는다(서버의 `gh`로). 올리기 전에 대표님께 알린다
@@ -33,7 +33,7 @@
 - [ ] 마무리(07:30 ET 전): 인수인계 고쳐 쓰기, 커밋·push, 대표님께 결과 요약
 
 ## 대표님이 정하실 것
-- [ ] **`main`에 합치기** — 03:00대 ET부터의 커밋은 가지 `worktree-night-1105c`에 있다(실행 환경이 이 세션의 main push·합치기를 막는다). 합치려면 서버 터미널에서 레포 폴더로 가서 `git merge --ff-only origin/worktree-night-1105c && git push && echo 합침`. 그 전까지 다음 세션은 작업 폴더 `.claude/worktrees/night-1105c`에서 이어 간다(인수인계 맨 위)
+- [ ] **`main`에 합치기** — 02:50 ET부터의 커밋은 가지 `worktree-night-1105c`에 있다(실행 환경이 이 세션의 main push·합치기를 막는다). 합치려면 서버 터미널에서 레포 폴더로 가서 `git merge --ff-only origin/worktree-night-1105c && git push && echo 합침`. 그 전까지 다음 세션은 작업 폴더 `.claude/worktrees/night-1105c`에서 이어 간다(인수인계 맨 위)
 - [ ] "하루 10세대"의 뜻 — 지금 값으로는 하루 약 11만 세대(맥)가 쌓인다. 10세대를 하한으로 읽었다. `wayfinder/stage1/T09-death-reproduction-generation.md`
 - [ ] 관찰 화면을 직접 보고 더 보여야 할 것 — `wayfinder/stage1/T07-observation-screen.md`
 - [ ] 라이선스 확인 — MIT를 임시로 넣었다. `LICENSE`
