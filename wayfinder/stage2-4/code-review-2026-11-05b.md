@@ -71,7 +71,7 @@
 - 인용: if kinds and s.f_kind[j] != 2 and s.f_kind[j] != good:  /  docs: "먹이가 두 종류로 나고(시야에서 한 종류는 양수, 다른 종류는 음수로 보인다) 한쪽은 독이다."
 - 검증 근거: kernels.py:707의 조건 `s.f_kind[j] != 2 and s.f_kind[j] != good` 때문에 종류 2는 독이 되지 않는다. kernels.py:79 주석도 '2는 늘 먹을 수 있는 것(사체)'이라고 적었다. kernels.py:930의 _remove는 _place_food(..., 2)로 사체를 종류 2로 놓는다. kernels.py:463에서 시야 부호는 f_kind==1일 때만 -1이고 종류 2는 종류 0처럼 +1로 보인다. docs/stages-2-4.md:31~32는 '두 종류, 한쪽은 독'이라고만 썼고 '사체'·'종류 2'는 문서에 없다. 다만 사체는 늙어 죽을 때만 생긴다(kernels.py:966의 DEATH_AGE 경로, config.py:63의 '늙어 죽으면'). 그래서 '흔하다'는 정도는 실행해 봐야 안다. 종류 2 먹이가 차지하는 비율을 세면 가려진다.
 - 고치는 방향(검증자): 문서의 먹이 종류 절에 '늙어 죽은 개체가 남긴 먹이는 세 번째 종류로, 늘 안전하고 시야에서는 양수로 보인다'를 덧붙인다. 필요하면 사체에 따로 부호를 주는 방안을 검토한다.
-- 처리: (미정)
+- 처리: 반영(문서) — `docs/stages-2-4.md`의 먹이 종류 절에 사체 먹이(종류 2)가 늘 안전하고 양수로 보인다는 것을 적었다.
 
 ### 명세-3. 독을 먹어도 '먹었음(ate)' 감각이 1이 되어, 보상 항과 이웃이 먹음 입력에 독 섭취가 먹기로 잡힌다
 - 종류: 넘침 · 자리: `kkumteul/kernels.py:712` · 검증: **확인됨**
@@ -79,7 +79,7 @@
 - 인용: s.counters[C_POISONED] += 1                         s.ate[i] = 1.0                         continue
 - 검증 근거: kernels.py:712에서 독 분기 안에 `s.ate[i] = 1.0`을 둔 뒤 continue한다. stages.py:262~263의 보상은 `rw[i,0]*ate[i]`와 `rw[i,4]*horm[i,0]*ate[i]`를 담는다. stages.py:132~133과 :149를 보면 이웃의 ate가 IN_SAWEAT(config.py:316 '가까운 이웃이 방금 먹었는가')로 들어가고, :264에서 보상에도 들어간다. docs/stages-2-4.md:32에는 ate 처리가 적혀 있지 않다. 이렇게 만든 것이 의도인지는 코드만 봐서는 알 수 없다.
 - 고치는 방향(검증자): 의도라면 문서에 한 줄을 적는다. 아니라면 독은 ate를 0으로 두거나 따로 '독 먹음' 감각을 만든다. 이 경우 옛 체크포인트와 결과가 달라지는지도 확인한다.
-- 처리: (미정)
+- 처리: 그대로 둠(임시 결정) + 문서에 적음 — 삼킨 사건(ate)과 그 결과(에너지 변화)를 따로 주어야 배울 거리가 된다고 보았다. 학습 실험 결과가 나오면 다시 본다.
 
 ### 명세-4. compare의 '켠 규칙에서만 이김' 자동 해석이 실제 결과 해석과 어긋난다
 - 종류: 설명과 다름 · 자리: `kkumteul/compare.py:91` · 검증: **반박됨**
@@ -87,7 +87,7 @@
 - 인용: if on_win and not off_win:         return "켠 규칙에서만 켠 쪽이 이겼다. 장치와 함께 진화한 것이 장치가 있을 때 값을 한다."  /  docstring: "켠 규칙에서만 이기면 '장치를 쓰게 됐다'는 쪽의 증거이고"
 - 검증 근거: 지금 코드(HEAD, compare.py의 마지막 수정 커밋 b5efaed)의 compare.py:91~93은 '켠 규칙에서만 켠 쪽이 이겼다. 켠 규칙에 적응했다는 뜻이다. 장치를 '쓰게 됐다'는 뜻은 아니다(...)'이다. docstring(:8~10)도 '그것만으로 장치를 쓰게 됐다고 할 수는 없다'로 이미 고쳐져 있다. 검토자가 인용한 '장치와 함께 진화한 것이 장치가 있을 때 값을 한다'는 코드에 없다. 그 문구는 옛 코드로 만든 결과 파일 wayfinder/stage2-4/results/compare-s2.json:145의 reading에만 남아 있다. 그러니 도구의 해석이 어긋난다는 지적은 지금 코드에는 맞지 않는다. 결과 파일 한 곳에 옛 문구가 남은 것만 사실이다.
 - 고치는 방향(검증자): compare-s2.json의 reading이 옛 문구라는 주석을 달거나, 지금 _reading 문구로 다시 만든다.
-- 처리: (미정)
+- 처리: 기각(검증자가 반박) — 지금 코드의 문구는 이미 고쳐져 있다. `compare-s2.json`의 reading만 옛 문구이고, 그 비교를 다시 돌리면 바뀐다.
 
 ### 명세-5. compare의 장치 표시(flags)에 새로 생긴 장치 둘(공격, 먹이 종류)이 없다
 - 종류: 빠짐 · 자리: `kkumteul/compare.py:25` · 검증: **확인됨**
@@ -95,7 +95,7 @@
 - 인용: STAGE_FLAGS = ("mind_enabled", "social_enabled", "niche_enabled")
 - 검증 근거: compare.py:25는 `STAGE_FLAGS = ("mind_enabled", "social_enabled", "niche_enabled")`이고, :60의 flags는 이 셋만 담는다. config.py:130의 food_kinds_enabled와 공격 플래그(preset conflict)는 빠져 있다. 그래서 공격이나 먹이 종류만 다르게 켠 비교는 flags가 양쪽 똑같이 찍힌다. TRAITS(:23~24)에도 attacks·poisoned가 없다.
 - 고치는 방향(검증자): STAGE_FLAGS에 food_kinds_enabled와 공격 플래그를 더하거나, 두 cfg에서 값이 다른 필드를 모두 적는다.
-- 처리: (미정)
+- 처리: 반영 — `STAGE_FLAGS`에 `food_kinds_enabled`·`conflict_enabled`를 더하고, 두 쪽에서 값이 다른 설정 전부를 카드의 `config_diff`에 적는다. `TRAITS`에 `attacks`·`poisoned`·`food_replaced`.
 
 ### 명세-6. compare의 형질 '처음 → 끝'이 --at으로 고른 체크포인트가 아니라 stats 파일의 첫 행과 마지막 행이다
 - 종류: 설명과 다름 · 자리: `kkumteul/compare.py:72` · 검증: **확인됨**
@@ -103,7 +103,7 @@
 - 인용: first, last = rows[0], rows[-1]  /  --at: "견줄 체크포인트의 스텝(없으면 각자 가장 최근)"
 - 검증 근거: compare.py:72의 `first, last = rows[0], rows[-1]`은 stats.jsonl 전체의 첫 행과 마지막 행이다. --at(:44~49 _checkpoint_at, :108 help '견줄 체크포인트의 스텝')은 겨룰 생물을 고를 때만 쓰이고, 형질을 뽑는 데는 쓰이지 않는다. 실행이 --at보다 더 멀리 돌았다면 '끝' 형질은 겨룬 시점보다 뒤의 값이 된다.
 - 고치는 방향(검증자): rows에서 step이 out['step'] 이하인 행 중 마지막 것을 '끝'으로 쓴다.
-- 처리: (미정)
+- 처리: 반영 — '끝' 형질은 겨룬 체크포인트 스텝 이하의 마지막 통계 행이다.
 
 ## 결함 (11건)
 
@@ -113,7 +113,7 @@
 - 인용: "extinct": "a" if arr[-1, 1] == 0 else ("b" if arr[-1, 2] == 0 else "")
 - 검증 근거: kkumteul/measure.py:163 `"extinct": "a" if arr[-1, 1] == 0 else (...)`. 끝 표본에서 A가 0이면 B가 0이어도 "a"다. measure.py:213-214 verdict()는 r을 보기 전에 `a_extinct_runs == reps`이면 "B가 이김(A가 N회 모두 전멸)"을 돌려준다. 반면 r(measure.py:146-160)은 처음 전멸한 표본까지만 써서 먼저 죽은 쪽이 졌다고 말할 수 있다. compare.py:61,63 _name은 "A가/B가"를 켠/끈 쪽으로 바꾸고, :88 startswith("켠 쪽이 이김")로 읽으므로 이 문자열이 그대로 이김으로 셈된다. 단, 지적에 인용된 _reading 문구("장치와 함께 진화한 것이 값을 한다")는 지금 코드(compare.py:93)와 다르다. 지금은 "켠 규칙에 적응했다"라고 쓴다. 그래도 틀린 판정이 그대로 전달된다는 핵심은 맞다. 실제로 두 쪽이 다 전멸하는 일이 얼마나 자주 생기는지는 실행해 봐야 안다.
 - 고치는 방향(검증자): compete에서 둘 다 0이면 "both"로 적고(또는 각자 처음 0이 된 표본 스텝을 견줘 먼저 죽은 쪽을 적고), assay_sides·verdict에서 무승부를 따로 센다.
-- 처리: (미정)
+- 처리: 반영 — 양쪽 전멸은 `both`로 따로 세고(`both_extinct_runs`) r로 판정하며 판정 문구에 주의를 붙인다. 시험 `test_assay_does_not_call_mutual_extinction_a_loss`.
 
 ### 결함-2. compare의 읽기가 '켠 규칙에서만 이김'을 유의성 차이로 판정하고, 계통 1개씩으로 장치 효과를 단정한다
 - 종류: 중요 · 자리: `kkumteul/compare.py:92` · 검증: **확인됨**
@@ -121,7 +121,7 @@
 - 인용: if on_win and not off_win:         return "켠 규칙에서만 켠 쪽이 이겼다. 장치와 함께 진화한 것이 장치가 있을 때 값을 한다."
 - 검증 근거: (1) compare.py:92 `if on_win and not off_win`: off_win이 False이면 끈 규칙의 '가를 수 없음'도 여기에 들어간다. 두 규칙의 r 차이를 검정하는 코드는 없다. (2) measure.py:191 runs는 같은 a/b 유전체에서 seed만 바꿔 뽑는다(measure.py:126-127 rng.choice). compare.py:48-49는 양쪽 실행마다 체크포인트를 하나씩 쓴다. 그래서 실행 사이 분산은 측정되지 않는다. (3) measure.py:222-227에서 warn 접미사가 붙는다. compare.py:88-91은 startswith로만 읽어 경고를 무시한다. (4) on_win=F, on_lose=F, off_win=T이면 compare.py:92-102의 어느 분기에도 걸리지 않고 :103 "가를 수 없다."로 떨어진다. 인용 문구는 지금 코드(:93-94, "적응했다는 뜻이다. 장치를 '쓰게 됐다'는 뜻은 아니다")보다 단정적이다. 지금 문구는 조금 누그러졌다. 하지만 (1)~(4)의 논리 결함은 그대로다.
 - 고치는 방향(검증자): 두 규칙의 r 차이에 대한 검정(또는 같은 부호인지 확인)을 넣는다. 경고 접미사는 읽기 문장에 이어 붙인다. off_win and not on_win 분기를 추가한다. 실행 반복(서로 다른 seed의 계통)이 없다는 한계를 문구에 적는다.
-- 처리: (미정)
+- 처리: 반영 — (1) 두 규칙의 r 차이가 잡음 안이면 '켠 규칙에서만 이긴다'고 하지 않는다 (2) 실행이 한 쌍뿐이라는 한계를 읽기에 늘 붙인다 (3) 판정의 경고를 읽기에 싣는다 (4) 끈 규칙에서만 켠 쪽이 이기는 경우를 따로 읽는다. 시험 `test_compare_reading_is_not_overconfident`. 계통을 여러 개 돌려 실행 사이 분산을 재는 일은 남아 있다.
 
 ### 결함-3. 옛 체크포인트에서 공격을 켜면 '공격하지 않는 쪽으로 기울임'이 적용되지 않는다
 - 종류: 중요 · 자리: `kkumteul/kernels.py:799` · 검증: **확인됨**
@@ -129,7 +129,7 @@
 - 인용: s.bout[j, ACT_ATTACK] = -1.0
 - 검증 근거: kernels.py:799 `s.bout[j, ACT_ATTACK] = -1.0`은 random_genome 안에만 있다. 866bbed 직전 버전(git show 866bbed^:kkumteul/kernels.py:768-771)은 GIVE와 DEPOSIT만 -1이고 8번(config 이력에 '예비 1')은 0이다. world.py:171-197 load_arrays는 bout 모양이 같으면 그대로 복사한다. run.py:219-269 branch와 config.py:329 preset conflict도 bout를 고치지 않는다. kernels.py:880-883에 따르면 bout는 변이로 떠돌고, 출력은 tanh(bout + Wout·h)(kernels.py:523-526, stages.py:352-355)다. stages.py:502-504는 a>0이면 공격한다. 따라서 옛 체크포인트에서 갈라 conflict를 켜면 상당수 개체가 첫 스텝부터 양의 공격 출력을 낸다. docs/stages-2-4.md:43의 '공격하지 않는 쪽으로 기울여 두었다'는 새 실행에만 맞다. '약 절반', '0.1~0.2'라는 수치는 코드만으로 확인할 수 없다. 옛 체크포인트를 읽어 act[:,8]>0인 비율을 세 보면 가려진다.
 - 고치는 방향(검증자): 갈래를 만들 때 conflict_enabled가 새로 켜지면(config_diff) 살아 있는 개체의 bout[:,ACT_ATTACK]를 -1로 맞추는 옵션을 넣고, 무엇을 했는지 run.json에 적는다. 대조 갈래에도 똑같이 적용한다.
-- 처리: (미정)
+- 처리: 반영 — 갈라내며 공격이 새로 켜지면 살아 있는 개체의 공격 출력 편향을 -1로 맞추고 `run.json`의 `genome_edits`에 적는다. 견줄 대조 갈래는 `--calm-attack`. 시험 `test_branch_turning_conflict_on_calms_attack_bias`.
 
 ### 결함-4. 공격으로 죽은 개체가 '굶어 죽음'으로만 집계되어 공격 실험의 사망 통계를 읽을 수 없다
 - 종류: 사소 · 자리: `kkumteul/stages.py:539` · 검증: **확인됨**
@@ -145,7 +145,7 @@
 - 인용: STAGE_FLAGS = ("mind_enabled", "social_enabled", "niche_enabled")
 - 검증 근거: compare.py:25 STAGE_FLAGS는 세 개뿐이고, :59 flags와 :119 출력도 이것만 쓴다. measure.py:83-88 arena_config는 cfg.to_dict() 전체를 복사하므로 conflict_enabled와 food_kinds_enabled도 실린다. 두 실행의 나머지 설정이 같은지는 점검하지 않는다. compare.py:50-52는 스텝과 유전체 모양만 본다(measure.py:69-80). compare.py:70-74의 traits '끝'은 stats.jsonl의 rows[-1]이라 --at과 상관없다.
 - 고치는 방향(검증자): 두 cfg의 to_dict() 차이를 통째로 카드에 적고, 설정 중 장치 플래그(conflict_enabled, food_kinds_enabled 포함)를 보여 준다. traits는 --at 스텝에 가장 가까운 줄을 쓴다.
-- 처리: (미정)
+- 처리: 반영 — 명세-5와 같다.
 
 ### 결함-6. migrate가 검사 실패 시 반쯤 만든 실행 폴더를 남긴다
 - 종류: 사소 · 자리: `kkumteul/pack.py:150` · 검증: **확인됨**
@@ -177,7 +177,7 @@
 - 인용: _see(obs, i, 0, nsec, ddx, ddy, math.sqrt(d2), f_rad, hi, fov, vrange,                          np.float32(-1.0) if f_kind[j] == 1 else np.float32(1.0))
 - 검증 근거: kernels.py:462-463의 _sense_par는 `f_kind[j] == 1`만 보고 ip[Q_KINDS]를 받지도 않는다(:411 인자 목록). eat은 kernels.py:662,707에서 `kinds = ip[Q_KINDS] != 0`으로 막는다. kinds를 끈 갈래에서 새로 나는 먹이는 종류 0이다(:327). 그래서 갈라낼 때 남아 있던 종류 1 먹이만 계속 음수로 보인다. f_kind는 world.py:15의 NEW_SINCE_STAGE1에 있어서, 옛 체크포인트에서는 load_arrays가 missing으로 남기고 0으로 둔다. 기존 사체도 종류 0(2가 아님)이 된다.
 - 고치는 방향(검증자): _sense_par에 kinds 플래그를 넘겨 꺼져 있으면 부호를 1로 고정한다. 또는 kinds를 끄는 갈래를 만들 때 f_kind[f_kind==1]=0으로 맞춘다.
-- 처리: (미정)
+- 처리: 그대로 둠(임시 결정) + 문서에 적음 — 켰다가 끈 세계에 음수로 보이는 먹이가 남을 수 있다는 것을 `docs/stages-2-4.md`에 적었다.
 
 ### 결함-10. 사체(kind 2)가 시야에서 종류 0과 같은 양수로 보인다
 - 종류: 사소 · 자리: `kkumteul/kernels.py:930` · 검증: **확인됨**
@@ -185,7 +185,7 @@
 - 인용: if recycle and e > 0.0 and _place_food(s, s.x[i], s.y[i], e, 2):
 - 검증 근거: kernels.py:930은 사체를 kind 2로 둔다. 시야(kernels.py:463)는 1만 -1, 나머지(0과 2)는 +1이다. config.py:63 corpse_to_food=True가 기본값이고, kernels.py:965-966에서 늙어 죽으면 recycle된다. eat(kernels.py:707)에서 kind 2는 독 판정에서 빠져 언제나 먹을 수 있다. 다만 '양수=독을 배운 개체가 사체를 먹어 손해를 본다'는 서술은 정확하지 않다. 사체는 해가 없으니 그런 개체는 사체를 피해서 먹을 기회를 잃을 뿐이다. 신호에 잡음이 낀다는 핵심은 맞다.
 - 고치는 방향(검증자): 사체를 시야에서 따로 부호화하거나(예: 0 또는 별도 채널), kinds 세계에서는 corpse_to_food를 끄는 설정을 프리셋에 넣는다.
-- 처리: (미정)
+- 처리: 반영(문서) — 명세-2와 같다. 사체를 따로 보이게 할지는 학습 실험 뒤에 정한다.
 
 ### 결함-11. 공격은 칸 번호 순서로 순차 처리되어 같은 스텝 안에서 낮은 칸의 공격자가 먼저 친다
 - 종류: 사소 · 자리: `kkumteul/stages.py:499` · 검증: **확인됨**

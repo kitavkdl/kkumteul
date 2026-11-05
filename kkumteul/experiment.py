@@ -136,7 +136,8 @@ def _assay(control_dir: Path, treat_dir: Path, base: Config, arms: dict, n_each:
     out = {"a": "control", "b": "treatment", "n_each": n, "steps": steps, "reps": reps, "seed": seed,
            "r_per_1000": res["r_per_1000"], "neutral_r_per_1000": res.get("neutral_r_per_1000"),
            "final_counts": res["final_counts"], "a_extinct_runs": res["a_extinct_runs"],
-           "b_extinct_runs": res["b_extinct_runs"], "verdict": res["verdict"]}
+           "b_extinct_runs": res["b_extinct_runs"], "both_extinct_runs": res["both_extinct_runs"],
+           "verdict": res["verdict"]}
     return out
 
 

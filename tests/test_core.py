@@ -321,3 +321,15 @@ def test_assay_reports_extinction_as_a_loss(tmp_path):
     assert res["a_extinct_runs"] == 3
     assert "전멸" in res["verdict"] and res["verdict"].startswith("B가 이김")
     assert res["r_per_1000"]["mean"] > 0.3
+
+
+def test_assay_does_not_call_mutual_extinction_a_loss():
+    """양쪽이 다 전멸한 판을 'A 전멸'로 세면 판정이 뒤집힌다. 따로 세고 r로 판정한다."""
+    assert measure.extinct_label(0, 0) == "both"
+    assert measure.extinct_label(0, 5) == "a" and measure.extinct_label(5, 0) == "b"
+    assert measure.extinct_label(3, 4) == ""
+    # 여섯 판 모두 양쪽 전멸, r은 A 쪽(음수)으로 기울었다 → 'B가 이김'이 나오면 안 된다
+    res = {"reps": 6, "a_extinct_runs": 0, "b_extinct_runs": 0, "both_extinct_runs": 6,
+           "r_per_1000": {"mean": -0.5, "sd": 0.1, "sem": 0.04, "n": 6}}
+    v = measure.verdict(res)
+    assert v.startswith("A가 이김") and "양쪽 다 전멸" in v

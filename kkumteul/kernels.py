@@ -77,6 +77,7 @@ FOOD_FIELDS = [
     ("f_alive", np.bool_, True),
     ("f_energy", np.float64, True),
     ("f_kind", np.int8, True),       # 먹이 종류 0/1, 2는 늘 먹을 수 있는 것(사체)
+    ("f_born", np.int64, True),      # 놓인 스텝(상한에서 가장 오래된 것을 고를 때 쓴다)
 ]
 OTHER_SAVED = ["counters", "ledger", "budget", "trail", "soil"]
 # 크기가 설정에 따라 달라도 되는 평생 상태(체크포인트와 크기가 다르면 0에서 시작한다)
@@ -106,6 +107,7 @@ C_DEATH_PASSIVE = 11
 C_STEP = 12
 C_DEATH_DISASTER = 13   # 각본의 재난으로 죽은 수
 C_POISONED = 17
+C_FOOD_REPLACED = 18    # 상한에서 새 먹이에 자리를 내주고 사라진 먹이 수(food_cap_replace)
 N_COUNTERS = 24
 
 # ---- ledger 칸 (에너지 장부) ----
@@ -114,7 +116,8 @@ L_BASAL = 1      # 기초 대사로 사라진 에너지
 L_BRAIN = 2      # 뇌 유지비
 L_MOVE = 3       # 이동·회전 비용
 L_BIRTH = 4      # 번식 때 사라진 에너지
-L_LOST = 5       # 죽을 때 먹이로 못 돌아간 에너지(굶어 죽으면 음수 잔액 포함)
+L_LOST = 5       # 세계에서 사라진 에너지: 죽을 때 먹이로 못 돌아간 것(굶어 죽으면 음수 잔액 포함),
+                 # 독·재난·상한에서 밀려나 없어진 먹이, 건네기·공격·거름의 손실
 L_INJECT = 6     # 처음·재주입·대조 실행에서 개체에게 직접 준 에너지
 L_DISCARD = 7    # 먹이 상한 때문에 버린 유입(세계에 들어오지 않음)
 N_LEDGER = 8
@@ -142,7 +145,7 @@ DEATH_DISASTER = 3       # 각본의 재난(운석)
 # ---- 정수 설정 칸 ----
 (Q_SEED, Q_GW, Q_GH, Q_FOOD_CAP, Q_N_PATCH, Q_PATCH_LIFE, Q_MAX_AGE, Q_MIN_AGENTS,
  Q_SECTORS, Q_H_MAX, Q_H_INIT, Q_H_MIN, Q_REPRO_BRAIN, Q_REPRO_MIN_AGE, Q_MUT, Q_CORPSE,
- Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, N_IP) = range(20)
+ Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, Q_CAP_REPLACE, N_IP) = range(21)
 
 
 def pack_params(cfg):
@@ -214,6 +217,7 @@ def pack_params(cfg):
     ip[Q_PASSIVE] = int(cfg.passive)
     ip[Q_KINDS] = int(cfg.food_kinds_enabled)
     ip[Q_KIND_PERIOD] = cfg.kind_flip_period
+    ip[Q_CAP_REPLACE] = int(cfg.food_cap_replace)
     return fp, ip
 
 
@@ -279,7 +283,7 @@ def good_kind(seed, step, period):
 
 
 @njit(cache=True)
-def _place_food(s, px, py, e, kind):
+def _place_food(s, px, py, e, kind, step):
     """빈 먹이 칸에 놓는다. 자리가 없으면 False."""
     nslots = s.fx.shape[0]
     cur = s.counters[C_FOOD_CURSOR]
@@ -291,12 +295,42 @@ def _place_food(s, px, py, e, kind):
             s.fy[cur] = py
             s.f_energy[cur] = e
             s.f_kind[cur] = kind
+            s.f_born[cur] = step
             s.f_alive[cur] = True
             s.counters[C_NFOOD] += 1
             s.counters[C_FOOD_CURSOR] = cur + 1
             return True
         cur += 1
     return False
+
+
+@njit(cache=True)
+def _evict_oldest(s):
+    """가장 먼저 놓인 먹이 하나를 없앤다(같은 스텝에 놓인 것끼리는 낮은 칸부터, 사체도 가리지 않는다).
+    없앤 에너지는 장부의 L_LOST로 간다. 없앨 먹이가 없으면 False."""
+    best = -1
+    born = 0
+    for j in range(s.fx.shape[0]):
+        if s.f_alive[j] and (best < 0 or s.f_born[j] < born):
+            best = j
+            born = s.f_born[j]
+    if best < 0:
+        return False
+    s.f_alive[best] = False
+    s.counters[C_NFOOD] -= 1
+    s.counters[C_FOOD_REPLACED] += 1
+    s.ledger[L_LOST] += s.f_energy[best]
+    return True
+
+
+@njit(cache=True)
+def make_room(s, cap, replace):
+    """새 먹이 한 알을 놓아도 되는가. 상한에 닿았으면 replace일 때만 가장 오래된 것을 치우고 True."""
+    if s.counters[C_NFOOD] < cap:
+        return True
+    if replace == 0:
+        return False
+    return _evict_oldest(s)
 
 
 # ---- 먹이 ----
@@ -309,7 +343,7 @@ def spawn_food(step, s, fp, ip):
     n_patches = ip[Q_N_PATCH]
     s.budget[0] += fp[P_INFLOW]
     while s.budget[0] >= e_food:
-        if s.counters[C_NFOOD] >= ip[Q_FOOD_CAP]:
+        if not make_room(s, ip[Q_FOOD_CAP], ip[Q_CAP_REPLACE]):
             s.ledger[L_DISCARD] += s.budget[0]
             s.budget[0] = 0.0
             break
@@ -326,7 +360,7 @@ def spawn_food(step, s, fp, ip):
         kind = 0
         if ip[Q_KINDS] != 0 and u01(seed, S_KIND, serial, 0) < 0.5:
             kind = 1
-        if _place_food(s, px, py, e_food, kind):
+        if _place_food(s, px, py, e_food, kind, step):
             s.ledger[L_SPAWN] += e_food
             s.budget[0] -= e_food
         else:
@@ -927,7 +961,7 @@ def _remove(s, i, cause, step, recycle, nd):
     s.alive[i] = False
     s.counters[C_NALIVE] -= 1
     e = s.energy[i]
-    if recycle and e > 0.0 and _place_food(s, s.x[i], s.y[i], e, 2):
+    if recycle and e > 0.0 and _place_food(s, s.x[i], s.y[i], e, 2, step):
         pass
     else:
         s.ledger[L_LOST] += e

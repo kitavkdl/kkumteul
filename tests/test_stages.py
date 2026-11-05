@@ -375,6 +375,7 @@ def test_checkpoint_from_before_new_fields_still_resumes(tmp_path):
             arrays = {name: z[name] for name in z.files}
         arrays["counters"] = arrays["counters"][:16]
         del arrays["f_kind"]
+        arrays.pop("f_born", None)
         np.savez(p, **arrays)
         meta = json.loads(p.with_suffix(".json").read_text())
         meta["npz_sha256"] = ckpt.file_sha256(p)
@@ -383,3 +384,90 @@ def test_checkpoint_from_before_new_fields_still_resumes(tmp_path):
     assert again.world.step_no == 400
     again.loop(200, quiet=True)
     again.close()
+
+
+def test_food_cap_replace_swaps_oldest_and_conserves_energy():
+    """먹이가 상한에 닿았을 때: 꺼져 있으면 유입을 버리고, 켜면 가장 오래된 먹이를 새 먹이로 바꾼다."""
+    kw = dict(init_agents=1, min_agents=0, food_cap=50, food_inflow=3.0)
+    off = World(small(**kw))
+    on = World(small(food_cap_replace=True, **kw))
+    for t in range(40):                     # 스텝마다 3알씩 120알. 상한 50은 17번째 스텝에 찬다
+        k.spawn_food(t, off.s, off.fp, off.ip)
+        k.spawn_food(t, on.s, on.fp, on.ip)
+    assert off.s.counters[k.C_NFOOD] == 50 and on.s.counters[k.C_NFOOD] == 50
+    assert off.s.counters[k.C_FOOD_REPLACED] == 0 and off.s.ledger[k.L_DISCARD] > 0
+    assert off.s.f_born[off.s.f_alive].min() == 0, "꺼져 있으면 처음 놓인 먹이가 그대로 남는다"
+    assert on.s.counters[k.C_FOOD_REPLACED] == 70 and on.s.ledger[k.L_DISCARD] == 0
+    assert on.s.ledger[k.L_LOST] == pytest.approx(70 * on.cfg.food_energy)
+    born = on.s.f_born[on.s.f_alive]
+    assert born.min() == 23 and (born == 23).sum() == 2, "남은 것은 가장 나중에 놓인 50알이다"
+    assert on.summary()["food_replaced"] == 70 and "food_replaced" not in off.summary()
+    assert rel_residual(on) < 1e-9 and rel_residual(off) < 1e-9
+
+
+def test_food_cap_replace_changes_nothing_below_cap():
+    a = World(small(food_cap=3000))
+    b = World(small(food_cap=3000, food_cap_replace=True))
+    a.run(300)
+    b.run(300)
+    assert a.summary()["food"] < 3000 and a.state_hash() == b.state_hash()
+
+
+@pytest.mark.parametrize("presets", [("kinds",), ("stage4", "kinds")])
+def test_food_cap_replace_world_runs_and_conserves_energy(presets):
+    cfg = small(*presets, food_cap=150, food_cap_replace=True)
+    w = World(cfg)
+    if "stage4" in presets:
+        w.s.bout[:, ACT_DEPOSIT] = 0.5     # 거름을 놓게 해서 거름 땅 먹이 쪽 분기도 돌린다
+    w.run(2000)
+    w.check_sane()
+    sm = w.summary()
+    assert sm["food_replaced"] > 0 and sm["food"] <= 150 + cfg.max_agents
+    if "stage4" in presets:
+        assert sm["fertile_food"] > 0
+    assert rel_residual(w) < 1e-9
+    b = World(cfg)
+    if "stage4" in presets:
+        b.s.bout[:, ACT_DEPOSIT] = 0.5
+    b.run(2000)
+    assert b.state_hash() == w.state_hash()
+
+
+def test_compare_reading_is_not_overconfident():
+    """한쪽 규칙만 유의하다는 것으로 '켠 규칙에서만 이긴다'고 하지 않고, 경고와 한계를 읽기에 싣는다."""
+    from kkumteul import compare
+
+    def card(on_mean, on_v, off_mean, off_v, sem=0.05):
+        st_ = lambda m: {"mean": m, "sd": sem * 6 ** 0.5, "sem": sem, "n": 6}  # noqa: E731
+        return {"treatment_minus_control_r_per_1000": {
+            "in_treatment_rules": st_(on_mean), "verdict_treatment_rules": on_v,
+            "in_control_rules": st_(off_mean), "verdict_control_rules": off_v}}
+
+    near = compare._reading(card(0.20, "켠 쪽이 이김", 0.10, "가를 수 없음"))
+    assert "말할 수 없다" in near and "한 쌍뿐" in near
+    far = compare._reading(card(0.60, "켠 쪽이 이김", 0.00, "가를 수 없음"))
+    assert "잡음보다 크다" in far and "쓰게 됐다" in far
+    cross = compare._reading(card(0.60, "켠 쪽이 이김", -0.60, "끈 쪽이 이김"))
+    assert "자기 규칙에 적응" in cross
+    only_off = compare._reading(card(0.02, "가를 수 없음", 0.50, "켠 쪽이 이김"))
+    assert "장치 없이도" in only_off, "끈 규칙에서만 켠 쪽이 이기는 경우를 '가를 수 없다'로 뭉개지 않는다"
+    warned = compare._reading(card(0.60, "켠 쪽이 이김 (주의: 같은 무리끼리도 한쪽으로 기울었다)", 0.0, "가를 수 없음"))
+    assert "켠 규칙 겨루기 (주의: 같은 무리끼리도" in warned
+    assert compare._reading(card(0.0, "가를 수 없음", 0.0, "가를 수 없음")).startswith("가를 수 없다.")
+
+
+def test_branch_turning_conflict_on_calms_attack_bias(tmp_path):
+    """공격이 꺼진 세계에서는 공격 출력이 변이로 떠돈다. 갈라내며 켜면 새 개체처럼 -1로 맞추고 기록한다."""
+    main = Runner.new(tmp_path / "main", small("stage3"))
+    main.world.s.bout[:, ACT_ATTACK] = 0.7      # 떠돈 편향을 흉내 낸다
+    main.loop(400, quiet=True)
+    main.close()
+    on = Runner.branch(tmp_path / "main", tmp_path / "on", 400, ["preset=conflict"], False, False)
+    assert (on.world.s.bout[on.world.s.alive, ACT_ATTACK] == -1.0).all() and on.meta["genome_edits"]
+    on.close()
+    plain = Runner.branch(tmp_path / "main", tmp_path / "plain", 400, [], False, False)
+    assert (plain.world.s.bout[plain.world.s.alive, ACT_ATTACK] > 0).any() and plain.meta["genome_edits"] == []
+    plain.close()
+    ctrl = Runner.branch(tmp_path / "main", tmp_path / "ctrl", 400, [], False, False, calm_attack=True)
+    assert (ctrl.world.s.bout[ctrl.world.s.alive, ACT_ATTACK] == -1.0).all()
+    ctrl.close()
