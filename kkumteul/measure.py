@@ -160,7 +160,15 @@ def compete(cfg: Config, ga: dict, gb: dict, n_each: int, steps: int, seed: int,
     else:               # 표본이 모자라면 시작(1:1)에서 그 시점까지의 평균 기울기
         r = float(y[-1] / keep[-1, 0])
     return {"n_a": int(arr[-1, 1]), "n_b": int(arr[-1, 2]), "r": r, "series": series,
-            "extinct": "a" if arr[-1, 1] == 0 else ("b" if arr[-1, 2] == 0 else "")}
+            "extinct": extinct_label(int(arr[-1, 1]), int(arr[-1, 2]))}
+
+
+def extinct_label(n_a: int, n_b: int) -> str:
+    """끝에 누가 전멸했는가. 둘 다 전멸한 판은 어느 쪽의 승패도 아니므로 따로 적는다
+    (누가 먼저 무너졌는지는 전멸한 표본까지만 쓰는 r이 말한다)."""
+    if n_a == 0 and n_b == 0:
+        return "both"
+    return "a" if n_a == 0 else ("b" if n_b == 0 else "")
 
 
 def _split(g: dict, rng: np.random.Generator) -> tuple[dict, dict]:
@@ -190,6 +198,7 @@ def assay_sides(a: dict, b: dict, n_each: int = 400, steps: int = 8000, reps: in
         "final_counts": [[x["n_a"], x["n_b"]] for x in runs],
         "a_extinct_runs": sum(x["extinct"] == "a" for x in runs),
         "b_extinct_runs": sum(x["extinct"] == "b" for x in runs),
+        "both_extinct_runs": sum(x["extinct"] == "both" for x in runs),
     }
     if neutral:
         rng = np.random.default_rng(seed + 7919)
@@ -219,8 +228,10 @@ def verdict(res: dict) -> str:
     edge = t95(r["n"] - 1) * r["sem"]
     nz = res.get("neutral_r_per_1000")
     warn = ""
+    if res.get("both_extinct_runs"):
+        warn = f" (주의: {res['both_extinct_runs']}회는 양쪽 다 전멸)"
     if nz and np.isfinite(nz["sem"]) and abs(nz["mean"]) > t95(nz["n"] - 1) * nz["sem"]:
-        warn = " (주의: 같은 무리끼리도 한쪽으로 기울었다)"
+        warn += " (주의: 같은 무리끼리도 한쪽으로 기울었다)"
     if r["mean"] > edge:
         return "B가 이김" + warn
     if r["mean"] < -edge:

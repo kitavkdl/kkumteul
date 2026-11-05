@@ -4,6 +4,7 @@
     python -m kkumteul.run resume --run runs/main [--steps N]
     python -m kkumteul.run branch --from runs/main --run runs/what-if [--at STEP]
                                   [--set key=value ...] [--new-stream] [--passive] [--scenario FILE]
+                                  [--calm-attack]
 
 각본(--scenario)을 주면 실행 폴더에 `scenario.json`으로 베껴 두고, 매 스텝 앞에서 그 스텝의 설정을 맞춘다.
 `config.json`에는 각본이 바꾸기 전의 바탕 설정이 남는다(이어 돌릴 때 각본은 이 바탕 위에 다시 계산된다).
@@ -27,7 +28,7 @@ import numpy as np
 from . import checkpoint as ckpt
 from . import events
 from . import kernels as k
-from .config import Config
+from .config import ACT_ATTACK, Config
 from .scenario import Scenario
 from .world import World
 
@@ -217,8 +218,13 @@ class Runner:
 
     @classmethod
     def branch(cls, src: Path, run_dir: Path, at: int | None, overrides: list[str],
-               new_stream: bool, passive: bool, scenario=None) -> "Runner":
-        """scenario(각본 파일 경로나 Scenario)를 주면 갈라낸 스텝부터 그 각본을 적용한다."""
+               new_stream: bool, passive: bool, scenario=None, calm_attack: bool = False) -> "Runner":
+        """scenario(각본 파일 경로나 Scenario)를 주면 갈라낸 스텝부터 그 각본을 적용한다.
+
+        calm_attack이거나 이 갈래에서 공격(conflict_enabled)이 새로 켜지면, 살아 있는 개체의 공격 출력 편향을
+        새로 만든 개체와 같은 -1로 맞춘다. 공격이 꺼진 세계에서는 그 출력이 쓰이지 않아 변이로 떠돌았기 때문에,
+        그대로 켜면 처음부터 공격자가 섞인 채 시작한다. 견줄 대조 갈래에는 --calm-attack을 준다.
+        """
         if (run_dir / "run.json").exists():
             raise FileExistsError(f"이미 있는 실행이다: {run_dir}")
         src = Path(src)
@@ -250,6 +256,10 @@ class Runner:
             d["passive"] = True
         cfg = Config.from_dict(d)
         world.set_config(cfg)
+        edits = []
+        if calm_attack or (cfg.conflict_enabled and not old.conflict_enabled):
+            world.s.bout[world.s.alive, ACT_ATTACK] = -1.0
+            edits.append("bout[ACT_ATTACK]=-1")
         diff = {key: [getattr(old, key), val] for key, val in d.items() if getattr(old, key) != val}
         scn = read_scenario(scenario, cfg)
         lock = acquire_lock(run_dir)
@@ -262,6 +272,7 @@ class Runner:
             "parent_npz_sha256": cmeta["npz_sha256"],
             "parent_step": cmeta["step"],
             "config_diff": diff,
+            "genome_edits": edits,     # 갈라낼 때 유전체에 손댄 것(없으면 빈 목록)
             "rng": "new_stream" if d["seed"] != old.seed else "same_stream",
         }
         r = cls._create(run_dir, world, meta, lock, scn)
@@ -454,6 +465,8 @@ def main(argv=None) -> int:
             p.add_argument("--at", type=int, default=None, help="갈라낼 체크포인트의 스텝(없으면 가장 최근)")
             p.add_argument("--new-stream", action="store_true", help="난수 흐름을 새로 한다")
             p.add_argument("--passive", action="store_true", help="선택 없는 대조 실행으로 만든다")
+            p.add_argument("--calm-attack", action="store_true",
+                           help="공격 출력 편향을 -1로 맞춘다(공격을 켠 갈래와 견줄 대조 갈래에 준다)")
     args = ap.parse_args(argv)
 
     if args.cmd == "new":
@@ -463,7 +476,7 @@ def main(argv=None) -> int:
         runner = Runner.resume(args.run)
     else:
         runner = Runner.branch(args.src, args.run, args.at, args.set, args.new_stream, args.passive,
-                               args.scenario)
+                               args.scenario, args.calm_attack)
 
     cfg = runner.world.cfg
     if cfg.threads > 0:

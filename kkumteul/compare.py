@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import re
 import sys
 from pathlib import Path
 
@@ -21,8 +23,9 @@ from . import checkpoint as ckpt
 from . import measure
 
 TRAITS = ("pop", "gen_mean", "hidden_mean", "speed_mean", "eta_mean", "alpha_abs_mean", "hebb_abs_mean",
-          "asleep_frac", "signal_abs_mean", "gifts", "soil_total", "fertile_food", "trail_mean", "reseeds")
-STAGE_FLAGS = ("mind_enabled", "social_enabled", "niche_enabled")
+          "asleep_frac", "signal_abs_mean", "gifts", "soil_total", "fertile_food", "trail_mean", "reseeds",
+          "attacks", "poisoned", "food_replaced")
+STAGE_FLAGS = ("mind_enabled", "social_enabled", "niche_enabled", "food_kinds_enabled", "conflict_enabled")
 
 
 def _stats_rows(run_dir: Path) -> list[dict]:
@@ -57,6 +60,7 @@ def compare(control: Path, treatment: Path, at: int | None = None, n_each: int =
         "step": a["step"],
         "control": str(control), "treatment": str(treatment),
         "flags": {f: [getattr(a["cfg"], f), getattr(b["cfg"], f)] for f in STAGE_FLAGS},
+        "config_diff": _config_diff(a["cfg"], b["cfg"]),              # 값이 다른 설정 전부 [끈 쪽, 켠 쪽]
         "treatment_minus_control_r_per_1000": {
             "in_treatment_rules": on["r_per_1000"], "verdict_treatment_rules": _name(on["verdict"], "끈 쪽이", "켠 쪽이"),
             "neutral_treatment_rules": on.get("neutral_r_per_1000"),
@@ -69,7 +73,9 @@ def compare(control: Path, treatment: Path, at: int | None = None, n_each: int =
     }
     ra, rb = _stats_rows(control), _stats_rows(treatment)
     for name, rows in (("control", ra), ("treatment", rb)):
-        first, last = rows[0], rows[-1]
+        # '끝'은 겨룬 체크포인트의 시점이다(실행이 그 뒤로 더 돌았어도 그때의 형질을 적는다)
+        upto = [r for r in rows if r.get("step", 0) <= out["step"]] or rows
+        first, last = upto[0], upto[-1]
         out["traits"][name] = {key: [first.get(key), last.get(key)] for key in TRAITS
                                if first.get(key) is not None or last.get(key) is not None}
     out["reading"] = _reading(out)
@@ -81,6 +87,24 @@ def _name(v: str, a_label: str, b_label: str) -> str:
     return v.replace("A가", a_label).replace("B가", b_label)
 
 
+def _config_diff(ca, cb) -> dict:
+    da, db = ca.to_dict(), cb.to_dict()
+    return {key: [da.get(key), db.get(key)] for key in sorted(set(da) | set(db)) if da.get(key) != db.get(key)}
+
+
+_WARN = re.compile(r"\(주의:[^)]*\)")
+_LIMIT = " 실행이 한 쌍뿐이라 장치의 효과와 계통의 운을 가르지 못한다(반복은 겨루기판의 잡음만 잰다)."
+
+
+def _rules_differ(t: dict) -> bool:
+    """두 규칙에서 잰 r(켠 쪽 − 끈 쪽)의 차이가 잡음보다 큰가. 한쪽만 유의하다는 것은 차이의 증거가 아니다."""
+    a, b = t["in_treatment_rules"], t["in_control_rules"]
+    se = math.hypot(a["sem"], b["sem"])
+    if not math.isfinite(se):
+        return False
+    return abs(a["mean"] - b["mean"]) > measure.t95(min(a["n"], b["n"]) - 1) * se
+
+
 def _reading(out: dict) -> str:
     t = out["treatment_minus_control_r_per_1000"]
     on_v = t["verdict_treatment_rules"]
@@ -89,18 +113,34 @@ def _reading(out: dict) -> str:
     on_lose = on_v.startswith("끈 쪽이 이김")
     off_win = off_v.startswith("켠 쪽이 이김")
     off_lose = off_v.startswith("끈 쪽이 이김")
-    if on_win and not off_win:
-        return ("켠 규칙에서만 켠 쪽이 이겼다. 켠 규칙에 적응했다는 뜻이다. 장치를 '쓰게 됐다'는 뜻은 아니다"
-                "(장치가 주는 입력과 제약에 맞춰졌을 뿐일 수 있다). 유전자에서 선택의 흔적을 따로 본다.")
-    if on_win and off_win:
-        return "양쪽 규칙에서 켠 쪽이 이겼다. 장치와 무관한 능력 차이일 수 있다(장치를 썼다는 증거로는 약하다)."
-    if on_lose and off_lose:
-        return "양쪽 규칙에서 끈 쪽이 이겼다. 장치를 켠 세계의 진화가 뒤처졌다(느린 계산·비용 때문일 수 있다)."
-    if on_lose:
-        return "켠 규칙에서조차 끈 쪽이 이겼다. 장치와 함께 진화한 것이 값을 못 한다."
-    if off_lose and not on_lose:
-        return "끈 규칙에서는 끈 쪽이 이기고 켠 규칙에서는 가를 수 없다. 켠 쪽이 장치에 기대게 됐을 수 있다."
-    return "가를 수 없다."
+    adapted = ("장치를 '쓰게 됐다'는 뜻은 아니다(장치가 주는 입력과 제약에 맞춰졌을 뿐일 수 있다). "
+               "유전자에서 선택의 흔적을 따로 본다.")
+    if on_win and off_lose:
+        text = "켠 규칙에서는 켠 쪽이, 끈 규칙에서는 끈 쪽이 이겼다. 저마다 자기 규칙에 적응했다는 뜻이다. " + adapted
+    elif on_win and off_win:
+        text = "양쪽 규칙에서 켠 쪽이 이겼다. 장치와 무관한 능력 차이일 수 있다(장치를 썼다는 증거로는 약하다)."
+    elif on_win:
+        if _rules_differ(t):
+            text = ("켠 규칙에서 켠 쪽이 이겼고 끈 규칙에서는 가를 수 없다. 두 규칙의 차이는 잡음보다 크다. "
+                    "켠 규칙에 적응했다는 뜻이다. " + adapted)
+        else:
+            text = ("켠 규칙에서 켠 쪽이 이겼고 끈 규칙에서는 가를 수 없다. 두 규칙 사이의 차이는 잡음 안이라 "
+                    "'켠 규칙에서만 이긴다'고 말할 수 없다.")
+    elif on_lose and off_lose:
+        text = "양쪽 규칙에서 끈 쪽이 이겼다. 장치를 켠 세계의 진화가 뒤처졌다(느린 계산·비용 때문일 수 있다)."
+    elif on_lose:
+        text = "켠 규칙에서조차 끈 쪽이 이겼다. 장치와 함께 진화한 것이 값을 못 한다."
+    elif off_lose:
+        text = "끈 규칙에서는 끈 쪽이 이기고 켠 규칙에서는 가를 수 없다. 켠 쪽이 장치에 기대게 됐을 수 있다."
+    elif off_win:
+        text = ("끈 규칙에서는 켠 쪽이 이기고 켠 규칙에서는 가를 수 없다. 장치 없이도 통하는 차이다"
+                "(장치를 썼다는 증거는 아니다).")
+    else:
+        text = "가를 수 없다."
+    for label, v in (("켠 규칙", on_v), ("끈 규칙", off_v)):
+        for w in _WARN.findall(v):
+            text += f" {label} 겨루기 {w}"
+    return text + _LIMIT
 
 
 def main(argv=None) -> int:
@@ -117,6 +157,7 @@ def main(argv=None) -> int:
     res = compare(args.control, args.treatment, args.at, args.n, args.steps, args.reps, args.seed)
     t = res["treatment_minus_control_r_per_1000"]
     print(f"스텝 {res['step']}, 장치(끈 쪽, 켠 쪽): {res['flags']}")
+    print(f"다른 설정(끈 쪽, 켠 쪽): {res['config_diff']}")
     for label, key, vk in (("켠 규칙", "in_treatment_rules", "verdict_treatment_rules"),
                            ("끈 규칙", "in_control_rules", "verdict_control_rules")):
         r = t[key]

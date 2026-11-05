@@ -12,7 +12,7 @@ from .config import Config, N_REWARD
 # 2~4단계에서 새로 생긴 저장 필드. 옛 체크포인트에는 없어도 된다(그 밖의 필드가 없으면 깨진 것이다)
 NEW_SINCE_STAGE1 = frozenset({"rw", "eta", "alpha", "horm", "mod", "exp_r", "e_prev", "fatigue", "asleep",
                               "epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link", "last_proto",
-                              "sig", "trail", "soil", "f_kind"})
+                              "sig", "trail", "soil", "f_kind", "f_born"})
 
 BIRTH_DTYPE = np.dtype([("id", "<i8"), ("parent", "<i8"), ("step", "<i8"),
                         ("gen", "<i4"), ("n_hidden", "<i4"), ("kind", "<i4")])
@@ -277,6 +277,8 @@ class World:
                 })
             if cfg.conflict_enabled:
                 out["attacks"] = int(c[st.C_ATTACKS])
+            if cfg.food_cap_replace:
+                out["food_replaced"] = int(c[k.C_FOOD_REPLACED])
             if cfg.food_kinds_enabled:
                 out["poisoned"] = int(c[k.C_POISONED])
                 out["good_kind"] = int(k.good_kind(cfg.seed, self.step_no, cfg.kind_flip_period))

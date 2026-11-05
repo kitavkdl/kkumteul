@@ -25,6 +25,7 @@ class Config:
     food_inflow: float = 9.0      # 스텝당 세계에 들어오는 먹이 에너지
     food_energy: float = 1.0      # 먹이 한 알의 에너지
     food_cap: int = 2000          # 먹이 알 수 상한(넘치는 유입은 버린다). 개체군 저장량보다 작게
+    food_cap_replace: bool = False  # 상한에 닿으면 유입을 버리는 대신 가장 오래된 먹이를 새 먹이로 바꾼다
     food_radius: float = 0.5
     n_patches: int = 16           # 먹이가 뭉쳐 나는 자리 수
     patch_sigma: float = 18.0     # 자리 하나의 퍼짐
