@@ -15,6 +15,7 @@ from test_stages import rel_residual, small  # noqa: E402
 from kkumteul import checkpoint as ckpt  # noqa: E402
 from kkumteul import replay  # noqa: E402
 from kkumteul import kernels as k  # noqa: E402
+from kkumteul import stages as st  # noqa: E402
 from kkumteul.config import ACT_CARRY, EXT_SEASON, N_EXT_IN, N_EXT_OUT, N_INTERNAL, N_STAGE_IN, N_STAGE_OUT  # noqa: E402
 from kkumteul.run import Runner  # noqa: E402
 from kkumteul.world import World  # noqa: E402
@@ -142,3 +143,19 @@ def test_winter_with_niche_conserves_energy():
     w.run(1200)
     w.check_sane()
     assert rel_residual(w) < 1e-9
+
+
+@pytest.mark.parametrize("mult", [0.3, 1.0])
+def test_niche_share_follows_season_mult(mult):
+    # 거름 몫이 겨울 배수를 따르는지: niche_world를 한 번 불러 budget 이동량을 센다.
+    # (장부 잔차에는 budget이 들어가지 않아 위 보존 시험만으로는 이것을 가리지 못한다)
+    w = World(small("stage4", "ext", season_enabled=True))
+    w.s.soil[:] = 0.0
+    w.s.soil[0] = 0.1 * w.cfg.soil_ref          # 몫이 먹이 한 알(1.0)보다 작게 잡아 먹이가 놓이지 않게 한다
+    w.s.budget[:] = 0.0
+    st.niche_world(0, w.s, w.fs, w.isp, mult)
+    frac = float(w.s.soil.sum()) / w.cfg.soil_ref
+    share = w.cfg.food_inflow * mult * w.cfg.fert_frac * frac
+    assert share < w.cfg.food_energy
+    assert w.s.budget[1] == pytest.approx(share, rel=1e-6)
+    assert w.s.budget[0] == pytest.approx(-share, rel=1e-6)
