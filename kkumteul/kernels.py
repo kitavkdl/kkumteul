@@ -81,6 +81,7 @@ C_EATEN = 9
 C_NALIVE = 10
 C_DEATH_PASSIVE = 11
 C_STEP = 12
+C_DEATH_DISASTER = 13   # 각본의 재난으로 죽은 수
 N_COUNTERS = 16
 
 # ---- ledger 칸 (에너지 장부) ----
@@ -103,6 +104,7 @@ BIRTH_PASSIVE = 4
 DEATH_STARVE = 0
 DEATH_AGE = 1
 DEATH_PASSIVE = 2
+DEATH_DISASTER = 3       # 각본의 재난(운석)
 
 # ---- 실수 설정 칸 ----
 (P_W, P_H, P_INV_CELL, P_INFLOW, P_E_FOOD, P_PATCH_SIGMA, P_UNIFORM, P_A_RAD, P_F_RAD,
@@ -1046,3 +1048,49 @@ def totals(s):
             nf += 1
             ef += s.f_energy[j]
     return na, ea, nf, ef
+
+
+# ---- 재난 (각본) ----
+# 이 아래는 각본(scenario.py)이 쓰는 커널이다. 파일 위쪽의 import 줄을 건드리지 않으려고 여기서 불러온다.
+from .rng import S_SCENARIO  # noqa: E402
+
+
+@njit(cache=True)
+def strike(step, s, fp, ip, x, y, radius, kill_prob, burn_food, stream_seed, nd):
+    """운석: (x, y)를 중심으로 반지름 radius인 원 안의 개체를 kill_prob 확률로 죽이고,
+    burn_food면 원 안의 먹이도 없앤다. 세계가 반대편으로 이어지므로 거리는 가까운 쪽으로 잰다.
+
+    사라진 에너지(개체의 남은 에너지, 먹이의 에너지)는 모두 장부의 L_LOST에 적는다.
+    사망 기록은 dbuf의 nd번 줄부터 쓰고, 죽은 수를 돌려준다.
+    누가 죽는지는 (씨앗, 개체 id, stream_seed)만으로 정해진다(칸 번호·스레드 수와 무관).
+    prange를 쓰지 않는 순차 커널이다(상태 묶음을 거쳐 배열에 쓴다).
+    """
+    seed = ip[Q_SEED]
+    w = fp[P_W]
+    hgt = fp[P_H]
+    r2 = radius * radius
+    killed = 0
+    for i in range(s.x.shape[0]):
+        if not s.alive[i]:
+            continue
+        ddx = _wdiff(s.x[i] - x, w)
+        ddy = _wdiff(s.y[i] - y, hgt)
+        if ddx * ddx + ddy * ddy > r2:
+            continue
+        if kill_prob < 1.0 and u01(seed, S_SCENARIO, s.ids[i], stream_seed) >= kill_prob:
+            continue
+        _remove(s, i, DEATH_DISASTER, step, False, nd + killed)
+        s.counters[C_DEATH_DISASTER] += 1
+        killed += 1
+    if burn_food:
+        for j in range(s.fx.shape[0]):
+            if not s.f_alive[j]:
+                continue
+            ddx = _wdiff(s.fx[j] - x, w)
+            ddy = _wdiff(s.fy[j] - y, hgt)
+            if ddx * ddx + ddy * ddy > r2:
+                continue
+            s.f_alive[j] = False
+            s.counters[C_NFOOD] -= 1
+            s.ledger[L_LOST] += s.f_energy[j]
+    return killed

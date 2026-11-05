@@ -7,13 +7,43 @@
 
 | 길 | 무엇을 하나 | 상태 |
 |---|---|---|
-| 각본 쓰기 | 재난·기후 변화를 파일 하나로 적어 세계에 준다(가뭄, 빙하기, 운석, 계절, 먹이 자리 이동 등) | 계획 |
-| 같은 시점에서 가르기 | 공개된 "씨앗 세계"(체크포인트)에서 각자 각본을 적용해 갈라 돌리고 결과를 비교한다 | 가르기는 있음, 씨앗 세계 공개는 계획 |
-| 실험 카드 올리기 | 정해진 양식의 결과(개체 수, 멸종 여부, 뇌 크기, 대조와의 겨루기)를 `experiments/`에 올린다 | 계획 |
-| 생물 겨루기 | 각자 세계에서 진화시킨 생물 묶음을 내놓고 표준 세계에서 겨루게 한다 | 겨루기는 있음, 묶음 내보내기는 계획 |
+| 각본 쓰기 | 재난·기후 변화를 파일 하나로 적어 세계에 준다(가뭄, 빙하기, 운석, 계절, 먹이 자리 이동 등). 형식과 예는 [scenarios/README.md](scenarios/README.md) | 있음 |
+| 같은 시점에서 가르기 | 공개된 "씨앗 세계"(체크포인트)에서 각자 각본을 적용해 갈라 돌리고 결과를 비교한다 | 가르기와 비교 명령(`kkumteul.experiment`)은 있음, 씨앗 세계 공개는 계획 |
+| 실험 카드 올리기 | 정해진 양식의 결과(개체 수, 재주입, 뇌 크기, 대조와의 겨루기)를 `experiments/`에 올린다. 올리는 법은 [experiments/README.md](experiments/README.md) | 있음 |
+| 생물 겨루기 | 각자 세계에서 진화시킨 생물 묶음을 내놓고 겨루게 한다(`kkumteul.pack`, `kkumteul.measure assay`) | 있음(겨루는 세계는 한쪽 묶음의 설정을 쓴다. 모두가 쓰는 표준 세계는 계획) |
 | 이주 | 한 세계의 생물 일부를 다른 세계에 넣는다(섬 사이 이동) | 계획 |
 | 풀리지 않은 문제에 도전 | 아래 "열린 문제" | 있음 |
 | 코드 고치기 | 새 감각, 새 세계 규칙, 측정 방법, 관찰 화면 | 있음 |
+
+## 5분 안에 첫 실험
+
+필요한 것은 Python 3.10 이상과 numpy, numba뿐이다. 이 레포 폴더에서 친다.
+걸리는 시간은 노트북(Apple M3)에서 한 번 잰 값이고, 합쳐서 5분 안팎이다. 처음 한 번은 numba가 계산 코드를 번역하느라 조금 더 걸린다.
+
+```bash
+# 1. 출발점이 될 작은 세계를 만든다 (5만 스텝, 약 1분)
+python3 -m kkumteul.run new --run runs/base --steps 50000
+
+# 2. 가뭄 각본이 무엇을 하는지 본다 (세계를 돌리지 않는다)
+python3 -m kkumteul.scenario scenarios/drought.json
+
+# 3. 같은 출발점에서 "가뭄 없음"과 "가뭄"을 5만 스텝씩 돌리고 생존자끼리 겨루게 한다 (약 4분)
+python3 -m kkumteul.experiment --from runs/base --scenario scenarios/drought.json --steps 50000 --name first-drought
+
+# 4. 결과를 읽는다
+cat experiments/first-drought/card.md
+```
+
+카드에는 두 갈래의 개체 수(최소·최대·끝), 재주입 수, 뇌 크기 변화와, 가뭄을 겪은 쪽이 평소 세계에서 대조 쪽을 이기는지가 적힌다.
+세계가 도는 모습은 `python3 -m kkumteul.viewer --runs runs --port 8765`로 본다.
+
+그다음에 해 볼 것:
+
+- `scenarios/`의 다른 각본을 주거나, 숫자를 바꿔 자기 각본을 쓴다([scenarios/README.md](scenarios/README.md)).
+- 출발점을 더 오래 돌린 세계로 바꾼다(`python3 -m kkumteul.run new --run runs/base2 --steps 200000` 이상). 5만 스텝은 약 50세대라 아직 덜 자란 세계다. 실험도 더 길게 돌려야 가뭄 뒤의 회복이 보인다(가뭄은 4만 스텝째에 끝난다).
+- 겨루기 판정이 "가를 수 없음"이면 같은 명령에 `--reps 8`을 붙여 다시 친다. 두 갈래는 다시 돌리지 않고 겨루기만 다시 한다. 길이나 각본을 바꾸려면 `--name`을 새로 준다.
+- 살아남은 생물을 묶음으로 내보내 다른 사람의 것과 겨루게 한다(`python3 -m kkumteul.pack export --from runs/exp-first-drought-treatment --out mine.pack.npz`).
+- 결과 카드를 pull request로 올린다([experiments/README.md](experiments/README.md)).
 
 ## 열린 문제
 
@@ -25,7 +55,7 @@
 
 ## 결과를 믿을 수 있게
 
-- 실험은 씨앗(seed)과 설정, 부모 체크포인트 해시가 실행 폴더에 남는다. 같은 기계에서는 같은 결과가 나온다.
+- 실험은 씨앗(seed)과 설정, 부모 체크포인트 해시, 받은 각본이 실행 폴더에 남는다. 같은 기계에서는 같은 결과가 나온다.
 - 비교는 늘 대조와 함께 한다. 조건만 다른 두 갈래를 같은 체크포인트에서 갈라 돌린다.
 - "뇌가 커졌다" 같은 추세만으로 성장이라고 하지 않는다. 겨루기(`python3 -m kkumteul.measure`)로 본다.
 - 측정값 읽는 법은 README의 "측정값을 읽을 때"에 있다.
