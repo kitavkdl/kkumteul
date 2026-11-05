@@ -183,11 +183,36 @@ details table { margin-top: 8px; font-size: 0.85rem; }
 footer { padding-block: 40px 56px; color: var(--dim); font-size: var(--step--1); display: grid; gap: 8px; }
 footer ul { margin: 0; padding-left: 1.1em; }
 
+/* 어디까지 왔나 */
+.climb-grid { display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); gap: 36px; align-items: start; }
+.climb-fig { gap: 14px; }
+.climb-fig svg { display: block; width: 100%; height: auto; }
+svg .rail { stroke: var(--line); stroke-width: 2; }
+svg .brk { fill: none; stroke-width: 1.5; }
+svg .brk.up { stroke: var(--s2); } svg .brk.dn { stroke: var(--faint); }
+svg .brk-t { font-size: 10.5px; letter-spacing: 0.04em; }
+svg .brk-t.up { fill: var(--s2); } svg .brk-t.dn { fill: var(--faint); }
+svg .sep { stroke: var(--line); stroke-width: 1; }
+svg .rn { font-size: 15px; font-weight: 600; }
+svg .hd { font-size: 14.5px; font-weight: 600; fill: var(--ink); }
+svg .bd { font-size: 14px; fill: var(--dim); }
+svg .tg { font-size: 11px; font-weight: 600; }
+svg .have .rb { fill: var(--food); stroke: var(--food); } svg .have .rn { fill: var(--bg); } svg .have .tg { fill: var(--food); }
+svg .meas .rb { fill: var(--wash); stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 4; } svg .meas .rn, svg .meas .tg { fill: var(--accent); }
+svg .stuck .rb { fill: var(--surface); stroke: var(--stop); stroke-width: 2; } svg .stuck .rn, svg .stuck .tg { fill: var(--stop); }
+svg .todo .rb { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; } svg .todo .rn { fill: var(--faint); } svg .todo .hd { fill: var(--dim); } svg .todo .bd { fill: var(--faint); }
+.climb-aside { display: grid; gap: 12px; min-width: 0; border-top: 1px solid var(--line); padding-top: 14px; }
+.climb-aside h4 { margin: 0; font-size: 1rem; font-weight: 600; }
+.climb-aside ul { margin: 0; padding-left: 1.1em; display: grid; gap: 10px; color: var(--dim); font-size: 0.95rem; }
+.pending { border: 1px dashed var(--dawn); border-radius: 10px; background: var(--surface); padding: 12px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; color: var(--dim); max-width: 28em; }
+
 @media (max-width: 860px) {
   .chap { grid-template-columns: minmax(0, 1fr); gap: 22px; padding-block: 48px; }
   .chap-head { position: static; grid-auto-flow: column; justify-content: start; align-items: baseline; gap: 12px; }
   .trio { grid-template-columns: minmax(0, 1fr); }
   .live { grid-template-columns: minmax(0, 1fr); }
+  .climb-grid { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .climb-fig { max-width: 440px; }
 }
 @media (max-width: 560px) {
   .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -207,7 +232,7 @@ footer ul { margin: 0; padding-left: 1.1em; }
   <div class="over">
     <div class="wrap">
       <h1 class="mark">꿈틀</h1>
-      <p class="lede">아무도 가르치지 않은 생물들이 스스로 행동을 만들어 내는 세계. 10월 28일의 대화에서 11월 5일 아침까지 걸어온 길.</p>
+      <p class="lede">아무도 가르치지 않은 생물들이 스스로 행동을 만들어 내는 세계. 10월 28일의 대화에서 11월 5일 오후까지 걸어온 길.</p>
       <div class="legend" aria-hidden="true">
         <span><i class="sw dot" style="background:#58d68a"></i>먹이 A</span>
         <span><i class="sw dia" style="background:#b58cff"></i>먹이 B</span>
@@ -221,15 +246,15 @@ footer ul { margin: 0; padding-left: 1.1em; }
 <div class="wrap">
   <div class="facts">
     <div><b>9일</b><span>첫 대화에서 오늘까지</span></div>
-    <div><b>34</b><span>공개 레포 커밋(11/05 하룻밤)</span></div>
-    <div><b>144</b><span>시험 건수</span></div>
-    <div><b>12,325</b><span>서버 세계의 평균 세대</span></div>
+    <div><b>42</b><span>공개 레포 커밋(11/05)</span></div>
+    <div><b>149</b><span>시험 건수</span></div>
+    <div><b>14,232</b><span>서버 main 세계의 평균 세대(13:44 ET)</span></div>
   </div>
 
   <!-- 1 동기 -->
   <section class="chap" id="motive">
     <header class="chap-head">
-      <span class="chap-no">1 / 5</span>
+      <span class="chap-no">1 / 6</span>
       <h2>동기</h2>
       <p class="chap-when">10월 28일</p>
     </header>
@@ -276,7 +301,7 @@ footer ul { margin: 0; padding-left: 1.1em; }
   <!-- 2 구상 -->
   <section class="chap" id="design">
     <header class="chap-head">
-      <span class="chap-no">2 / 5</span>
+      <span class="chap-no">2 / 6</span>
       <h2>구상</h2>
       <p class="chap-when">10월 28일 ~ 11월 4일</p>
     </header>
@@ -349,7 +374,7 @@ footer ul { margin: 0; padding-left: 1.1em; }
   <!-- 3 우여곡절 -->
   <section class="chap" id="detours">
     <header class="chap-head">
-      <span class="chap-no">3 / 5</span>
+      <span class="chap-no">3 / 6</span>
       <h2>우여곡절</h2>
       <p class="chap-when">11월 4일 ~ 5일 아침</p>
     </header>
@@ -482,7 +507,7 @@ footer ul { margin: 0; padding-left: 1.1em; }
   <!-- 4 조절 -->
   <section class="chap" id="adjust">
     <header class="chap-head">
-      <span class="chap-no">4 / 5</span>
+      <span class="chap-no">4 / 6</span>
       <h2>조절</h2>
       <p class="chap-when">부딪힐 때마다</p>
     </header>
@@ -506,12 +531,116 @@ footer ul { margin: 0; padding-left: 1.1em; }
     </div>
   </section>
 
-  <!-- 5 지금 상태 -->
+  <!-- 5 어디까지 왔나 -->
+  <section class="chap" id="where">
+    <header class="chap-head">
+      <span class="chap-no">5 / 6</span>
+      <h2>어디까지 왔나</h2>
+      <p class="chap-when">11월 5일 오후</p>
+    </header>
+    <div class="chap-body">
+      <div class="block">
+        <h3>적응에서 철학까지, 사다리 일곱 칸</h3>
+        <p>사용자가 보고 싶어 하시는 것(규범, 가르침, 법, 철학)은 사다리의 윗칸에 있다. 꿈틀은 지금 맨 아래 칸에 서 있고, 두 번째 칸에서 막혔고, 세 번째 칸을 넘었는지 재는 중이다. 각 칸에는 그 칸에 필요한 것과 꿈틀에서 확인된 사실을 한 줄씩 적었다.</p>
+        <div class="climb-grid">
+          <div class="figure climb-fig">
+            <div class="keyrow" aria-hidden="true">
+              <span><svg width="14" height="14"><rect x="1" y="1" width="12" height="12" rx="3" fill="var(--food)"/></svg>지금 있다</span>
+              <span><svg width="14" height="14"><rect x="1" y="1" width="12" height="12" rx="3" fill="var(--wash)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="3 2"/></svg>재는 중</span>
+              <span><svg width="14" height="14"><rect x="1" y="1" width="12" height="12" rx="3" fill="var(--surface)" stroke="var(--stop)" stroke-width="1.5"/></svg>막혔다</span>
+              <span><svg width="14" height="14"><rect x="1" y="1" width="12" height="12" rx="3" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/></svg>아직 닿지 않았다</span>
+            </div>
+            <svg id="climb" viewBox="0 0 340 786" role="img" aria-label="발전의 사다리. 아래에서 위로 적응, 학습, 소통, 문화, 규범, 법, 철학. 적응은 지금 있는 칸, 학습은 막혀 있고, 소통은 넘었는지 재는 중, 그 위는 아직 닿지 않았다. 법과 철학은 기호를 엮는 말이 필요해 5단계 제안으로 이어진다.">
+            <line class="rail" x1="34" y1="20" x2="34" y2="780"/><line class="rail" x1="82" y1="20" x2="82" y2="780"/>
+            <path class="brk up" d="M8 40 H3 V216 H8"/>
+            <path class="brk dn" d="M8 228 H3 V766 H8"/>
+            <text class="brk-t up" transform="translate(19 128.0) rotate(-90)" text-anchor="middle">5단계 제안</text>
+            <text class="brk-t dn" transform="translate(19 497.0) rotate(-90)" text-anchor="middle">1~4단계 세계 안</text>
+            <g class="rg todo">
+            <rect class="rb" x="28" y="42" width="60" height="40" rx="8"/>
+            <text class="rn" x="58.0" y="68" text-anchor="middle">철학</text>
+            <text class="hd" x="100" y="56">세계를 두고 묻는다</text>
+            <text class="bd" x="100" y="78">같은 말이 필요하다. 진화한 작은</text>
+            <text class="bd" x="100" y="98">신경망에서 이것이 나온 선례는 없다.</text>
+            </g>
+            <g class="rg todo">
+            <rect class="rb" x="28" y="136" width="60" height="40" rx="8"/>
+            <text class="rn" x="58.0" y="162" text-anchor="middle">법</text>
+            <text class="hd" x="100" y="150">규칙을 말로 전한다</text>
+            <text class="bd" x="100" y="172">필요한 것: 기호를 엮는 말. 5단계</text>
+            <text class="bd" x="100" y="192">제안이 이 칸부터다.</text>
+            </g>
+            <line class="sep" x1="100" y1="127" x2="336" y2="127"/>
+            <g class="rg todo">
+            <rect class="rb" x="28" y="230" width="60" height="40" rx="8"/>
+            <text class="rn" x="58.0" y="256" text-anchor="middle">규범</text>
+            <text class="hd" x="100" y="244">규칙이 무리에 선다</text>
+            <text class="bd" x="100" y="266">공격은 곁의 친척을 가끔 치는 것이지</text>
+            <text class="bd" x="100" y="286">벌주기가 아니다. 더 필요한 것: 개체</text>
+            <text class="bd" x="100" y="306">알아보기와 기억, 혼자 못 하는</text>
+            <text class="bd" x="100" y="326">일(협력 먹이).</text>
+            </g>
+            <line class="sep" x1="100" y1="221" x2="336" y2="221"/>
+            <g class="rg todo">
+            <rect class="rb" x="28" y="364" width="60" height="40" rx="8"/>
+            <text class="rn" x="58.0" y="390" text-anchor="middle">문화</text>
+            <text class="hd" x="100" y="378">남을 보고 따라 배운다</text>
+            <text class="bd" x="100" y="400">필요한 것: 되는 학습과 따라 배우기.</text>
+            <text class="bd" x="100" y="420">확인된 것은 아직 없다.</text>
+            </g>
+            <line class="sep" x1="100" y1="355" x2="336" y2="355"/>
+            <g class="rg meas">
+            <rect class="rb" x="28" y="458" width="60" height="40" rx="8"/>
+            <text class="rn" x="58.0" y="484" text-anchor="middle">소통</text>
+            <text class="tg" x="58.0" y="516" text-anchor="middle">재는 중</text>
+            <text class="hd" x="100" y="472">신호가 쓰인다</text>
+            <text class="bd" x="100" y="494">신호 세기만 떠돈다. 못 듣게 하면</text>
+            <text class="bd" x="100" y="514">행동은 바뀌지만, 신호가 쓰이는지는</text>
+            <text class="bd" x="100" y="534">재는 중이다.</text>
+            </g>
+            <line class="sep" x1="100" y1="449" x2="336" y2="449"/>
+            <g class="rg stuck">
+            <rect class="rb" x="28" y="572" width="60" height="40" rx="8"/>
+            <text class="rn" x="58.0" y="598" text-anchor="middle">학습</text>
+            <text class="tg" x="58.0" y="630" text-anchor="middle">막힘</text>
+            <text class="hd" x="100" y="586">한 생애 안에서 경험으로 바꾼다</text>
+            <text class="bd" x="100" y="608">가려 먹기를 못 배운다. 진화가</text>
+            <text class="bd" x="100" y="628">학습률을 0.01에서</text>
+            <text class="bd" x="100" y="648">0.0001~0.0006으로 거의 껐다.</text>
+            </g>
+            <line class="sep" x1="100" y1="563" x2="336" y2="563"/>
+            <g class="rg have">
+            <rect class="rb" x="28" y="686" width="60" height="40" rx="8"/>
+            <text class="rn" x="58.0" y="712" text-anchor="middle">적응</text>
+            <text class="tg" x="58.0" y="744" text-anchor="middle">지금 여기</text>
+            <text class="hd" x="100" y="700">몸과 감각이 환경에 맞는다</text>
+            <text class="bd" x="100" y="722">재주입 없이 유지되고 진화한다.</text>
+            <text class="bd" x="100" y="742">진화한 것은 주로 절약이다.</text>
+            </g>
+            <line class="sep" x1="100" y1="677" x2="336" y2="677"/>
+            </svg>
+          </div>
+          <aside class="climb-aside">
+            <h4>이 그림을 읽는 법</h4>
+            <ul>
+              <li>아래에서 위로 오른다. 윗칸은 아랫칸이 있어야 선다고 본다(추정).</li>
+              <li>왼쪽 괄호: 아래 다섯 칸은 지금의 1~4단계 세계 안에서 씨앗까지는 기대할 수 있다. 위 두 칸은 말이 필요해서 5단계 제안으로 넘어간다.</li>
+              <li>막힌 칸은 학습이다. 문화와 규범이 학습 위에 서므로, 아래 "사용자가 정하실 것"의 ① 가려 먹기의 다음 길이 이 칸을 다시 여는 길이다(추정).</li>
+              <li>소통 칸은 감각 막기 겨루기가 끝나면 "넘음", "못 넘음", "가를 수 없음" 가운데 하나로 바뀐다.</li>
+            </ul>
+            <p class="sub">칸마다 적은 사실은 한 번, 한 씨앗으로 잰 것이 대부분이다.</p>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 지금 상태 -->
   <section class="chap" id="now">
     <header class="chap-head">
-      <span class="chap-no">5 / 5</span>
+      <span class="chap-no">6 / 6</span>
       <h2>지금 상태</h2>
-      <p class="chap-when">11월 5일 11:30 ET</p>
+      <p class="chap-when">11월 5일 13:44 ET</p>
     </header>
     <div class="chap-body">
       <div class="block">
@@ -522,11 +651,12 @@ footer ul { margin: 0; padding-left: 1.1em; }
             <tbody>
               <tr><td>1 세계와 몸</td><td><span class="pill run">돌고 있다</span></td><td>재주입 없이 유지되고 진화한다. 진화한 것은 주로 절약이다.</td></tr>
               <tr><td>2 마음</td><td><span class="pill in">넣음, 기본 꺼짐</span></td><td>진화가 학습을 끈다. 지금 학습 규칙 둘로는 가려 먹기를 못 배운다.</td></tr>
-              <tr><td>3 사회</td><td><span class="pill in">넣음, 기본 꺼짐</span></td><td>주기는 줄었고, 신호가 쓰인다는 증거는 없다.</td></tr>
+              <tr><td>3 사회</td><td><span class="pill in">넣음, 기본 꺼짐</span></td><td>주기는 줄었다. 신호가 쓰인다는 증거는 아직 없고, 감각 막기 겨루기로 재는 중이다.</td></tr>
               <tr><td>4 판이 바뀌는 세계</td><td><span class="pill in">넣음, 기본 꺼짐</span></td><td>길과 거름이 쓰인다는 증거는 없다. 재난·기후 각본 7개.</td></tr>
-              <tr><td>덧붙인 것</td><td><span class="pill in">넣음, 기본 꺼짐</span></td><td>먹이 종류와 독, 공격(켜면 공격이 퍼진다), 먹이 상한 바꾸기, 노드 섭동 학습.</td></tr>
+              <tr><td>덧붙인 것</td><td><span class="pill in">넣음, 기본 꺼짐</span></td><td>먹이 종류와 독, 공격(켜면 공격이 퍼진다. 대부분 곁의 친척을 가끔 친다), 먹이 상한 바꾸기, 노드 섭동 학습.</td></tr>
               <tr><td>참여</td><td><span class="pill run">쓸 수 있다</span></td><td>각본, 생물 묶음(주고받기·이주), 실험 카드.</td></tr>
-              <tr><td>다시 보기</td><td><span class="pill run">쓸 수 있다</span></td><td>신호·건넴·공격·운석 표시는 아직 눈으로 확인 못 했다.</td></tr>
+              <tr><td>다시 보기</td><td><span class="pill run">쓸 수 있다</span></td><td>신호 고리·건넴·공격·운석·각본 띠가 그려지는 것을 확인했다. 눈에 잘 띄는지와 진짜 폰 확대는 아직이다.</td></tr>
+              <tr><td>재는 도구</td><td><span class="pill run">쓸 수 있다</span></td><td>놓인 먹이로 가려 먹기, 공격 가르기, 감각 막기. 시험 149건 통과.</td></tr>
             </tbody>
           </table>
         </div>
@@ -538,53 +668,85 @@ footer ul { margin: 0; padding-left: 1.1em; }
           <article>
             <h4>1단계 세계 <code>main</code></h4>
             <dl>
-              <dt>스텝</dt><dd>12,625,000</dd>
-              <dt>개체 수</dt><dd>1,586</dd>
-              <dt>평균 세대</dt><dd>12,325</dd>
-              <dt>지금까지 출생</dt><dd>12,846,293</dd>
+              <dt>스텝</dt><dd>14,590,000</dd>
+              <dt>개체 수</dt><dd>1,656</dd>
+              <dt>평균 세대</dt><dd>14,232</dd>
+              <dt>지금까지 출생</dt><dd>14,872,137</dd>
               <dt>재주입</dt><dd>0</dd>
             </dl>
           </article>
           <article>
             <h4>2~4단계를 켠 세계 <code>world4</code></h4>
             <dl>
-              <dt>스텝</dt><dd>8,350,000</dd>
-              <dt>개체 수</dt><dd>1,270</dd>
-              <dt>평균 세대</dt><dd>8,043</dd>
-              <dt>지금까지 출생</dt><dd>7,214,780</dd>
+              <dt>스텝</dt><dd>9,585,000</dd>
+              <dt>개체 수</dt><dd>1,333</dd>
+              <dt>평균 세대</dt><dd>9,144</dd>
+              <dt>지금까지 출생</dt><dd>8,280,192</dd>
               <dt>재주입</dt><dd>0</dd>
             </dl>
           </article>
         </div>
-        <p class="sub">11:25 ET에 각 실행의 마지막 기록 줄에서 읽은 값. 둘 다 띄울 때의 옛 코드로 돌고 있다.</p>
+        <p class="sub">13:44 ET에 각 실행의 마지막 기록 줄에서 읽은 값. 재부팅(11:48 ET) 때 저장하고 멈춘 자리에서 12:43 ET에 이어 돌리기로 다시 띄웠다. 지금은 손으로 띄운 것이라 다음 재부팅에는 또 손으로 띄워야 한다.</p>
+        <a class="cta" href="https://claude.ai/artifact/LJwqLAmdv8evuPTUj7W69Z" target="_blank" rel="noopener">다시 보기 화면 열기 ↗</a>
       </div>
 
       <div class="block">
-        <h3>오전에 읽은 실험 셋</h3>
+        <h3>오후까지 읽은 실험</h3>
         <div class="events">
           <div class="ev"><div class="when">공격 세계</div><div>
             <h4>공격이 줄지 않고 <span class="big">백 배</span>로 늘었다</h4>
-            <p>무작위에서 시작해 20만 스텝, 재주입 없이 1,000마리 안팎으로 섰다. 공격은 4만 스텝까지 거의 없다가 12만 스텝에 스텝당 약 33번이 됐고, 죽은 개체의 약 20%가 맞아 죽었다. 예측(비용이 커서 진화가 끈다, 10% 아래)은 둘 다 틀렸다. 포식 비슷한 것이 생긴 것으로 보이지만, 공격을 막은 갈래와 겨뤄 봐야 안다.</p>
+            <p>무작위에서 시작해 20만 스텝, 재주입 없이 1,000마리 안팎으로 섰다. 공격은 4만 스텝까지 거의 없다가 12만 스텝에 스텝당 약 33번이 됐고, 죽은 개체의 약 20%가 맞아 죽었다. 예측(비용이 커서 진화가 끈다, 10% 아래)은 둘 다 틀렸다.</p>
+          </div></div>
+          <div class="ev"><div class="when">공격 가르기</div><div>
+            <h4>대부분이 가끔, 곁의 <span class="big">친척</span>을 친다</h4>
+            <p>88%가 한 번 이상 공격했고 상위 10%가 공격의 41%를 냈다. 소수의 사냥꾼이 아니다(예측은 틀렸다). 공격자 곁의 이웃은 안 한 개체의 이웃만큼 가까운 친척이었다(색 거리 0.144 대 0.155, 아무 둘은 0.284). 공격을 막은 쪽과의 겨루기는 가를 수 없었다(기울기 +0.089 ± 0.036, 중립 +0.035, 끝 수의 차이 t 1.7). 이득이 작은 곁가지 행동이 떠돈 것으로 읽지만 추정이다. 판수를 늘리거나 <code>attack_gain=0</code> 대조를 두면 더 가를 수 있다.</p>
           </div></div>
           <div class="ev"><div class="when">먹이 종류 넷</div><div>
             <h4>종류는 고르지만 독은 따라가지 않는다</h4>
-            <p>무작위에서 시작한 두 세계까지 넷 모두 "놓인 먹이"로 다시 쟀다. 독이 바뀐 뒤 조금 움직이는 것처럼 보였지만, 같은 체크포인트를 독 0으로 돌린 대조에서도 똑같이 움직였다. 판정은 그대로다.</p>
+            <p>무작위에서 시작한 두 세계까지 넷 모두 "놓인 먹이"로 다시 쟀다. 독이 바뀐 뒤 독 쪽이 조금 더 남는 것처럼 보였지만, 같은 체크포인트를 독 0으로 돌린 대조에서도 똑같이 움직였다(독 0.3과 독 0의 차이 +0.002, −0.007). 판정은 그대로다.</p>
           </div></div>
         </div>
-        <a class="cta" href="https://claude.ai/artifact/LJwqLAmdv8evuPTUj7W69Z" target="_blank" rel="noopener">다시 보기 화면 열기 ↗</a>
+      </div>
+
+      <div class="block">
+        <h3>오늘 만든 감각 막기 도구</h3>
+        <p>같은 생물을 두 벌 만들어 한쪽만 신호 듣기, 닮음, 먹는 것 보기, 흔적, 시야 입력을 0으로 하고 겨룬다(<code>knockout.py</code>). 유전체는 고치지 않는다. 가중치를 0으로 하면 평생 학습이 그 칸으로 다시 자랄 수 있어서다. 겨루기에 앞서 신호를 듣는 쪽과 내는 쪽을 묘사하는 도구가 먼저 답했다.</p>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th></th><th>사회 세계(900만 스텝)</th><th>공격 세계(20만 스텝)</th></tr></thead>
+            <tbody>
+              <tr><td>들을 것이 있었던 비율</td><td class="num">0.98</td><td class="num">0.95</td></tr>
+              <tr><td>못 듣게 할 때 추력·회전이 바뀌는 양, 시야를 지울 때의 몇 배</td><td class="num">0.24 ~ 0.29배</td><td class="num">0.46 ~ 0.51배</td></tr>
+              <tr><td>신호의 개체 사이 몫</td><td class="num">0.49 · 0.32</td><td class="num">0.40 · 0.28</td></tr>
+              <tr><td>상황과의 가장 큰 상관</td><td class="num">0.20 (신호1과 냄새)</td><td class="num">0.31 (신호1과 방금 먹음)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="sub">500스텝을 쟀다. 신호의 개체 사이 몫은 신호 값이 흔들리는 가운데 개체마다 다르게 정해진 몫이다.</p>
+        <div class="note dawn">
+          <p><b>판정이 아니라 단서다.</b> 못 듣게 하면 행동이 시야를 지울 때의 4분의 1에서 절반쯤 바뀌므로 듣는 입력은 행동에 꽤 걸려 있다. 신호의 개체 사이 몫은 0.28~0.49라서 개체마다 고정된 꼬리표는 아니고(예측은 0.5 넘음이었다), 먹음·냄새와는 최대 0.31로 약하게만 붙어 있다. 그러나 쓰이지 않는 가중치도 저절로 떠돌기 때문에 이것만으로는 "쓴다"가 아니다. 판정은 겨루기가 한다.</p>
+        </div>
+        <p class="sub">겨루기 전에 적은 예측(13:40 ET): 시야를 막은 쪽은 6판 모두 크게 진다(아니면 도구가 고장). 듣기를 막은 쪽은 가를 수 없다(정보가 한쪽에만 있는 과제가 없고, 남이 먹는 것 보기가 이미 공짜 단서라서).</p>
+        <div class="pending">
+          <span class="pill wait">대기</span>
+          <!-- KNOCKOUT_RESULT -->
+          <p>겨루기 결과를 기다리는 중</p>
+        </div>
       </div>
 
       <div class="block">
         <h3>사용자가 정하실 것</h3>
         <div class="choices">
           <div class="choice rec"><span class="n">①</span><div><b>가려 먹기의 다음 길: 맛 기억 (추천)</b>
-            <p>먹은 순간 "방금 먹은 종류 × 좋았나 나빴나"를 종류별 값 하나로 바로 적고, 그 값을 뇌의 입력으로 준다. 동물의 맛 혐오 학습처럼 한두 끼면 바뀐다. 그 값을 쓸지는 진화가 정한다.</p></div></div>
-          <div class="choice"><span class="n">②</span><div><b>이어지는 탐색</b>
-            <p>흔드는 잡음을 열 스텝쯤 이어지게 해서 "한동안 왼쪽으로 가 본다"가 되게 한다. 신호는 커지지만 백 배를 메울지는 모른다.</p></div></div>
-          <div class="choice"><span class="n">③</span><div><b>과제를 바꾼다</b>
-            <p>독이 바뀌는 주기를 수명보다 훨씬 길게 하면 학습 없이 진화가 따라간다. 학습이 값을 하는 주기가 있는지부터 계산한다.</p></div></div>
+            <p>지금 학습 규칙으로는 못 배운다. 먹은 순간 "방금 먹은 종류 × 좋았나 나빴나"를 종류별 값 하나로 바로 적고, 그 값을 뇌의 입력으로 준다. 동물의 맛 혐오 학습처럼 한두 끼면 바뀐다. 그 값을 쓸지는 진화가 정한다. 다른 길은 이어지는 탐색(잡음을 열 스텝쯤 잇기), 과제 바꾸기(독이 바뀌는 주기를 수명보다 길게).</p></div></div>
+          <div class="choice"><span class="n">②</span><div><b>다시 보기 화면에서 고칠 것</b>
+            <p>올린 화면을 보시고 고칠 것을 말씀해 주시면 된다. 주인공 하나를 따라가는 첫 화면, 늘 어두운 지도 바탕, "가려 먹는다"의 문턱(차이 10%p) 같은 것이 임시 결정이다.</p></div></div>
+          <div class="choice"><span class="n">③</span><div><b><code>main</code>에 합치기</b>
+            <p>02:50 ET부터의 커밋은 작업 가지에 있다. 이 세션의 실행 환경이 합치기를 막아 두어서, 합치려면 사용자가 서버 터미널에서 직접 하셔야 한다.</p></div></div>
+          <div class="choice"><span class="n">④</span><div><b>5단계(말하는 존재)를 할지, 어느 길로</b>
+            <p>길 A는 1~4단계 세계를 훨씬 크게 오래 돌리는 것(스스로 만든 것이지만 아무것도 안 나올 수 있다). 길 B는 몇몇 개체의 뇌를 언어 모델로 바꾸는 것(법·철학 칸에 닿을 수 있지만 말과 개념은 사람 글에서 빌려온 것이라 "스스로 만든 것"으로 부를 수 없다). 길 B면 어떤 모델을 쓸지, 한 달 비용 상한, 말하는 개체 수도 정하셔야 한다.</p></div></div>
         </div>
-        <p class="sub">그 밖에: 가지의 작업을 <code>main</code>에 합치기, 5단계(말하는 존재)를 할지와 길(아래에서 위로 / 말하는 뇌를 얹기), 다시 보기 화면에서 고칠 것.</p>
+        <p class="sub">그 밖에: 라이선스(MIT를 임시로 넣음), 서버 서비스 등록, 독 0.3의 기본값 반영, "하루 10세대"의 뜻. 목록은 <code>sessions/tasks.md</code>.</p>
       </div>
     </div>
   </section>
@@ -592,6 +754,7 @@ footer ul { margin: 0; padding-left: 1.1em; }
   <footer>
     <p>재료: 설계 노트 <code>docs/design-notes-2026-10-28.md</code>, 1단계 지도 <code>wayfinder/stage1/map.md</code>, 첫 실행 <code>wayfinder/stage1/research/first-run-mac.md</code>, 2~4단계 결과 <code>wayfinder/stage2-4/results.md</code>, git 기록, 인수인계와 보관 파일.</p>
     <p>모든 숫자는 한 번, 한 씨앗으로 잰 것이 대부분이다. 시각은 뉴욕 시간(ET).</p>
+    <p>마지막 갱신: 2026-11-05 13:48 ET</p>
   </footer>
 </div>
 
