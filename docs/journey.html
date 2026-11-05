@@ -541,7 +541,7 @@ svg .todo .rb { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; } 
     <div class="chap-body">
       <div class="block">
         <h3>적응에서 철학까지, 사다리 일곱 칸</h3>
-        <p>사용자가 보고 싶어 하시는 것(규범, 가르침, 법, 철학)은 사다리의 윗칸에 있다. 꿈틀은 지금 맨 아래 칸에 서 있고, 두 번째 칸에서 막혔고, 세 번째 칸을 넘었는지 재는 중이다. 각 칸에는 그 칸에 필요한 것과 꿈틀에서 확인된 사실을 한 줄씩 적었다.</p>
+        <p>사용자가 보고 싶어 하시는 것(규범, 가르침, 법, 철학)은 사다리의 윗칸에 있다. 꿈틀은 지금 맨 아래 칸에 서 있고, 두 번째 칸에서 막혔고, 세 번째 칸(소통)은 재 보니 아직 못 넘었다. 각 칸에는 그 칸에 필요한 것과 꿈틀에서 확인된 사실을 한 줄씩 적었다.</p>
         <div class="climb-grid">
           <div class="figure climb-fig">
             <div class="keyrow" aria-hidden="true">
@@ -550,7 +550,7 @@ svg .todo .rb { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; } 
               <span><svg width="14" height="14"><rect x="1" y="1" width="12" height="12" rx="3" fill="var(--surface)" stroke="var(--stop)" stroke-width="1.5"/></svg>막혔다</span>
               <span><svg width="14" height="14"><rect x="1" y="1" width="12" height="12" rx="3" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/></svg>아직 닿지 않았다</span>
             </div>
-            <svg id="climb" viewBox="0 0 340 786" role="img" aria-label="발전의 사다리. 아래에서 위로 적응, 학습, 소통, 문화, 규범, 법, 철학. 적응은 지금 있는 칸, 학습은 막혀 있고, 소통은 넘었는지 재는 중, 그 위는 아직 닿지 않았다. 법과 철학은 기호를 엮는 말이 필요해 5단계 제안으로 이어진다.">
+            <svg id="climb" viewBox="0 0 340 786" role="img" aria-label="발전의 사다리. 아래에서 위로 적응, 학습, 소통, 문화, 규범, 법, 철학. 적응은 지금 있는 칸, 학습은 막혀 있고, 소통은 아직 못 넘었다(재 봄), 그 위는 아직 닿지 않았다. 법과 철학은 기호를 엮는 말이 필요해 5단계 제안으로 이어진다.">
             <line class="rail" x1="34" y1="20" x2="34" y2="780"/><line class="rail" x1="82" y1="20" x2="82" y2="780"/>
             <path class="brk up" d="M8 40 H3 V216 H8"/>
             <path class="brk dn" d="M8 228 H3 V766 H8"/>
@@ -589,14 +589,14 @@ svg .todo .rb { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; } 
             <text class="bd" x="100" y="420">확인된 것은 아직 없다.</text>
             </g>
             <line class="sep" x1="100" y1="355" x2="336" y2="355"/>
-            <g class="rg meas">
+            <g class="rg stuck">
             <rect class="rb" x="28" y="458" width="60" height="40" rx="8"/>
             <text class="rn" x="58.0" y="484" text-anchor="middle">소통</text>
-            <text class="tg" x="58.0" y="516" text-anchor="middle">재는 중</text>
+            <text class="tg" x="58.0" y="516" text-anchor="middle">못 넘음</text>
             <text class="hd" x="100" y="472">신호가 쓰인다</text>
-            <text class="bd" x="100" y="494">신호 세기만 떠돈다. 못 듣게 하면</text>
-            <text class="bd" x="100" y="514">행동은 바뀌지만, 신호가 쓰이는지는</text>
-            <text class="bd" x="100" y="534">재는 중이다.</text>
+            <text class="bd" x="100" y="494">못 듣게 하면 행동은 바뀌지만, 겨뤄</text>
+            <text class="bd" x="100" y="514">보면 이득이 없다. 알릴 일이 있는</text>
+            <text class="bd" x="100" y="534">세계가 아직 없다.</text>
             </g>
             <line class="sep" x1="100" y1="449" x2="336" y2="449"/>
             <g class="rg stuck">
@@ -626,7 +626,7 @@ svg .todo .rb { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; } 
               <li>아래에서 위로 오른다. 윗칸은 아랫칸이 있어야 선다고 본다(추정).</li>
               <li>왼쪽 괄호: 아래 다섯 칸은 지금의 1~4단계 세계 안에서 씨앗까지는 기대할 수 있다. 위 두 칸은 말이 필요해서 5단계 제안으로 넘어간다.</li>
               <li>막힌 칸은 학습이다. 문화와 규범이 학습 위에 서므로, 아래 "사용자가 정하실 것"의 ① 가려 먹기의 다음 길이 이 칸을 다시 여는 길이다(추정).</li>
-              <li>소통 칸은 감각 막기 겨루기가 끝나면 "넘음", "못 넘음", "가를 수 없음" 가운데 하나로 바뀐다.</li>
+              <li>소통 칸은 감각 막기 겨루기로 쟀다. 듣기를 막은 쪽과 겨뤄 가를 수 없어 "못 넘음"이다. 다시 열려면 혼자 못 하는 일(협력 먹이)처럼 알릴 까닭이 있는 세계가 필요하다(추정).</li>
             </ul>
             <p class="sub">칸마다 적은 사실은 한 번, 한 씨앗으로 잰 것이 대부분이다.</p>
           </aside>
@@ -651,7 +651,7 @@ svg .todo .rb { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; } 
             <tbody>
               <tr><td>1 세계와 몸</td><td><span class="pill run">돌고 있다</span></td><td>재주입 없이 유지되고 진화한다. 진화한 것은 주로 절약이다.</td></tr>
               <tr><td>2 마음</td><td><span class="pill in">넣음, 기본 꺼짐</span></td><td>진화가 학습을 끈다. 지금 학습 규칙 둘로는 가려 먹기를 못 배운다.</td></tr>
-              <tr><td>3 사회</td><td><span class="pill in">넣음, 기본 꺼짐</span></td><td>주기는 줄었다. 신호가 쓰인다는 증거는 아직 없고, 감각 막기 겨루기로 재는 중이다.</td></tr>
+              <tr><td>3 사회</td><td><span class="pill in">넣음, 기본 꺼짐</span></td><td>주기는 줄었다. 감각 막기 겨루기로 재 보니 신호를 들어서 얻는 이득은 가를 수 없다.</td></tr>
               <tr><td>4 판이 바뀌는 세계</td><td><span class="pill in">넣음, 기본 꺼짐</span></td><td>길과 거름이 쓰인다는 증거는 없다. 재난·기후 각본 7개.</td></tr>
               <tr><td>덧붙인 것</td><td><span class="pill in">넣음, 기본 꺼짐</span></td><td>먹이 종류와 독, 공격(켜면 공격이 퍼진다. 대부분 곁의 친척을 가끔 친다), 먹이 상한 바꾸기, 노드 섭동 학습.</td></tr>
               <tr><td>참여</td><td><span class="pill run">쓸 수 있다</span></td><td>각본, 생물 묶음(주고받기·이주), 실험 카드.</td></tr>
@@ -727,10 +727,19 @@ svg .todo .rb { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; } 
           <p><b>판정이 아니라 단서다.</b> 못 듣게 하면 행동이 시야를 지울 때의 4분의 1에서 절반쯤 바뀌므로 듣는 입력은 행동에 꽤 걸려 있다. 신호의 개체 사이 몫은 0.28~0.49라서 개체마다 고정된 꼬리표는 아니고(예측은 0.5 넘음이었다), 먹음·냄새와는 최대 0.31로 약하게만 붙어 있다. 그러나 쓰이지 않는 가중치도 저절로 떠돌기 때문에 이것만으로는 "쓴다"가 아니다. 판정은 겨루기가 한다.</p>
         </div>
         <p class="sub">겨루기 전에 적은 예측(13:40 ET): 시야를 막은 쪽은 6판 모두 크게 진다(아니면 도구가 고장). 듣기를 막은 쪽은 가를 수 없다(정보가 한쪽에만 있는 과제가 없고, 남이 먹는 것 보기가 이미 공짜 단서라서).</p>
-        <div class="pending">
-          <span class="pill wait">대기</span>
-          <!-- KNOCKOUT_RESULT -->
-          <p>겨루기 결과를 기다리는 중</p>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>겨루기(6판씩, 14:17 ET)</th><th>기울기(1,000스텝당)</th><th>판정</th></tr></thead>
+            <tbody>
+              <tr><td>시야를 막은 쪽, 사회 세계(양성 대조)</td><td class="num">+5.07 ± 0.64</td><td>막은 쪽이 6판 모두 전멸. 도구는 제대로 막는다</td></tr>
+              <tr><td>듣기를 막은 쪽, 사회 세계</td><td class="num">+0.013 ± 0.027</td><td>가를 수 없음</td></tr>
+              <tr><td>듣기를 막은 쪽, 공격 세계</td><td class="num">−0.086 ± 0.054</td><td>가를 수 없음</td></tr>
+              <tr><td>대조: 사회 감각이 없는 규칙(두 세계)</td><td class="num">−0.018 · +0.022</td><td>가를 수 없음(당연)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note dawn">
+          <p><b>예측대로, 소통은 아직 없다.</b> 듣는 입력은 행동을 꽤 바꾸지만, 못 듣게 해도 살아남는 데 손해가 없다. 쓰이지 않는 연결이 떠돌며 행동을 흔드는 것으로 읽는다(추정). 이 겨루기로 가를 수 있는 차이는 1,000스텝당 약 0.1 이상이라, 그보다 작은 이득은 놓칠 수 있다. 신호를 낼 까닭(정보가 한쪽에만 있는 일)이 생기면 같은 도구로 다시 잰다.</p>
         </div>
       </div>
 
@@ -754,7 +763,7 @@ svg .todo .rb { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; } 
   <footer>
     <p>재료: 설계 노트 <code>docs/design-notes-2026-10-28.md</code>, 1단계 지도 <code>wayfinder/stage1/map.md</code>, 첫 실행 <code>wayfinder/stage1/research/first-run-mac.md</code>, 2~4단계 결과 <code>wayfinder/stage2-4/results.md</code>, git 기록, 인수인계와 보관 파일.</p>
     <p>모든 숫자는 한 번, 한 씨앗으로 잰 것이 대부분이다. 시각은 뉴욕 시간(ET).</p>
-    <p>마지막 갱신: 2026-11-05 13:48 ET</p>
+    <p>마지막 갱신: 2026-11-05 14:20 ET</p>
   </footer>
 </div>
 
