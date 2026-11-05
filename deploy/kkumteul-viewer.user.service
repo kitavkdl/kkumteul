@@ -1,0 +1,20 @@
+# 꿈틀 관찰 화면 사용자 서비스. 기본은 이 기계 안에서만 열린다(127.0.0.1).
+#
+#   cp deploy/kkumteul-viewer.user.service ~/.config/systemd/user/kkumteul-viewer.service
+#   systemctl --user daemon-reload && systemctl --user enable --now kkumteul-viewer
+#
+# 다른 기기에서 보려면 ssh 터널(`ssh -L 8777:127.0.0.1:8777 서버`)을 쓰거나 --host를 바꾼다.
+
+[Unit]
+Description=kkumteul viewer
+
+[Service]
+WorkingDirectory=%h/git/kkumteul
+ExecStart=%h/git/kkumteul/.venv/bin/python -m kkumteul.viewer --runs runs --port 8777 --host 127.0.0.1
+Restart=on-failure
+RestartSec=10
+Nice=10
+MemoryMax=500M
+
+[Install]
+WantedBy=default.target
