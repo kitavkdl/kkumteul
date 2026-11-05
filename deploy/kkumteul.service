@@ -1,0 +1,49 @@
+# 세계 시뮬레이션 24시간 가동용 systemd 유닛 초안.
+# 아직 어디에도 설치하지 않았다. 실행 자리(T16)가 정해지고 대표님이 설정을 확인한 뒤에 쓴다.
+# 설치할 때 바꿀 것: User, WorkingDirectory, 실행 폴더 경로, 메모리·CPU 숫자.
+#
+#   sudo cp kkumteul.service /etc/systemd/system/ && sudo systemctl daemon-reload
+#   sudo systemctl enable --now kkumteul
+#
+# 처음 한 번은 `python3 -m kkumteul.run new --run runs/main --steps 0`으로 실행 폴더를 만든다.
+
+[Unit]
+Description=World simulation stage 1 (kkumteul)
+After=network.target
+# 같은 체크포인트에서 같은 실패를 되풀이하는 경우(디스크 가득, NaN 등) 끝없이 다시 띄우지 않는다.
+StartLimitIntervalSec=3600
+StartLimitBurst=5
+# 멈췄을 때 알림을 붙일 자리(아직 없음):
+# OnFailure=kkumteul-alert.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=CHANGE_ME
+WorkingDirectory=/home/CHANGE_ME/kkumteul
+ExecStart=/usr/bin/python3 -m kkumteul.run resume --run runs/main --quiet
+# SIGTERM을 받으면 체크포인트를 쓰고 끝난다. 큰 세계에서는 저장에 몇 초 걸린다.
+KillSignal=SIGTERM
+TimeoutStopSec=120
+# 캐시가 없으면 첫 시작 때 numba 컴파일에 수십 초가 걸린다(낮은 우선순위에서는 더).
+TimeoutStartSec=300
+Restart=on-failure
+RestartSec=30
+# 통계를 쓸 때마다(기본 5,000스텝) 살아 있음을 알린다. 이 시간 동안 소식이 없으면 다시 띄운다.
+WatchdogSec=600
+
+# 다른 일(Claude 세션, brain)을 밀어내지 않게 낮은 우선순위로 돈다.
+Nice=15
+CPUWeight=20
+# CPUQuota를 걸면 numba 스레드 수를 그 이하로 맞춘다(아래 NUMBA_NUM_THREADS). 설정 threads가 더 크면 이 값으로 낮춰 쓴다.
+CPUQuota=600%
+Environment=NUMBA_NUM_THREADS=6
+Environment=OMP_NUM_THREADS=1
+Environment=PYTHONUNBUFFERED=1
+
+# 메모리 상한. 파일 캐시(프레임·체크포인트 쓰기)도 여기 잡힌다.
+MemoryHigh=1500M
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target

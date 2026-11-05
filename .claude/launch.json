@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "kkumteul-viewer",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "kkumteul.viewer", "--runs", "runs", "--port", "8765"],
+      "port": 8765
+    }
+  ]
+}

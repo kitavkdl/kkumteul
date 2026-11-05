@@ -1,0 +1,148 @@
+{
+ "info": {
+  "machine": "arm64",
+  "system": "Darwin",
+  "python": "3.10.12",
+  "numpy": "2.2.6",
+  "numba": "0.67.0",
+  "threads": 8
+ },
+ "rows": [
+  {
+   "n_target": 500,
+   "h": 16,
+   "world": 360.0,
+   "pop_mean": 453.9,
+   "steps_per_sec": 1793.4,
+   "ms_per_step": 0.558,
+   "state_mb": 26.2,
+   "rss_mb": 149.2,
+   "share_pct": {
+    "grid": 1.6,
+    "sense": 35.7,
+    "think": 23.2,
+    "move+collide+eat": 25.3,
+    "birth+death": 14.2
+   }
+  },
+  {
+   "n_target": 500,
+   "h": 64,
+   "world": 360.0,
+   "pop_mean": 294.3,
+   "steps_per_sec": 1720.7,
+   "ms_per_step": 0.581,
+   "state_mb": 26.2,
+   "rss_mb": 159.1,
+   "share_pct": {
+    "grid": 1.5,
+    "sense": 29.2,
+    "think": 33.0,
+    "move+collide+eat": 22.1,
+    "birth+death": 14.2
+   }
+  },
+  {
+   "n_target": 1000,
+   "h": 16,
+   "world": 512.0,
+   "pop_mean": 900.1,
+   "steps_per_sec": 1167.3,
+   "ms_per_step": 0.857,
+   "state_mb": 52.4,
+   "rss_mb": 178.2,
+   "share_pct": {
+    "grid": 2.0,
+    "sense": 38.8,
+    "think": 20.7,
+    "move+collide+eat": 22.5,
+    "birth+death": 16.0
+   }
+  },
+  {
+   "n_target": 1000,
+   "h": 64,
+   "world": 512.0,
+   "pop_mean": 578.7,
+   "steps_per_sec": 1029.1,
+   "ms_per_step": 0.972,
+   "state_mb": 52.4,
+   "rss_mb": 192.5,
+   "share_pct": {
+    "grid": 2.1,
+    "sense": 31.6,
+    "think": 33.4,
+    "move+collide+eat": 18.5,
+    "birth+death": 14.4
+   }
+  },
+  {
+   "n_target": 2000,
+   "h": 16,
+   "world": 728.0,
+   "pop_mean": 1793.7,
+   "steps_per_sec": 670.0,
+   "ms_per_step": 1.492,
+   "state_mb": 104.8,
+   "rss_mb": 231.3,
+   "share_pct": {
+    "grid": 2.5,
+    "sense": 39.1,
+    "think": 20.3,
+    "move+collide+eat": 20.8,
+    "birth+death": 17.3
+   }
+  },
+  {
+   "n_target": 2000,
+   "h": 64,
+   "world": 728.0,
+   "pop_mean": 1145.5,
+   "steps_per_sec": 653.1,
+   "ms_per_step": 1.531,
+   "state_mb": 104.8,
+   "rss_mb": 259.9,
+   "share_pct": {
+    "grid": 2.2,
+    "sense": 31.8,
+    "think": 35.6,
+    "move+collide+eat": 14.7,
+    "birth+death": 15.6
+   }
+  },
+  {
+   "n_target": 5000,
+   "h": 16,
+   "world": 1144.0,
+   "pop_mean": 4491.1,
+   "steps_per_sec": 306.5,
+   "ms_per_step": 3.263,
+   "state_mb": 262.0,
+   "rss_mb": 386.5,
+   "share_pct": {
+    "grid": 2.5,
+    "sense": 40.1,
+    "think": 23.3,
+    "move+collide+eat": 17.1,
+    "birth+death": 17.0
+   }
+  },
+  {
+   "n_target": 5000,
+   "h": 64,
+   "world": 1144.0,
+   "pop_mean": 2879.1,
+   "steps_per_sec": 260.8,
+   "ms_per_step": 3.835,
+   "state_mb": 262.0,
+   "rss_mb": 491.0,
+   "share_pct": {
+    "grid": 2.3,
+    "sense": 32.4,
+    "think": 37.3,
+    "move+collide+eat": 12.5,
+    "birth+death": 15.4
+   }
+  }
+ ]
+}
