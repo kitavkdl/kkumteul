@@ -3,7 +3,7 @@
 대상: 공격(`stages.py`의 `attack`), 먹이 종류와 독(`kernels.py`), 이주(`pack.migrate`), 비교 도구(`compare.py`). 범위는 `git diff f9d50c0...1ef202f`.
 맥락 없는 검토자 셋(규칙·명세·결함, 서로 모르게)이 지적을 올리고, 다른 모델의 검증자가 지적마다 코드를 열어 반박을 시도했다. 검토자·검증자는 코드를 실행하지 않았다.
 
-**처리 상태: 아직 반영 전이다.** 지적마다 코드로 다시 확인해 "반영 / 기각+근거"를 이 파일에 적는다. 축끼리 섞거나 순위를 다시 매기지 않는다.
+**처리 상태: 23건 모두 처리했다(2026-11-05 03시대 ET).** 지적마다 코드로 다시 확인해 "반영 / 기각+근거"를 항목의 처리 칸에 적었다. 축끼리 섞거나 순위를 다시 매기지 않았다.
 
 ## 규칙 (6건)
 
@@ -13,7 +13,7 @@
 - 인용: 레포 CLAUDE.md 표: "`kkumteul/` | 코드. 설정값은 전부 `config.py`" / 코드: `if ip[Q_KINDS] != 0 and u01(seed, S_KIND, serial, 0) < 0.5:` (kernels.py:327), 같은 모양이 stages.py:606 `u01(isp[I_SEED], S_KIND, step, 1000003 + k) < 0.5`
 - 검증 근거: kernels.py:327 `if ip[Q_KINDS] != 0 and u01(seed, S_KIND, serial, 0) < 0.5:`, stages.py:606 `... u01(isp[I_SEED], S_KIND, step, 1000003 + k) < 0.5:` 둘 다 리터럴이다. config.py에서 종류 관련 필드는 food_kinds_enabled(130), kind_flip_period(131)뿐이고 비율 필드는 없다. kernels.py:215-216 pack에도 Q_KINDS, Q_KIND_PERIOD만 넘긴다. 레포 CLAUDE.md의 '설정값은 전부 config.py'와 어긋난다. 다만 CONTRIBUTING.md에는 '설정값은 config.py'라는 문장이 그대로 있지는 않다(81행 '새 장치는 설정으로 끄고 켤 수 있게'가 가장 가깝다). 그래서 지적의 이 보조 근거는 조금 과장됐지만 핵심 주장은 맞다.
 - 고치는 방향(검증자): config에 kind_ratio(기본 0.5)를 넣고 P_ 칸으로 넘긴다. 두 곳은 같은 도우미 함수 하나로 뽑게 한다.
-- 처리: (미정)
+- 처리: 반영 — `config.py`에 `kind_ratio`(기본 0.5)를 넣고 두 자리 모두 도우미 `kernels.pick_kind` 하나로 뽑는다. 기본값에서는 난수 번호와 문턱이 그대로라 결과가 달라지지 않는다. 시험 `test_kind_ratio_sets_the_share_of_the_negative_kind`.
 
 ### 규칙-2. Duplicated Code: attack이 give의 가장 가까운 이웃 찾기를 통째로 복사했다
 - 종류: 판단 사항 · 자리: `kkumteul/stages.py:497` · 검증: **확인됨**
@@ -21,7 +21,7 @@
 - 인용: give: `reach = 2.0 * fs[F_A_RAD] + 0.5` ... `for oy in range(-1, 2): ... if d2 < bd: bd = d2; best = j` (stages.py:443-475) / attack: 같은 `reach`, 같은 3x3 셀 순회, 같은 `_wdiff` 거리 비교 (stages.py:497-530)
 - 검증 근거: stages.py:443 give `reach = 2.0 * fs[F_A_RAD] + 0.5`, stages.py:497 attack에도 같은 줄이 있다. 셀 좌표 계산, 3x3 순회, `_wdiff` 거리, `d2 < bd` 최근접 선택이 give 449-475와 attack 503-530에서 글자까지 같다. 다른 점은 후보 조건 `or s.energy[j] <= 0.0`과 그 뒤 처리뿐이다. 먹이 종류 뽑기도 kernels.py:326-328과 stages.py:605-607 두 벌이고 b 인자가 각각 `0`, `1000003 + k`다.
 - 고치는 방향(검증자): @njit 도우미 `_nearest_neighbor(s, fs, isp, i, need_energy)`와 `_reach(fs)`로 뽑아낸다. 먹이 종류 뽑기도 도우미 하나로 묶는다. 단, 난수 호출 순서와 인자는 그대로 둔다.
-- 처리: (미정)
+- 처리: 반영 — 가장 가까운 닿은 이웃 찾기를 `stages._nearest_touching`, 닿는 거리를 `stages._reach2`로 뽑아 `give`와 `attack`이 함께 쓴다. 먹이 종류 뽑기는 규칙-1의 `pick_kind`로 묶었다.
 
 ### 규칙-3. Primitive Obsession: 먹이 종류가 이름 없는 정수 0/1/2이고 부호와 사체 값이 리터럴로 흩어져 있다
 - 종류: 판단 사항 · 자리: `kkumteul/kernels.py:707` · 검증: **확인됨**
@@ -29,7 +29,7 @@
 - 인용: `if kinds and s.f_kind[j] != 2 and s.f_kind[j] != good:` (kernels.py:707) / `_place_food(s, s.x[i], s.y[i], e, 2)` (kernels.py:930) / `np.float32(-1.0) if f_kind[j] == 1 else np.float32(1.0)` (kernels.py:462) / `kind = 1` (kernels.py:328) / `s.touch[best] = 2.0` (stages.py:542) / `1000003 + k` (stages.py:606)
 - 검증 근거: kernels.py:707 `s.f_kind[j] != 2 and s.f_kind[j] != good`, kernels.py:930 `_place_food(s, s.x[i], s.y[i], e, 2)`, kernels.py:462 `np.float32(-1.0) if f_kind[j] == 1 else np.float32(1.0)`, kernels.py:328 `kind = 1`, stages.py:542 `s.touch[best] = 2.0`, stages.py:606 `1000003 + k`를 모두 확인했다. 이름 있는 상수(KIND_CORPSE 같은 것)는 없고, 뜻은 FOOD_FIELDS 주석(kernels.py:79 '2는 늘 먹을 수 있는 것(사체)')과 attack docstring에만 적혀 있다. 1000003의 까닭을 적은 주석도 없다.
 - 고치는 방향(검증자): 모듈 상수 KIND_A=0, KIND_B=1, KIND_CORPSE=2, TOUCH_HIT=2.0, KIND_RNG_OFFSET=1000003(까닭 주석 포함)을 두고 바꿔 쓴다. numba는 전역 정수 상수를 그대로 쓸 수 있다.
-- 처리: (미정)
+- 처리: 반영 — `kernels.py`에 `KIND_A`·`KIND_B`·`KIND_CORPSE`·`TOUCH_HIT`, `stages.py`에 `KIND_RNG_FERTILE`(까닭 주석 포함)을 두고 리터럴을 바꿨다.
 
 ### 규칙-4. Primitive Obsession: compare가 겨루기 판정을 한국어 문장 접두어로 해석한다
 - 종류: 판단 사항 · 자리: `kkumteul/compare.py:88` · 검증: **확인됨**
@@ -37,7 +37,7 @@
 - 인용: `return v.replace("A가", a_label).replace("B가", b_label)` (compare.py:81) / `on_win = on_v.startswith("켠 쪽이 이김")` (compare.py:88-91) / measure.py의 `return "B가 이김" + warn`
 - 검증 근거: compare.py:81 `return v.replace("A가", a_label).replace("B가", b_label)`, compare.py:88-91 `startswith("켠 쪽이 이김")` 등. measure.py:210-228 verdict는 문자열('B가 이김', 'A가 이김', '가를 수 없음'+warn)만 돌려준다. 지적한 분기 누락도 실제로 있다. on_win=False, on_lose=False, off_win=True이면 `on_win and ...` 두 개, `on_lose and off_lose`, `on_lose`, `off_lose and not on_lose`(off_lose=False) 어디에도 걸리지 않는다. 그래서 '가를 수 없다.'가 나온다(compare.py:104). '끈 규칙에서만 켠 쪽이 이김' 경우가 해석 없이 빠진다.
 - 고치는 방향(검증자): measure.verdict가 winner('A'|'B'|None) 필드를 따로 돌려주게 하고 compare는 그 필드로 가른다. `off_win and not on_win` 분기를 더한다.
-- 처리: (미정)
+- 처리: 반영 — `measure.winner`가 승자("a"/"b"/"")를 돌려주고 `compare`의 읽기는 그 필드(`winner_treatment_rules`, `winner_control_rules`)로 가른다. 문장은 `measure.verdict(res, a_label, b_label)`가 처음부터 이름을 넣어 만든다(뒤에서 고쳐 쓰지 않는다). 같은 냄새가 `experiment.py`에도 있어 함께 고쳤다. `끈 규칙에서만 켠 쪽이 이김` 분기는 앞 세션에서 이미 들어갔다. 시험 `test_compare_reading_follows_the_winner_field_not_the_sentence`.
 
 ### 규칙-5. Shotgun Surgery: 새 장치를 하나 넣으면 흩어진 목록을 함께 고쳐야 하고, 이번에 compare의 목록이 빠졌다
 - 종류: 판단 사항 · 자리: `kkumteul/compare.py:25` · 검증: **확인됨**
@@ -45,7 +45,7 @@
 - 인용: `STAGE_FLAGS = ("mind_enabled", "social_enabled", "niche_enabled")` (compare.py:25) / `"flags": {f: [getattr(a["cfg"], f), getattr(b["cfg"], f)] for f in STAGE_FLAGS}` (compare.py:59) / `C_ATTACKS = 16` (stages.py:23), `C_POISONED = 17` (kernels.py:108), `N_COUNTERS = 24` (kernels.py:109) / `ip[Q_KINDS]`(kernels.py)와 `isp[I_KINDS]`(stages.py:62)
 - 검증 근거: compare.py:25 STAGE_FLAGS = (mind_enabled, social_enabled, niche_enabled)에 config.py:130 food_kinds_enabled와 135 conflict_enabled가 없다. 그래서 compare.py:59 flags에 두 장치가 드러나지 않는다. compare.py:23 TRAITS에도 world.py:279/281/284가 내는 attacks, poisoned, migrant_frac이 없다. 카운터 번호는 kernels.py:94-108(0-13, 17)과 stages.py:21-23(14-16)에 나뉘어 있다. kernels.py:109 N_COUNTERS=24이고 18-23은 아무 데서도 쓰지 않는다(6칸).
 - 고치는 방향(검증자): STAGE_FLAGS를 config의 *_enabled 필드에서 자동으로 모으거나 두 장치를 더한다. TRAITS에 attacks, poisoned, migrant_frac을 넣는다. 카운터 번호는 한 파일에 모은다.
-- 처리: (미정)
+- 처리: 반영 — 카운터 번호를 `kernels.py` 한 곳에 모았다(14~16을 `stages.py`에서 옮김). `compare.STAGE_FLAGS`는 설정에서 이름이 `_enabled`로 끝나는 것을 모아 만든다. 남는 카운터 칸은 그대로 둔다(늘리지 않고 다음 장치가 쓰게 비워 둔 것이라고 주석에 적음). 설정 칸 번호(P_/Q_/F_/I_)를 손으로 맞추는 구조는 그대로다(기각이 아니라 미룸: 커널이 배열로 받는 한 고칠 값이 크고, 빠뜨리면 시험이 잡는다).
 
 ### 규칙-6. Feature Envy: pack.migrate가 measure의 비공개 함수와 내부 사이드 모양을 직접 만진다
 - 종류: 판단 사항 · 자리: `kkumteul/pack.py:165` · 검증: **확인됨**
@@ -53,7 +53,7 @@
 - 인용: `measure.check_same_shape(side, {"genomes": measure.extract_genomes(world), "path": str(src), "cfg": world.cfg})` (pack.py:153) / `measure._inject(world, g, int(row), tag, float(rng.random() * cfg.world_w), ...)` (pack.py:165) / `from . import measure` (pack.py:29)와 `from .measure import GENOME, extract_genomes` (pack.py:30)
 - 검증 근거: pack.py:165 `measure._inject(...)`는 measure.py:91의 밑줄 붙은 비공개 함수를 부른다. pack.py:153은 measure.check_same_shape(measure.py:68)에 넘기려고 {'genomes','path','cfg'} dict를 손으로 만든다(measure.load_side가 만드는 모양을 흉내 낸 것). pack.py:30은 `from .measure import GENOME, extract_genomes`로 가져와 59행에서 이름으로 부르고, 153행에서는 `measure.extract_genomes`로 불러 둘이 섞여 있다. 참고로 pack.py:149의 load_side는 pack.py:121에 있는 pack 자신의 함수다.
 - 고치는 방향(검증자): measure에 공개 함수 inject_agent()와 side_from_world(world)를 두고 pack은 그것만 쓴다. extract_genomes 부르는 방식은 하나로 맞춘다.
-- 처리: (미정)
+- 처리: 반영 — `measure.inject_agent`(공개, id를 돌려줌)와 `measure.side_from_world`를 두고 `pack.migrate`는 그것만 쓴다. `extract_genomes`는 `measure.`로 부르는 것 하나로 맞췄다.
 
 ## 명세 (6건)
 
@@ -63,7 +63,7 @@
 - 인용: - 확인(독립 검토): 에너지가 새거나 생기는 길이 없다. 검토 지적과 처리는 `wayfinder/stage2-4/code-review-2026-11-05.md`.
 - 검증 근거: docs/stages-2-4.md:56에 범위를 한정하지 않은 '확인(독립 검토): 에너지가 새거나 생기는 길이 없다'가 있다. 공격 절은 :40~44, 먹이 종류 절은 :31~32에 있다. git log를 보면 검토 기록 code-review-2026-11-05.md는 412edb6에서 들어왔고, 그 뒤 커밋에서 compare(1624237), 공격(866bbed), 이주(2397836), 먹이 종류(24f9764)가 들어왔다. 검토 파일에서 공격·독·kind·attack·poison을 grep하면 1행 제목의 '독립'만 걸린다. sessions/tasks.md:18은 '새로 넣은 것(공격, 먹이 종류, 이주, 비교 도구) 독립 검토'를 아직 안 한 일([ ])로 두었다. 같은 문서 :44도 공격은 '돌려 본 것은 시험뿐이다'라고 적었다.
 - 고치는 방향(검증자): :56을 '확인(독립 검토, 412edb6 시점의 2~4단계 장치만)'으로 좁히고, 공격·먹이 종류·이주·compare는 시험으로만 확인했다고 적는다.
-- 처리: (미정)
+- 처리: 반영(문서) — `docs/stages-2-4.md`의 확인 문구를 첫 검토의 범위(마음·사회·판이 바뀌는 세계)로 좁히고, 공격·먹이 종류·이주·비교 도구는 이 검토(둘째)에서 다뤘다고 따로 적었다.
 
 ### 명세-2. 사체 먹이(종류 2)는 독이 아니고 양수로 보이는데, 문서는 이 예외를 말하지 않는다
 - 종류: 설명과 다름 · 자리: `kkumteul/kernels.py:707` · 검증: **확인됨**
@@ -137,7 +137,7 @@
 - 인용: s.energy[best] -= dmg         s.energy[i] += got         s.ledger[L_LOST] += dmg - got
 - 검증 근거: stages.py:535-541은 에너지를 깎고 C_ATTACKS만 1 늘린다. 이 값은 '때린 횟수'다(맞은 개체마다 따로 세지 않는다). kernels.py:961-963에 따르면 energy<=0이면 원인을 가리지 않고 DEATH_STARVE, C_DEATH_STARVE로 처리하고, recycle=False라 사체가 남지 않는다. 맞아 죽었을 때 에너지는 정확히 0(stages.py:536-537의 dmg 상한)이므로, 사체를 남기더라도 남길 에너지가 없다. 따로 쓰는 사망 원인 코드나 '죽인 횟수' 카운터는 없다.
 - 고치는 방향(검증자): attack에서 상대를 0으로 만든 때를 표시해 두고(예: last_hit 배열 또는 C_KILLS), process_deaths에서 DEATH_KILLED를 따로 기록한다.
-- 처리: (미정)
+- 처리: 반영 — 공격을 맞은 스텝(닿음 감각이 `TOUCH_HIT`)에 에너지가 바닥나 죽으면 사망 원인 `DEATH_KILLED`, 카운터 `C_DEATH_KILLED`로 따로 센다. 통계에 `deaths_killed`, `w_killed`가 생긴다(`w_starve`에는 들지 않는다). 맞은 뒤 제 공격 비용으로 바닥난 드문 경우도 여기에 든다. 시험 `test_death_by_attack_is_counted_apart_from_starving`.
 
 ### 결함-5. compare 카드가 켠/끈 장치를 mind·social·niche만 적어, 공격·먹이 종류 비교는 장치가 안 보인다
 - 종류: 사소 · 자리: `kkumteul/compare.py:25` · 검증: **확인됨**
@@ -153,7 +153,7 @@
 - 인용: runner = Runner.branch(Path(src), Path(run_dir), None, [], False, False)     try:         world = runner.world         measure.check_same_shape(side, ...
 - 검증 근거: pack.py:150 Runner.branch가 먼저 불린다. run.py:267-268에서 _create 뒤에 r.checkpoint()가 불려 run.json·체크포인트가 써진다. 그 뒤 pack.py:153-157의 check_same_shape와 '빈 자리가 모자란다' ValueError가 나면 finally에서 runner.close()만 하고 폴더는 지우지 않는다. 다시 실행하면 run.py:222-223에서 FileExistsError가 난다. migrants 기록은 pack.py:170-171에서 성공했을 때만 써진다.
 - 고치는 방향(검증자): 묶음을 읽고 모양·자리 검사를 branch보다 먼저 하거나(체크포인트를 ckpt.load로 먼저 읽어 검사), 실패하면 만든 run_dir을 지운다.
-- 처리: (미정)
+- 처리: 반영 — 새 실행 폴더를 만들기 전에 받는 세계의 체크포인트로 모양과 빈 자리를 검사하고, 그 뒤에 실패해도 방금 만든 폴더를 지운다. 시험 `test_migrate_failure_leaves_no_half_made_run`.
 
 ### 결함-7. 이주자의 세대(gen)가 0으로 초기화되어 gen_mean 계열 통계가 왜곡된다
 - 종류: 사소 · 자리: `kkumteul/measure.py:100` · 검증: **확인됨**
@@ -161,7 +161,7 @@
 - 인용: s.ids[j], s.parent[j], s.gen[j], s.tag[j] = aid, -1, 0, tag
 - 검증 근거: measure.py:100 `s.gen[j] ... = 0`. pack.py:164-165 migrate는 이 _inject를 그대로 쓰고, g["gen"]은 BIRTH 기록에도 넣지 않는다(rec의 gen=0). 묶음의 gen은 버려진다. 후손은 부모 gen+1로 세므로 이주자 계통은 0에서 다시 센다.
 - 고치는 방향(검증자): migrate에서는 _inject 뒤에 s.gen[j] = g['gen'][row]로 되돌리거나, _inject에 keep_gen 인자를 둔다. 겨루기 쪽은 지금대로 둔다.
-- 처리: (미정)
+- 처리: 반영 — 이주자는 떠나온 세계의 세대를 잇는다(`inject_agent`의 `gen` 인자, 출생 기록에도 적는다). 겨루기는 지금대로 0이다.
 
 ### 결함-8. migrant_frac 필드가 이주자가 모두 사라지면 통계 줄에서 빠진다
 - 종류: 사소 · 자리: `kkumteul/world.py:283` · 검증: **확인됨**
@@ -169,7 +169,7 @@
 - 인용: if (s.tag[a] != 0).any():      # 이주해 온 생물과 그 후손의 비율                 out["migrant_frac"] = float((s.tag[a] != 0).mean())
 - 검증 근거: world.py:283-284 `if (s.tag[a] != 0).any(): out["migrant_frac"] = ...`. 이주자 계통이 전멸하면 키가 빠진다. tag가 0이 아니면 모두 센다. pack.py:144의 migrate tag 기본값은 1이고, CLI(pack.py mg 서브파서)에는 --tag 옵션이 없어 두 번째 이주도 tag 1이 된다.
 - 고치는 방향(검증자): run.json에 migrants가 있으면(또는 C_* 카운터로 이주한 적이 있으면) migrant_frac를 항상 적는다. 이주마다 다른 tag를 쓰도록 CLI에 --tag를 연다.
-- 처리: (미정)
+- 처리: 반영 — 이주한 개체 수를 카운터 `C_MIGRANTS`에 쌓고, 0이 아니면 `migrant_frac`을 늘 적는다(계통이 사라지면 0.0). `pack migrate --tag`으로 이주마다 다른 표지를 줄 수 있고 표지 0은 거절한다. 이 고침 전에 이주한 실행은 카운터가 0이라 옛 동작 그대로다.
 
 ### 결함-9. 시야의 먹이 부호가 설정(Q_KINDS)이 아니라 저장된 f_kind만 보고 정해진다
 - 종류: 사소 · 자리: `kkumteul/kernels.py:462` · 검증: **확인됨**
@@ -193,4 +193,4 @@
 - 인용: for i in range(n):         if not s.alive[i]:             continue         a = float(s.act[i, ACT_ATTACK])
 - 검증 근거: stages.py:499 `for i in range(n):`는 시작 칸을 돌리지 않는다. :503 `if a <= 0.0 or s.energy[i] <= 0.0: continue`이므로, 먼저 맞아 0이 된 개체는 반격하지 못한다. 반면 kernels.py:1010 process_births는 `start = int(u01(..., S_BIRTH_ORDER, step, 0) * n)`으로 시작 칸을 스텝마다 돌린다. 영향이 얼마나 큰지는 실행해 봐야 안다.
 - 고치는 방향(검증자): process_births처럼 새 rng 용도(뒤에 덧붙임)로 시작 칸을 돌리거나, 피해를 모아 두었다가 스텝 끝에 한꺼번에 적용한다.
-- 처리: (미정)
+- 처리: 반영 — `process_births`처럼 훑는 시작 칸을 스텝마다 돌린다(새 난수 용도 `S_ATTACK_ORDER`, 뒤에 덧붙임). 공격을 켠 세계의 결과만 달라진다. 시험 `test_attack_order_does_not_always_favor_the_low_slot`.

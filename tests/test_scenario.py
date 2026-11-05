@@ -687,3 +687,38 @@ def test_migrate_injects_tagged_agents_into_a_branch(tmp_path):
     births = events.load(tmp_path / "a2", "births", w.cfg.event_segment_steps)
     assert int((births["kind"] == kk.BIRTH_INJECT).sum()) == 25
     assert (np.diff(births["id"]) > 0).all()
+    # 세대는 떠나온 세계의 값을 잇는다(0으로 되돌리지 않는다)
+    genomes, _, _ = pack.read(tmp_path / "b.pack.npz")
+    inj = births[births["kind"] == kk.BIRTH_INJECT]
+    assert genomes["gen"].max() > 0 and inj["gen"].max() > 0
+    assert set(inj["gen"].tolist()) <= set(genomes["gen"].tolist())
+    # 이주가 있었던 세계는 그 계통이 다 사라져도 비율을 0으로 적는다(칸이 빠지지 않는다)
+    w.s.tag[:] = 0
+    assert w.summary()["migrant_frac"] == 0.0
+
+
+def test_migrate_failure_leaves_no_half_made_run(tmp_path):
+    """넣을 수 없는 묶음이면 새 실행 폴더를 남기지 않는다(남기면 resume으로 이주자 없는 세계가 조용히 돈다)."""
+    from kkumteul import pack
+    from kkumteul.run import Runner
+    a = Runner.new(tmp_path / "a", small())
+    a.loop(400, quiet=True)
+    a.close()
+    b = Runner.new(tmp_path / "b", small(seed=7, h_max=a.world.cfg.h_max + 4))     # 뇌 최대 크기가 다른 세계
+    b.loop(400, quiet=True)
+    b.close()
+    pack.export(tmp_path / "b", tmp_path / "b.pack.npz", n=10)
+    with pytest.raises(ValueError, match="모양"):
+        pack.migrate(tmp_path / "a", tmp_path / "b.pack.npz", tmp_path / "a2", n=5)
+    assert not (tmp_path / "a2").exists()
+    pack.export(tmp_path / "a", tmp_path / "a.pack.npz", n=10)
+    with pytest.raises(ValueError, match="빈 자리"):
+        pack.migrate(tmp_path / "a", tmp_path / "a.pack.npz", tmp_path / "a3", n=10 ** 6)
+    assert not (tmp_path / "a3").exists()
+    with pytest.raises(ValueError, match="표지"):
+        pack.migrate(tmp_path / "a", tmp_path / "a.pack.npz", tmp_path / "a4", n=5, tag=0)
+    assert not (tmp_path / "a4").exists()
+    info = pack.migrate(tmp_path / "a", tmp_path / "a.pack.npz", tmp_path / "a5", n=5, tag=3)
+    r = Runner.resume(tmp_path / "a5")
+    assert info["tag"] == 3 and int((r.world.s.tag[r.world.s.alive] == 3).sum()) == 5
+    r.close()

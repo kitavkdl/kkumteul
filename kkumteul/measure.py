@@ -57,11 +57,16 @@ def load_side(path: Path) -> dict:
     from . import pack   # pack이 이 모듈을 쓰므로 여기서 불러온다
     if pack.is_pack(path):
         return pack.load_side(path)
-    world, meta = ckpt.load(Path(path))
+    world, _ = ckpt.load(Path(path))
+    return side_from_world(world, str(path))
+
+
+def side_from_world(world: World, path: str = "") -> dict:
+    """살아 있는 세계에서 겨루기·이주에 쓰는 한쪽을 만든다(체크포인트나 묶음에서 읽은 것과 같은 꼴)."""
     g = extract_genomes(world)
     if not len(g["n_hidden"]):
-        raise ValueError(f"살아 있는 개체가 없는 체크포인트다: {path}")
-    return {"path": str(path), "step": meta["step"], "genomes": g, "cfg": world.cfg,
+        raise ValueError(f"살아 있는 개체가 없다: {path}")
+    return {"path": path, "step": world.step_no, "genomes": g, "cfg": world.cfg,
             "gen_mean": float(g["gen"].mean())}
 
 
@@ -88,8 +93,10 @@ def arena_config(cfg: Config, seed: int, n_total: int) -> Config:
     return Config.from_dict(d)
 
 
-def _inject(world: World, genomes: dict, row: int, tag: int, x: float, y: float, heading: float,
-            age: int) -> None:
+def inject_agent(world: World, genomes: dict, row: int, tag: int, x: float, y: float, heading: float,
+                 age: int, gen: int = 0) -> int:
+    """유전체 묶음의 row번째 개체를 세계의 빈 칸에 갓 태어난 상태로 넣고 그 개체의 id를 돌려준다.
+    에너지는 e_start를 주고 장부(L_INJECT)에 적는다. 겨루기와 이주가 함께 쓴다."""
     s = world.s
     cfg = world.cfg
     j = int(np.flatnonzero(~s.alive)[0])
@@ -97,7 +104,7 @@ def _inject(world: World, genomes: dict, row: int, tag: int, x: float, y: float,
     s.counters[k.C_NEXT_ID] += 1
     s.counters[k.C_NALIVE] += 1
     s.alive[j] = True
-    s.ids[j], s.parent[j], s.gen[j], s.tag[j] = aid, -1, 0, tag
+    s.ids[j], s.parent[j], s.gen[j], s.tag[j] = aid, -1, gen, tag
     s.birth_step[j] = world.step_no - 1   # 넣은 스텝에 바로 번식하지 못하게 하는 표시와 겹치지 않게
     s.x[j], s.y[j] = x, y
     s.vx[j] = s.vy[j] = 0.0
@@ -116,6 +123,7 @@ def _inject(world: World, genomes: dict, row: int, tag: int, x: float, y: float,
         getattr(s, name)[j] = 0.0
     for name in GENOME:
         getattr(s, name)[j] = genomes[name][row]
+    return aid
 
 
 def compete(cfg: Config, ga: dict, gb: dict, n_each: int, steps: int, seed: int,
@@ -138,8 +146,8 @@ def compete(cfg: Config, ga: dict, gb: dict, n_each: int, steps: int, seed: int,
         if rng.random() < 0.5:
             pair.reverse()
         for g, row, tag in pair:
-            _inject(world, g, int(row), tag, float(px[i]), float(py[i]),
-                    float(rng.random() * 2 * math.pi), int(ages[i]))
+            inject_agent(world, g, int(row), tag, float(px[i]), float(py[i]),
+                         float(rng.random() * 2 * math.pi), int(ages[i]))
     series = []
     for t in range(0, steps, sample_every):
         world.run(min(sample_every, steps - t))
@@ -207,6 +215,7 @@ def assay_sides(a: dict, b: dict, n_each: int = 400, steps: int = 8000, reps: in
             g1, g2 = _split(a["genomes"] if i % 2 == 0 else b["genomes"], rng)
             neu.append(compete(cfg, g1, g2, n_each, steps, seed + 500 + i)["r"] * 1000)
         out["neutral_r_per_1000"] = _stats(neu)
+    out["winner"] = winner(out)
     out["verdict"] = verdict(out)
     return out
 
@@ -216,27 +225,41 @@ def assay(path_a: Path, path_b: Path, n_each: int = 400, steps: int = 8000, reps
     return assay_sides(load_side(path_a), load_side(path_b), n_each, steps, reps, seed, neutral)
 
 
-def verdict(res: dict) -> str:
-    """임시 기준: 반복 사이 t 검정(양측 95%). 같은 무리끼리의 평균이 0에서 멀면 측정 자체를 의심한다."""
+def winner(res: dict) -> str:
+    """겨루기의 승자: "a", "b", 가를 수 없으면 "". 임시 기준: 반복 사이 t 검정(양측 95%), 한쪽이 매번 전멸하면 그쪽이 진다.
+    판정을 코드에서 가를 때는 문장(verdict)이 아니라 이 값을 쓴다."""
     r = res["r_per_1000"]
     if res.get("a_extinct_runs") == res["reps"]:
-        return f"B가 이김(A가 {res['reps']}회 모두 전멸)"
+        return "b"
     if res.get("b_extinct_runs") == res["reps"]:
-        return f"A가 이김(B가 {res['reps']}회 모두 전멸)"
+        return "a"
+    if not np.isfinite(r["sem"]):
+        return ""
+    edge = t95(r["n"] - 1) * r["sem"]
+    if r["mean"] > edge:
+        return "b"
+    if r["mean"] < -edge:
+        return "a"
+    return ""
+
+
+def verdict(res: dict, a_label: str = "A가", b_label: str = "B가") -> str:
+    """winner를 사람이 읽는 문장으로 적는다. 같은 무리끼리의 평균이 0에서 멀면 측정 자체를 의심한다.
+    두 쪽을 다른 이름으로 부르려면 a_label, b_label을 준다(문장을 나중에 고쳐 쓰지 않는다)."""
+    r = res["r_per_1000"]
+    if res.get("a_extinct_runs") == res["reps"]:
+        return f"{b_label} 이김({a_label} {res['reps']}회 모두 전멸)"
+    if res.get("b_extinct_runs") == res["reps"]:
+        return f"{a_label} 이김({b_label} {res['reps']}회 모두 전멸)"
     if not np.isfinite(r["sem"]):
         return "가를 수 없음(반복 부족)"
-    edge = t95(r["n"] - 1) * r["sem"]
     nz = res.get("neutral_r_per_1000")
     warn = ""
     if res.get("both_extinct_runs"):
         warn = f" (주의: {res['both_extinct_runs']}회는 양쪽 다 전멸)"
     if nz and np.isfinite(nz["sem"]) and abs(nz["mean"]) > t95(nz["n"] - 1) * nz["sem"]:
         warn += " (주의: 같은 무리끼리도 한쪽으로 기울었다)"
-    if r["mean"] > edge:
-        return "B가 이김" + warn
-    if r["mean"] < -edge:
-        return "A가 이김" + warn
-    return "가를 수 없음" + warn
+    return {"b": f"{b_label} 이김", "a": f"{a_label} 이김", "": "가를 수 없음"}[winner(res)] + warn
 
 
 def _spearman(a: np.ndarray, b: np.ndarray) -> float:

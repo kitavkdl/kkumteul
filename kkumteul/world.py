@@ -114,7 +114,7 @@ class World:
         if social:
             st.give(s, fs, isp)
         if cfg.conflict_enabled:
-            st.attack(s, fs, isp)
+            st.attack(t, s, fs, isp)
         nd = k.process_deaths(t, s, fp, ip)
         self._take_deaths(nd)
         nb = k.process_births(t, s, fp, ip)
@@ -273,22 +273,24 @@ class World:
             if cfg.social_enabled:
                 out.update({
                     "signal_abs_mean": float(np.abs(s.sig[a]).mean()),
-                    "gifts": int(c[st.C_GIFTS]),
+                    "gifts": int(c[k.C_GIFTS]),
                 })
             if cfg.conflict_enabled:
-                out["attacks"] = int(c[st.C_ATTACKS])
+                out["attacks"] = int(c[k.C_ATTACKS])
+                out["deaths_killed"] = int(c[k.C_DEATH_KILLED])
             if cfg.food_cap_replace:
                 out["food_replaced"] = int(c[k.C_FOOD_REPLACED])
             if cfg.food_kinds_enabled:
                 out["poisoned"] = int(c[k.C_POISONED])
                 out["good_kind"] = int(k.good_kind(cfg.seed, self.step_no, cfg.kind_flip_period))
-            if (s.tag[a] != 0).any():      # 이주해 온 생물과 그 후손의 비율
+            if c[k.C_MIGRANTS] > 0 or (s.tag[a] != 0).any():
+                # 이주해 온 생물과 그 후손의 비율. 이주가 있었던 세계는 그 계통이 다 사라져도 0으로 적는다
                 out["migrant_frac"] = float((s.tag[a] != 0).mean())
             if cfg.niche_enabled:
                 out.update({
                     "trail_mean": float(s.trail.mean()),
                     "soil_total": float(s.soil.sum()),
-                    "fertile_food": int(c[st.C_FERTILE]),
+                    "fertile_food": int(c[k.C_FERTILE]),
                 })
         return out
 

@@ -19,13 +19,17 @@ import re
 import sys
 from pathlib import Path
 
+from dataclasses import fields
+
 from . import checkpoint as ckpt
 from . import measure
+from .config import Config
 
 TRAITS = ("pop", "gen_mean", "hidden_mean", "speed_mean", "eta_mean", "alpha_abs_mean", "hebb_abs_mean",
           "asleep_frac", "signal_abs_mean", "gifts", "soil_total", "fertile_food", "trail_mean", "reseeds",
           "attacks", "poisoned", "food_replaced")
-STAGE_FLAGS = ("mind_enabled", "social_enabled", "niche_enabled", "food_kinds_enabled", "conflict_enabled")
+# 켜고 끄는 장치는 설정에서 이름이 _enabled로 끝나는 것이다(새 장치를 넣어도 이 목록을 따로 고치지 않는다)
+STAGE_FLAGS = tuple(f.name for f in fields(Config) if f.name.endswith("_enabled") and f.name != "mutation_enabled")
 
 
 def _stats_rows(run_dir: Path) -> list[dict]:
@@ -56,15 +60,19 @@ def compare(control: Path, treatment: Path, at: int | None = None, n_each: int =
     on = measure.assay_sides(a, b, n_each, steps, reps, seed)             # 켠 규칙: B = 켠 쪽
     off = measure.assay_sides(b, a, n_each, steps, reps, seed + 100)      # 끈 규칙: B = 끈 쪽 → 부호를 뒤집어 읽는다
     r_off = {**off["r_per_1000"], "mean": -off["r_per_1000"]["mean"]}
+    side = {"a": "control", "b": "treatment", "": ""}
+    side_off = {"a": "treatment", "b": "control", "": ""}      # 끈 규칙 겨루기는 A=켠 쪽, B=끈 쪽으로 돌린다
     out = {
         "step": a["step"],
         "control": str(control), "treatment": str(treatment),
         "flags": {f: [getattr(a["cfg"], f), getattr(b["cfg"], f)] for f in STAGE_FLAGS},
         "config_diff": _config_diff(a["cfg"], b["cfg"]),              # 값이 다른 설정 전부 [끈 쪽, 켠 쪽]
         "treatment_minus_control_r_per_1000": {
-            "in_treatment_rules": on["r_per_1000"], "verdict_treatment_rules": _name(on["verdict"], "끈 쪽이", "켠 쪽이"),
+            "in_treatment_rules": on["r_per_1000"], "verdict_treatment_rules": measure.verdict(on, "끈 쪽이", "켠 쪽이"),
+            "winner_treatment_rules": side[on["winner"]],         # "treatment" / "control" / ""(가를 수 없음)
             "neutral_treatment_rules": on.get("neutral_r_per_1000"),
-            "in_control_rules": r_off, "verdict_control_rules": _name(off["verdict"], "켠 쪽이", "끈 쪽이"),
+            "in_control_rules": r_off, "verdict_control_rules": measure.verdict(off, "켠 쪽이", "끈 쪽이"),
+            "winner_control_rules": side_off[off["winner"]],
             "neutral_control_rules": off.get("neutral_r_per_1000"),
         },
         "final_counts_treatment_rules": on["final_counts"],          # [끈 쪽, 켠 쪽]
@@ -80,11 +88,6 @@ def compare(control: Path, treatment: Path, at: int | None = None, n_each: int =
                                if first.get(key) is not None or last.get(key) is not None}
     out["reading"] = _reading(out)
     return out
-
-
-def _name(v: str, a_label: str, b_label: str) -> str:
-    """겨루기 판정 문구의 A·B를 '켠 쪽/끈 쪽'으로 바꾼다(끈 규칙 겨루기는 A=켠 쪽, B=끈 쪽으로 돌린다)."""
-    return v.replace("A가", a_label).replace("B가", b_label)
 
 
 def _config_diff(ca, cb) -> dict:
@@ -109,10 +112,10 @@ def _reading(out: dict) -> str:
     t = out["treatment_minus_control_r_per_1000"]
     on_v = t["verdict_treatment_rules"]
     off_v = t["verdict_control_rules"]
-    on_win = on_v.startswith("켠 쪽이 이김")
-    on_lose = on_v.startswith("끈 쪽이 이김")
-    off_win = off_v.startswith("켠 쪽이 이김")
-    off_lose = off_v.startswith("끈 쪽이 이김")
+    on_win = t["winner_treatment_rules"] == "treatment"
+    on_lose = t["winner_treatment_rules"] == "control"
+    off_win = t["winner_control_rules"] == "treatment"
+    off_lose = t["winner_control_rules"] == "control"
     adapted = ("장치를 '쓰게 됐다'는 뜻은 아니다(장치가 주는 입력과 제약에 맞춰졌을 뿐일 수 있다). "
                "유전자에서 선택의 흔적을 따로 본다.")
     if on_win and off_lose:
