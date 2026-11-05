@@ -57,8 +57,17 @@ def think(w: World, step: int = 0) -> None:
 
 
 def nudge_of(w: World, out: int = O, k: int = 0) -> np.ndarray:
-    """출력으로 간 은닉 값이 흔들린 양. 출력 가중치가 1이고 편향이 0이면 출력 = tanh(흔들린 은닉 값)이다."""
+    """출력으로 간 은닉 값이 실제로 흔들린 양. 출력 가중치가 1이고 편향이 0이면 출력 = tanh(흔들린 은닉 값)이다."""
     return np.arctanh(w.s.act[:, out].astype(np.float64)) - w.s.h[:, k]
+
+
+def trace_of(w: World, out: int = O, k: int = 0) -> np.ndarray:
+    """흔적에 쌓여야 하는 양 = tanh 앞에 더한 잡음 × 그 뉴런의 기울기(1 − c²). 잡음은 출력에서 되짚는다.
+
+    실제로 흔들린 양(nudge_of)은 tanh가 굽어 있어 평균이 0이 아니다. 흔적에는 평균이 0인 이 값을 쌓는다."""
+    c = w.s.h[:, k].astype(np.float64)
+    noise = np.arctanh(c + nudge_of(w, out, k)) - np.arctanh(c)
+    return (1.0 - c * c) * noise
 
 
 def test_sigma_zero_keeps_the_reward_modulated_hebb_rule():
@@ -94,11 +103,11 @@ def test_nudge_reaches_the_action_but_not_the_remembered_state():
     nudge = nudge_of(w)
     assert np.abs(nudge).max() > 1e-3, "출력으로 가는 값은 흔들려야 한다"
     assert len(set(np.round(nudge, 6))) == len(nudge), "개체마다 다르게 흔들려야 한다"
-    assert s.elig_in[:, J, 0] == pytest.approx(nudge, abs=1e-5), "연결의 흔적 = 그때 본 것(1.0) × 흔든 양"
+    assert s.elig_in[:, J, 0] == pytest.approx(trace_of(w), abs=1e-5), "연결의 흔적 = 그때 본 것(1.0) × 흔든 양"
 
 
 def test_trace_holds_the_change_that_reached_the_output_not_the_raw_noise():
-    """포화한 뉴런은 흔들어도 출력이 거의 안 바뀐다. 흔적에는 넣은 잡음이 아니라 실제로 바뀐 양이 들어간다."""
+    """포화한 뉴런은 흔들어도 출력이 거의 안 바뀐다. 흔적에는 넣은 잡음이 아니라 출력이 바뀌는 만큼이 들어간다."""
     w = blank(perturb_sigma=0.2)
     s = w.s
     s.bh[:, 0] = 3.5                # tanh(3.5) = 0.998, 기울기 0.0036
@@ -106,7 +115,7 @@ def test_trace_holds_the_change_that_reached_the_output_not_the_raw_noise():
     s.Wout[:, O, 0] = 1.0
     s.alpha[:, 0] = 2.0
     think(w)
-    assert s.elig_in[:, J, 0] == pytest.approx(nudge_of(w), abs=2e-6)
+    assert s.elig_in[:, J, 0] == pytest.approx(trace_of(w), abs=2e-6)
     assert np.abs(s.elig_in[:, J, 0]).max() < 0.02     # 잡음 그대로라면 크기가 0.2 안팎이다
     assert np.abs(s.elig_in[:, J, 0]).max() > 0.0
 
@@ -120,11 +129,11 @@ def test_nudge_is_paired_with_what_was_seen_at_that_moment_not_afterwards():
     s.eta[:] = 0.1
     s.obs[:, J] = 1.0
     think(w, 0)
-    d0 = nudge_of(w)
+    d0 = trace_of(w)
     s.obs[:, J] = 0.0
     s.obs[:, J2] = 1.0              # 흔든 다음에 보이는 것이 바뀌었다
     think(w, 1)
-    d1 = nudge_of(w)
+    d1 = trace_of(w)
     s.mod[:] = 1.0
     think(w, 2)
     assert s.Hin[:, J, 0] == pytest.approx(0.1 * 0.8 * d0, abs=1e-6)   # 스텝 0에 본 것은 스텝 0의 흔듦과만(한 스텝 흐려져 0.8)
@@ -141,7 +150,7 @@ def test_recurrent_trace_pairs_the_nudge_with_the_unshaken_previous_state():
     think(w, 0)
     s.bh[:, 1] = -1.0               # 스텝 1에는 뉴런 1의 상태가 바뀐다. 짝은 지난 상태(tanh 0.5)여야 한다
     think(w, 1)
-    d1 = nudge_of(w)                # 스텝 1에 뉴런 0이 흔들린 양
+    d1 = trace_of(w)                # 스텝 1에 뉴런 0이 흔들린 양
     s.mod[:] = 1.0
     think(w, 2)
     assert s.Hrec[:, 1, 0] == pytest.approx(0.1 * math.tanh(0.5) * d1, abs=1e-6)   # 뉴런 1 → 0: 지난 상태 × 흔든 양
@@ -158,12 +167,49 @@ def test_reward_pulls_the_output_toward_the_nudge_whatever_the_sign_of_alpha(alp
     s.eta[:] = 0.1
     think(w, 0)                     # 흔적이 비어 있어 아직 배울 것이 없다
     assert not s.Hin.any()
-    nudge = nudge_of(w)
+    nudge = trace_of(w)
     s.mod[:] = 1.0                  # 흔든 다음 스텝에 보상이 왔다
     think(w, 1)
     # 학습률 0.1 × 보상 1 × 입력 흔적 1 × 흔든 양, 부호는 alpha를 따른다(쓰는 가중치 = 타고난 것 + alpha × 배운 것)
     assert s.Hin[:, J, 0] == pytest.approx(0.1 * math.copysign(1.0, alpha) * nudge, abs=1e-6)
     assert (alpha * s.Hin[:, J, 0] * nudge > 0).all(), "쓰는 가중치는 흔든 쪽으로 움직여야 한다"
+
+
+def test_trace_has_zero_mean_though_the_real_change_leans_toward_zero():
+    """켜진 뉴런을 흔들면 실제로 바뀐 양의 평균은 0 쪽으로 치우친다(tanh가 굽어서, 약 −σ²·c·(1−c²)).
+    그 치우침이 흔적에 쌓이면 보상과 상관없이 가중치가 한쪽으로 밀린다. 흔적에는 평균이 0인 양을 쌓는다."""
+    w = blank(n=600, perturb_sigma=0.3)
+    s = w.s
+    s.bh[:, 0] = 1.0                # c = tanh(1) = 0.76, 치우침은 약 −0.03
+    s.obs[:, J] = 1.0
+    s.Wout[:, O, 0] = 1.0
+    s.alpha[:, 0] = 2.0
+    real, trace = [], []
+    for step in range(8):           # 4,800번 흔든다: 평균의 표준오차 약 0.002
+        s.elig_in[...] = 0
+        think(w, step)
+        real.append(nudge_of(w))
+        trace.append(s.elig_in[:, J, 0].astype(np.float64))
+    assert np.mean(real) < -0.02, "출력으로 간 값은 실제로 흔든 그대로다(치우침이 있다)"
+    assert abs(np.mean(trace)) < 0.006, "흔적에 쌓는 양은 평균이 0이어야 한다"
+
+
+def test_only_thrust_and_turn_are_nudged():
+    """잡음이 잠·번식·신호 출력에도 가면 켠 세계와 끈 세계의 잠드는 빈도가 달라져 비교가 흐려진다. 움직임만 흔든다."""
+    w = blank(perturb_sigma=0.2)
+    s = w.s
+    s.Win[:, J, 0] = 0.5
+    s.obs[:, J] = 1.0
+    s.Wout[:, :, 0] = 1.0           # 모든 출력이 은닉 뉴런 0을 읽는다
+    s.alpha[:, 0] = 2.0
+    think(w)
+    plain = math.tanh(math.tanh(0.5))
+    for o in range(s.act.shape[1]):
+        if o in (ACT_THRUST, ACT_TURN):
+            assert np.abs(s.act[:, o] - plain).min() > 1e-4, f"출력 {o}(움직임)는 흔들려야 한다"
+        else:
+            assert s.act[:, o] == pytest.approx(plain, abs=1e-6), f"출력 {o}는 흔들리면 안 된다"
+    assert s.act[:, ACT_THRUST] == pytest.approx(s.act[:, ACT_TURN], abs=1e-6), "같은 뉴런의 같은 흔듦이 간다"
 
 
 def test_sleeping_agents_are_not_nudged():
