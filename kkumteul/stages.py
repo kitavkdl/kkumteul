@@ -478,7 +478,7 @@ def after_think(s, fs, isp):
 
 
 @njit(cache=True)
-def after_move(s, fs, isp):
+def after_move(s, fs, isp, basal_mult=1.0):
     """움직인 뒤에 한다: 잠의 대사 할인, 학습 비용, 길의 이동 비용 할인, 흔적 남기기, 거름 쌓기."""
     n = s.x.shape[0]
     mind = isp[I_MIND] != 0
@@ -491,7 +491,7 @@ def after_move(s, fs, isp):
             continue
         if mind:
             if s.asleep[i] > 0.0:
-                back = fs[F_BASAL] * (1.0 - fs[F_SLEEP_BASAL])
+                back = fs[F_BASAL] * basal_mult * (1.0 - fs[F_SLEEP_BASAL])
                 s.energy[i] += back
                 s.ledger[L_BASAL] -= back
             c = fs[F_PLAST_COST] * (s.eta[i] / fs[F_ETA_MAX]) * s.n_hidden[i] / h_max
@@ -622,7 +622,7 @@ def attack(step, s, fs, isp):
 
 # =========================== 4단계: 땅 ===========================
 @njit(cache=True)
-def niche_world(step, s, fs, isp):
+def niche_world(step, s, fs, isp, mult=1.0):
     """흔적과 거름이 흐려지고, 먹이 유입의 일부가 거름 있는 칸에 난다(생물이 만든 것이 판을 바꾼다)."""
     ncell = s.trail.shape[0]
     gw = isp[I_GW]
@@ -650,7 +650,7 @@ def niche_world(step, s, fs, isp):
     frac = total / fs[F_SOIL_REF]
     if frac > 1.0:
         frac = 1.0
-    share = fs[F_INFLOW] * fs[F_FERT_FRAC] * frac
+    share = fs[F_INFLOW] * mult * fs[F_FERT_FRAC] * frac
     # 보통 먹이 몫에서 떼어 온다(세계에 들어오는 먹이의 합은 그대로)
     s.budget[0] -= share
     s.budget[1] += share

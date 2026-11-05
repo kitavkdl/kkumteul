@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import hashlib
+import math
 
 import numpy as np
 
 from . import kernels as k
 from . import stages as st
-from .config import ACT_CARRY, Config, N_REWARD
+from .config import ACT_CARRY, EXT_SEASON, Config, N_REWARD
 
 # 2~4단계에서 새로 생긴 저장 필드. 옛 체크포인트에는 없어도 된다(그 밖의 필드가 없으면 깨진 것이다)
 NEW_SINCE_STAGE1 = frozenset({"rw", "eta", "alpha", "horm", "mod", "exp_r", "e_prev", "fatigue", "asleep",
@@ -96,6 +97,21 @@ class World:
         self.births, self.deaths = [], []
         return b, d
 
+    # ---- 계절 ----
+    def season(self, t: int) -> tuple[float, float, float, float]:
+        """스텝 t의 계절: (풀 배수, 기초 대사 배수, 해 위상 sin, cos).
+        겨울은 해의 끝 winter_len 스텝이다(갈라 켜는 스텝이 해의 배수면 봄에서 시작한다).
+        겨울 밖의 풀 배수는 해 평균이 1이 되게 잡는다. 꺼져 있으면 (1, 1, 0, 0)."""
+        cfg = self.cfg
+        if not cfg.season_enabled:
+            return 1.0, 1.0, 0.0, 0.0
+        P, W = cfg.season_period, cfg.winter_len
+        r = t % P
+        ang = 2.0 * math.pi * (r / P)
+        if r >= P - W:
+            return cfg.winter_mult, cfg.winter_basal_mult, math.sin(ang), math.cos(ang)
+        return (P - cfg.winter_mult * W) / (P - W), 1.0, math.sin(ang), math.cos(ang)
+
     # ---- 한 스텝 ----
     def step(self) -> None:
         s, fp, ip = self.s, self.fp, self.ip
@@ -105,9 +121,10 @@ class World:
         t = self.step_no
         gw, gh = int(ip[k.Q_GW]), int(ip[k.Q_GH])
         inv_cell = fp[k.P_INV_CELL]
+        grass, basal, sn, cs = self.season(t)
         if niche:
-            st.niche_world(t, s, fs, isp)
-        k.spawn_food(t, s, fp, ip)
+            st.niche_world(t, s, fs, isp, grass)
+        k.spawn_food(t, s, fp, ip, grass)
         k.build_grid(s.x, s.y, s.alive, inv_cell, gw, gh, s.a_start, s.a_items, s.cursor)
         k.build_grid(s.fx, s.fy, s.f_alive, inv_cell, gw, gh, s.f_start, s.f_items, s.cursor)
         k.sense(t, s, fp, ip)
@@ -115,6 +132,8 @@ class World:
             st.social_sense(s, fs, isp)
         if niche:
             st.trail_sense(s, fs, isp)
+        if cfg.season_enabled:
+            k.write_ext2(s.alive, s.obs, cfg.ext_in0 + EXT_SEASON, sn, cs)
         if mind:
             st.mind_update(s, fs, isp)
             st.think_plastic(t, s, fs, isp)
@@ -122,9 +141,9 @@ class World:
             k.think(s)
         if mind or social:
             st.after_think(s, fs, isp)
-        k.move(s, fp, ip)
+        k.move(s, fp, ip, basal)
         if mind or niche:
-            st.after_move(s, fs, isp)
+            st.after_move(s, fs, isp, basal)
         k.build_grid(s.x, s.y, s.alive, inv_cell, gw, gh, s.a_start, s.a_items, s.cursor)
         k.collide(s, fp, ip)
         k.eat(t, s, fp, ip)
