@@ -14,7 +14,7 @@ from numba import njit, prange
 
 from .config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT_SLEEP, ACT_THRUST, ACT_TURN,
                      IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL, N_INTERNAL)
-from .kernels import (C_ATTACKS, C_FERTILE, C_GIFTS, C_NFOOD, KIND_A, L_BASAL, L_BRAIN, L_DISCARD, L_LOST,
+from .kernels import (C_ATTACKS, C_FERTILE, C_GIFTS, C_NFIELD, C_NFOOD, KIND_A, L_BASAL, L_BRAIN, L_DISCARD, L_LOST,
                       L_MOVE, L_SPAWN, TOUCH_HIT, _place_food, _wdiff, _wrap, make_room, pick_kind)
 from .rng import S_ATTACK_ORDER, S_FERTILE, S_PERTURB, normal, u01
 
@@ -33,7 +33,7 @@ KIND_RNG_FERTILE = 1000003
  F_PERTURB, N_FS) = range(48)
 # ---- 정수 설정 칸 ----
 (I_SEED, I_GW, I_GH, I_SECTORS, I_H_MAX, I_MIND, I_SOCIAL, I_NICHE, I_FOOD_CAP, I_STAGE_IN, I_KINDS,
- I_CAP_REPLACE, N_IS) = range(13)
+ I_CAP_REPLACE, I_FIELD_CAP, N_IS) = range(14)
 
 
 def pack_stage_params(cfg):
@@ -64,6 +64,7 @@ def pack_stage_params(cfg):
     isp[I_FOOD_CAP] = cfg.food_cap
     isp[I_KINDS] = int(cfg.food_kinds_enabled)
     isp[I_CAP_REPLACE] = int(cfg.food_cap_replace)
+    isp[I_FIELD_CAP] = int(cfg.field_cap)
     isp[I_STAGE_IN] = 2 * cfg.vision_sectors + N_INTERNAL
     return fs, isp
 
@@ -656,9 +657,11 @@ def niche_world(step, s, fs, isp, mult=1.0):
     s.budget[1] += share
     e_food = fs[F_E_FOOD]
     cell = fs[F_CELL]
+    field_cap = isp[I_FIELD_CAP]
     k = 0
     while s.budget[1] >= e_food:
-        if s.counters[C_NFOOD] >= isp[I_FOOD_CAP] and isp[I_CAP_REPLACE] == 0:
+        n_food = s.counters[C_NFIELD] if field_cap != 0 else s.counters[C_NFOOD]
+        if n_food >= isp[I_FOOD_CAP] and isp[I_CAP_REPLACE] == 0:
             s.ledger[L_DISCARD] += s.budget[1]
             s.budget[1] = 0.0
             break
@@ -683,8 +686,8 @@ def niche_world(step, s, fs, isp, mult=1.0):
         if isp[I_KINDS] != 0:
             kind = pick_kind(isp[I_SEED], step, KIND_RNG_FERTILE + k, fs[F_KIND_RATIO])
         # 놓을 자리가 정해진 뒤에 자리를 낸다(먼저 치우면 놓지도 않고 먹이만 없앨 수 있다)
-        if (not make_room(s, isp[I_FOOD_CAP], isp[I_CAP_REPLACE])
-                or not _place_food(s, _wrap(px, fs[F_W]), _wrap(py, fs[F_H]), e_food, kind, step)):
+        if (not make_room(s, isp[I_FOOD_CAP], isp[I_CAP_REPLACE], field_cap)
+                or not _place_food(s, _wrap(px, fs[F_W]), _wrap(py, fs[F_H]), e_food, kind, step, field_cap)):
             s.ledger[L_DISCARD] += s.budget[1]
             s.budget[1] = 0.0
             break

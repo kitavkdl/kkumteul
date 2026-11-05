@@ -163,6 +163,10 @@ class Config:
     spoil_min_frac: float = 0.05  # 남은 에너지가 food_energy의 이 비율 아래면 먹이가 사라진다. 임시 결정
     spoil_winter_mult: float = 0.2  # 겨울의 부패 속도 배수. 지구는 여름이 겨울보다 3~7배 빨리 썩는다
                                   # (docs/research/earth-references.md). 겨울이 꺼져 있으면 쓰이지 않는다. 임시 결정
+    carry_enabled: bool = False   # 들기: 개체가 먹이 한 알을 들고 다니고 내려놓는다(물건 = 먹이 칸 하나, 손 하나).
+                                  # 켜면 먹이 상한은 들판 알(든 적 없는 알, 사체 제외)만 센다.
+                                  # 들판 아닌 물건이 max_agents칸을 채우면 들지 않은 것 가운데 가장 오래된 것이 밀려난다
+    carry_cost_mult: float = 1.3  # 들고 있을 때 이동 비용 배수. 지구 참고값 없음. 임시 결정
 
     # --- 4단계: 판이 바뀌는 세계 (기본은 꺼짐) ---
     niche_enabled: bool = False   # 다닌 자리가 길이 되고, 쌓은 거름이 먹이를 끌어온다
@@ -208,7 +212,12 @@ class Config:
     @property
     def needs_ext(self) -> bool:
         """확장 입출력 칸(preset=ext)이 필요한 장치가 하나라도 켜져 있는가."""
-        return self.season_enabled or self.spoil_enabled
+        return self.season_enabled or self.spoil_enabled or self.carry_enabled
+
+    @property
+    def field_cap(self) -> bool:
+        """먹이 상한을 들판 알 수(C_NFIELD)로 재는가. 꺼져 있으면 칸 점유 수(C_NFOOD)로 잰다."""
+        return self.carry_enabled
 
     @property
     def ext_size(self) -> bool:
@@ -277,6 +286,8 @@ class Config:
             raise ValueError("spoil_min_frac는 0 이상 1 미만, spoil_winter_mult는 0~1이어야 한다")
         if self.back_cost_mult < 1.0:
             raise ValueError("back_cost_mult는 1 이상이어야 한다(환급 금지)")
+        if self.carry_cost_mult < 1.0:
+            raise ValueError("carry_cost_mult는 1 이상이어야 한다(들면 이동이 싸지면 안 된다)")
         for name in ("stats_every", "frame_every", "frames_per_segment", "frame_ring_segments",
                      "ckpt_every", "ckpt_keep_last", "patch_life", "event_segment_steps", "max_age"):
             if getattr(self, name) < 1:
