@@ -6,14 +6,15 @@
 | 단계 | 내용 | 상태 |
 |---|---|---|
 | 1 세계와 몸 | 2D 세계, 몸, 죽음/번식, 뇌 에너지 비용, 감각 한계 | 구현됨. 맥 시범 실행에서 재주입 없이 유지되고 진화함 |
-| 2 마음 | 호르몬 보상, 평생 학습, 호기심, 잠 | 장치를 넣음(기본은 꺼짐). 생물이 쓰게 되는지는 아직 못 잼 |
-| 3 사회 | 신호, 혈연, 이웃 보기, 에너지 주기 | 장치를 넣음(기본은 꺼짐). 위와 같음 |
-| 4 판이 바뀌는 세계 | 길, 거름, 재난·기후 각본 | 장치를 넣음(기본은 꺼짐). 위와 같음 |
+| 2 마음 | 호르몬 보상, 평생 학습, 호기심, 잠 | 장치를 넣음(기본은 꺼짐). 첫 측정: 진화가 학습을 꺼 버렸다 |
+| 3 사회 | 신호, 혈연, 이웃 보기, 에너지 주기 | 장치를 넣음(기본은 꺼짐). 첫 측정: 주기는 줄었고 신호가 쓰인다는 증거 없음 |
+| 4 판이 바뀌는 세계 | 길, 거름, 재난·기후 각본 | 장치를 넣음(기본은 꺼짐). 첫 측정: 길·거름이 쓰인다는 증거 없음 |
 | 항상 | 성장 측정, 저장/분기, 관찰 화면 | 구현됨 |
 | 참여 | 각본(재난·기후 변화를 파일로 준다), 생물 묶음, 실험 카드 | 구현됨 |
 
 - 왜 만드는지와 설계 생각: [docs/design-notes-2026-10-28.md](docs/design-notes-2026-10-28.md)
 - 2~4단계 장치: [docs/stages-2-4.md](docs/stages-2-4.md)
+- 2~4단계 첫 측정 결과: [wayfinder/stage2-4/results.md](wayfinder/stage2-4/results.md)
 - 1단계 결정과 근거: [wayfinder/stage1/map.md](wayfinder/stage1/map.md), 조사 보고서 [wayfinder/stage1/reports/](wayfinder/stage1/reports/)
 - 첫 실행 결과: [wayfinder/stage1/research/first-run-mac.md](wayfinder/stage1/research/first-run-mac.md)
 - 같이 실험하기: [CONTRIBUTING.md](CONTRIBUTING.md)
