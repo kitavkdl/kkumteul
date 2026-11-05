@@ -33,6 +33,7 @@ class World:
         self.deaths: list[np.ndarray] = []
         self.passive_births = None           # 대조 실행용: (스텝 배열, 횟수 배열)
         self.passive_deaths = None
+        self.lifetime_reset: list[str] = []  # 크기를 올려 읽을 때 0에서 다시 시작한 평생 학습 배열(내용이 있던 것만)
         if populate:
             nb = k.populate_initial(self.s, cfg.init_agents, cfg.max_age, self.fp, self.ip)
             self._take_births(nb)
@@ -66,7 +67,7 @@ class World:
 
     def calm_new_outputs(self, old_n_out: int) -> list[str]:
         """크기를 올려 읽어 새로 생긴 출력 자리(old_n_out부터)의 편향을 새로 만든 개체의 기본값으로 맞춘다.
-        0으로 채운 편향은 대부분 기본값과 같지만, 나르기(ACT_CARRY)는 새 개체가 -1에서 시작한다.
+        0으로 채운 편향은 기본값과 같다. 다만 나르기(ACT_CARRY)만 새 개체가 -1에서 시작하므로 이것만 고친다.
         손댄 것을 돌려준다(없으면 빈 목록)."""
         if old_n_out <= ACT_CARRY < self.cfg.n_out:
             self.s.bout[self.s.alive, ACT_CARRY] = -1.0
@@ -237,6 +238,8 @@ class World:
                 continue
             exact = False
             if name in k.LIFETIME_FLEX:
+                if src.any():
+                    self.lifetime_reset.append(name)
                 dst[...] = 0
             elif (src.ndim == dst.ndim and all(a <= b for a, b in zip(src.shape, dst.shape))
                   and (name in ("budget", "counters") or (name in ("Win", "Wout", "bout")
@@ -254,6 +257,7 @@ class World:
         if "rw" in missing:
             s.rw[:] = 0.0
             s.rw[:, :N_REWARD] = np.array([1.0, 0.5, 0.0, 0.2, 0.5, -0.2, 0.2, 0.0], dtype=np.float32)
+        # f_born이 없던 옛 체크포인트의 먹이는 난 스텝이 0으로 채워진다. 부패를 켜면 모두 오래된 먹이로 취급된다
         if "e_prev" in missing:
             s.e_prev[:] = s.energy
         self.step_no = int(s.counters[k.C_STEP])

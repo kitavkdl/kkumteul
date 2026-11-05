@@ -145,9 +145,11 @@ class Config:
 
     # --- 혹독한 세계 장치 (기본은 꺼짐. 켜려면 확장 크기: preset=ext) ---
     season_enabled: bool = False  # 겨울: 해마다 해의 끝 winter_len 스텝 동안 풀이 줄고 기초 대사가 는다.
-                                  # 해의 위상(sin, cos)이 입력 두 칸으로 들어온다
+                                  # 해의 위상(sin, cos)이 입력 두 칸으로 들어온다.
+                                  # 해 위상은 절대 스텝 기준이라, 각본이 중간에 켜면 겨울 중간에서 시작할 수 있다
     spoil_enabled: bool = False   # 부패: 난 지 spoil_after 스텝이 지난 먹이(사체 포함)가 스텝마다 spoil_rate 비율로 줄고,
-                                  # spoil_min_frac * food_energy 아래로 내려가면 사라진다. 줄어든 에너지는 장부의 L_LOST로 간다
+                                  # spoil_min_frac * food_energy 아래로 내려가면 사라진다. 줄어든 에너지는 장부의 L_LOST로 간다.
+                                  # 난 스텝(f_born)이 없던 옛 체크포인트는 0으로 채워 읽으므로, 켜자마자 모든 먹이가 오래된 것이 된다
     season_period: int = 4000     # 한 해의 길이(스텝). 임시 결정
     winter_len: int = 1200        # 겨울의 길이(해의 끝 이만큼). 해 길이의 3할. 임시 결정
     winter_mult: float = 0.3      # 겨울의 풀(먹이 유입) 배수. 겨울 밖은 해 평균이 1이 되도록 1보다 크게 잡힌다. 임시 결정
@@ -202,7 +204,7 @@ class Config:
 
     @property
     def needs_ext(self) -> bool:
-        """확장 입출력 칸이 필요한 장치가 하나라도 켜져 있는가(2부·암수가 여기에 덧붙인다)."""
+        """확장 입출력 칸(preset=ext)이 필요한 장치가 하나라도 켜져 있는가."""
         return self.season_enabled or self.spoil_enabled
 
     @property
