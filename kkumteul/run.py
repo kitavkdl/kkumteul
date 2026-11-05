@@ -1,9 +1,12 @@
 """실행기. 세계를 계속 돌리면서 사건·통계·화면용 프레임·체크포인트를 실행 폴더에 쓴다.
 
-    python -m kkumteul.run new    --run runs/main [--set key=value ...] [--steps N]
+    python -m kkumteul.run new    --run runs/main [--set key=value ...] [--steps N] [--scenario FILE]
     python -m kkumteul.run resume --run runs/main [--steps N]
     python -m kkumteul.run branch --from runs/main --run runs/what-if [--at STEP]
-                                  [--set key=value ...] [--new-stream] [--passive]
+                                  [--set key=value ...] [--new-stream] [--passive] [--scenario FILE]
+
+각본(--scenario)을 주면 실행 폴더에 `scenario.json`으로 베껴 두고, 매 스텝 앞에서 그 스텝의 설정을 맞춘다.
+`config.json`에는 각본이 바꾸기 전의 바탕 설정이 남는다(이어 돌릴 때 각본은 이 바탕 위에 다시 계산된다).
 """
 from __future__ import annotations
 
@@ -25,6 +28,7 @@ from . import checkpoint as ckpt
 from . import events
 from . import kernels as k
 from .config import Config
+from .scenario import Scenario
 from .world import World
 
 FRAME_MAGIC = b"WSF2"
@@ -110,6 +114,15 @@ def parent_run_dir(run_dir: Path, meta: dict) -> Path:
     return p
 
 
+def read_scenario(src, base: Config):
+    """각본(파일 경로나 Scenario)을 읽고 이 바탕 설정에서 쓸 수 있는지 검사한다."""
+    if src is None:
+        return None
+    scn = src if isinstance(src, Scenario) else Scenario.load(src)
+    scn.check(base)
+    return scn
+
+
 class Runner:
     def __init__(self, run_dir: Path, world: World, run_meta: dict, lock):
         self.dir = run_dir
@@ -134,22 +147,37 @@ class Runner:
         self.win_life_sum = 0.0
         self.win_life_n = 0
         self.win_eaten_sum = 0.0
+        # 각본: 실행 폴더의 scenario.json과 바탕 설정(config.json)에서 읽는다.
+        # 체크포인트에는 각본이 바꿔 놓은 설정이 들어 있으므로 바탕으로 쓰지 않는다.
+        self.scenario = None
+        self.base_cfg = world.cfg
+        self.scenario_start = 0
+        if run_meta.get("scenario_start") is not None:
+            self.scenario = Scenario.load(run_dir / "scenario.json")
+            self.base_cfg = Config.load(run_dir / "config.json")
+            self.scenario_start = int(run_meta["scenario_start"])
 
     # ---- 만들기 ----
     @classmethod
-    def new(cls, run_dir: Path, cfg: Config, meta: dict | None = None) -> "Runner":
+    def new(cls, run_dir: Path, cfg: Config, meta: dict | None = None, scenario=None) -> "Runner":
+        """scenario는 각본 파일 경로나 Scenario다."""
         if (run_dir / "run.json").exists():
             raise FileExistsError(f"이미 있는 실행이다: {run_dir}")
+        scn = read_scenario(scenario, cfg)
         lock = acquire_lock(run_dir)
         world = World(cfg)
         m = {"created": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "kind": "new"}
         m.update(meta or {})
-        r = cls._create(run_dir, world, m, lock)
+        r = cls._create(run_dir, world, m, lock, scn)
         r.checkpoint()
         return r
 
     @classmethod
-    def _create(cls, run_dir: Path, world: World, meta: dict, lock) -> "Runner":
+    def _create(cls, run_dir: Path, world: World, meta: dict, lock, scn=None) -> "Runner":
+        if scn is not None:
+            # 각본을 실행 폴더에 베껴 둔다(원본 파일이 바뀌거나 없어져도 이어 돌릴 수 있게)
+            ckpt.atomic_write_bytes(run_dir / "scenario.json", scn.to_bytes())
+            meta.update(scenario=scn.name, scenario_start=world.step_no, scenario_sha256=scn.sha256())
         world.cfg.save(run_dir / "config.json")
         ckpt.atomic_write_bytes(run_dir / "run.json", json.dumps(meta, indent=1).encode())
         r = cls(run_dir, world, meta, lock)
@@ -189,7 +217,8 @@ class Runner:
 
     @classmethod
     def branch(cls, src: Path, run_dir: Path, at: int | None, overrides: list[str],
-               new_stream: bool, passive: bool) -> "Runner":
+               new_stream: bool, passive: bool, scenario=None) -> "Runner":
+        """scenario(각본 파일 경로나 Scenario)를 주면 갈라낸 스텝부터 그 각본을 적용한다."""
         if (run_dir / "run.json").exists():
             raise FileExistsError(f"이미 있는 실행이다: {run_dir}")
         src = Path(src)
@@ -206,6 +235,13 @@ class Runner:
             path = cands[-1][1]
         world, cmeta = ckpt.load(path)
         old = world.cfg
+        if (src_run / "scenario.json").exists() and (src_run / "config.json").exists():
+            # 부모가 각본을 쓰는 실행이면 체크포인트의 설정은 각본이 바꿔 놓은 값이다.
+            # 갈래의 바탕은 부모의 바탕 설정으로 한다. 부모의 각본은 이어받지 않는다.
+            old = Config.load(src_run / "config.json")
+            if scenario is None:
+                print("주의: 부모 실행의 각본은 이어받지 않는다(바탕 설정으로 돌아간다). "
+                      "각본을 주려면 --scenario를 쓴다.", flush=True)
         cfg = old.with_overrides(overrides)
         d = cfg.to_dict()
         if new_stream and d["seed"] == old.seed:
@@ -215,6 +251,7 @@ class Runner:
         cfg = Config.from_dict(d)
         world.set_config(cfg)
         diff = {key: [getattr(old, key), val] for key, val in d.items() if getattr(old, key) != val}
+        scn = read_scenario(scenario, cfg)
         lock = acquire_lock(run_dir)
         meta = {
             "created": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -227,7 +264,7 @@ class Runner:
             "config_diff": diff,
             "rng": "new_stream" if d["seed"] != old.seed else "same_stream",
         }
-        r = cls._create(run_dir, world, meta, lock)
+        r = cls._create(run_dir, world, meta, lock, scn)
         r.checkpoint()
         return r
 
@@ -270,9 +307,11 @@ class Runner:
             "sps": round(steps / max(now - self.win_start_wall, 1e-9), 1),
             "w_steps": int(steps),
             "w_births": int(dc[k.C_BIRTHS]),
-            "w_deaths": int(dc[k.C_DEATH_STARVE] + dc[k.C_DEATH_AGE] + dc[k.C_DEATH_PASSIVE]),
+            "w_deaths": int(dc[k.C_DEATH_STARVE] + dc[k.C_DEATH_AGE] + dc[k.C_DEATH_PASSIVE]
+                            + dc[k.C_DEATH_DISASTER]),
             "w_starve": int(dc[k.C_DEATH_STARVE]),
             "w_age": int(dc[k.C_DEATH_AGE]),
+            "w_disaster": int(dc[k.C_DEATH_DISASTER]),
             "w_reseeds": int(dc[k.C_RESEED]),
             "w_blocked": int(dc[k.C_BLOCKED]),
             "w_eaten": int(dc[k.C_EATEN]),
@@ -281,6 +320,9 @@ class Runner:
             "e_residual_rel": bal["residual"] / max(bal["spawn"] + bal["inject"], 1.0),
             "e_discard": bal["discard"],
         })
+        if self.scenario is not None:
+            # 각본이 건드리는 설정의 지금 값
+            row["scn"] = {name: getattr(w.cfg, name) for name in self.scenario.touched}
         self.f_stats.write((json.dumps(row) + "\n").encode())
         self.f_stats.flush()
         self.win_start_wall, self.win_start_step = now, w.step_no
@@ -341,7 +383,12 @@ class Runner:
         t0 = time.time()
         s0 = w.step_no
         _sd_notify("READY=1")
+        scn = self.scenario
+        force = True   # 처음 한 번은 설정을 무조건 다시 맞춘다(이어 돌릴 때 체크포인트의 설정은 한 스텝 전 것이다)
         while not self.stop and (end is None or w.step_no < end):
+            if scn is not None:
+                scn.apply(w, self.base_cfg, w.step_no, self.scenario_start, force)
+                force = False
             w.step()
             t = w.step_no
             if (t % cfg.frame_every == 0 or t <= self.dense_until
@@ -399,6 +446,7 @@ def main(argv=None) -> int:
         p.add_argument("--quiet", action="store_true")
         if name != "resume":
             p.add_argument("--set", action="append", default=[], metavar="key=value")
+            p.add_argument("--scenario", type=Path, help="세계에 줄 각본 json(재난·기후 변화). scenarios/ 참고")
         if name == "new":
             p.add_argument("--config", type=Path, help="바탕으로 쓸 설정 json")
         if name == "branch":
@@ -410,11 +458,12 @@ def main(argv=None) -> int:
 
     if args.cmd == "new":
         base = Config.load(args.config) if args.config else Config()
-        runner = Runner.new(args.run, base.with_overrides(args.set))
+        runner = Runner.new(args.run, base.with_overrides(args.set), scenario=args.scenario)
     elif args.cmd == "resume":
         runner = Runner.resume(args.run)
     else:
-        runner = Runner.branch(args.src, args.run, args.at, args.set, args.new_stream, args.passive)
+        runner = Runner.branch(args.src, args.run, args.at, args.set, args.new_stream, args.passive,
+                               args.scenario)
 
     cfg = runner.world.cfg
     if cfg.threads > 0:
