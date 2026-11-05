@@ -1,6 +1,6 @@
 # 꿈틀 인수인계
-마지막 갱신: 2026-11-05 17:12 ET (서버 16)
-요약: **혹독한 세계 1부 과제 1~5 끝.** 과제 2·3·4 구현·검토 통과(`abaf5a4`, `f1dcd1f`, `621c300`, 시험 184건), 0번 실험 끝(`runs/h0-*`). 겨울 하나에 86~88% 감소(예측 40~60% 틀림, 기초 대사 1.0이어도 81%) → 기본값 그대로, 목표를 "지구 나쁜 해 55~92% 안 + 무너지지 않음"으로 고침. 부패는 0알(먹이가 400스텝 전에 다 먹힘). 대표님께 pushover로 알림. 다음: **최종 전체 검토**.
+마지막 갱신: 2026-11-05 17:38 ET (서버 17)
+요약: **혹독한 세계 1부 최종 검토 → 고치기 끝**(opus 검토 "고치면 합칠 수 있음", 고치기 `ade96fd`, 시험 194건, 고정 해시 그대로). 남은 것은 고친 부분만 다시 검토하는 일 한 번 → finishing. **암수 설계 셋째 판**(`3e875dd`, 검토 두 갈래 반영), **혹독한 세계 설계 다섯째 판**(`f820d97`, 2부에 지구값 반영)과 그 2부 검토 두 갈래 기록(반영 전).
 
 ## ★ 먼저 할 것
 - **대표님 지시(16:3x ET, 서버 16에서): "제발 그냥 좀 끝까지 진행하라고, 특히 wrap."** 묻지 말고 끝까지, 맥락이 차면 미루지 말고 바로 wrap. 알림 턴이어도 대표님이 이미 말씀하신 세션이면 교대를 미루지 않는다(서버 16은 알림 턴에 그대로 교대했다).
@@ -12,19 +12,18 @@
 - 작업 폴더 `.claude/worktrees/night-1105c`, 가지 `worktree-night-1105c`(main push 막힘). `main` 합치기는 대표님 몫(tasks.md).
 
 ## 현재 상태
-- 설계: `docs/superpowers/specs/2026-11-05-harsh-world-design.md`(넷째 판), `2026-11-05-sex-design.md`(초안, 검토 `-sex-review.md`). 계획 `docs/superpowers/plans/2026-11-05-harsh-world-part1.md`.
-- SDD 장부 `.superpowers/sdd/2026-11-05-harsh-world-part1/progress.md`(git 밖, 이 작업 폴더): Task 1~5 complete, 미룬 minor 목록, Ruling 셋(실행 방식, 지구 참고 넷째 판, 0번 목표 고침). 실험 스크립트 `h0-run.sh`·`h0b-run.sh`, 읽기 `h0-read.py`도 거기.
+- 설계: `docs/superpowers/specs/2026-11-05-harsh-world-design.md`(다섯째 판, 2부 검토 반영 전), `2026-11-05-sex-design.md`(셋째 판, 검토 반영 끝). 검토 기록 `-harsh-world-review.md`, `-sex-review.md`. 계획 `docs/superpowers/plans/2026-11-05-harsh-world-part1.md`.
+- SDD 장부 `.superpowers/sdd/2026-11-05-harsh-world-part1/progress.md`(git 밖, 이 작업 폴더): Task 1~5 complete, 최종 검토·분류·고치기 줄, Ruling 다섯. 고치기 지시서 `final-fix-brief.md`, 실험 스크립트 `h0-run.sh`·`h0b-run.sh`, 읽기 `h0-read.py`도 거기.
 - 0번 결과: `wayfinder/stage2-4/results.md` 끝 절. 갈래 `runs/h0-ctrl`·`h0-winter`·`h0-spoil`·`h0-winter-b10`, 코드 사본 `runs/code-621c300`.
 - 해시 시험 `tests/test_stages.py`의 `PINNED_HASH_300`(기본 세계 불변).
 - 서버 세계 둘 `kkumteul-main`, `kkumteul-world4`(원래 폴더 main `d0b7ead` 코드). 재부팅하면 원래 폴더에서 `memcap --bg kkumteul-main --log runs/main.log --max 1500M -- nice -n 15 .venv/bin/python -m kkumteul.run resume --run runs/main --quiet`(world4도 같게, 하나씩).
 - 아티팩트: 다시 보기 https://claude.ai/artifact/LJwqLAmdv8evuPTUj7W69Z, 여정 https://claude.ai/artifact/EZUf6Mkz429VDmrkWddk3H (원본 `docs/journey.html`).
 
 ## 다음 할 일 (위에서부터)
-1. **1부 최종 전체 검토** — SDD 스킬의 Final Review: `review-package`(계획 파일, BASE `cf56e9a`, HEAD)로 묶음 → 가장 강한 모델(opus)로 `requesting-code-review/code-reviewer.md`, 장부의 `minor (deferred)`·`Ruling:` 줄을 같이 준다. 특히 Task 2 minor 1(갈라 켠 뒤 resume = 끊지 않은 실행 비교 시험)을 따져 보게. 지적이 있으면 고치기 한 번 + 범위 재검토 한 번 → `finishing-a-development-branch`(main 합치기는 대표님 몫이라 "가지에 둠"). 끝나면 장부의 Ruling을 대표님 보고에 모두 적고 작업 공간을 지운다.
-2. 지구 참고값의 나머지 반영 — `docs/research/earth-references.md`의 "2부 설계"·"둘째 판" 칸을 2부 설계와 암수 둘째 판에 근거로.
-3. 혹독한 세계 2부(③ 들기/저장 ④ 사냥감 ⑤ 포식자·약탈자, 후보 `huddle`) 설계 → 검토 둘 → 계획 → 구현. 0번 결과상 겨울 저점이 약 250이라 포식자가 무너뜨리지 않는지부터 본다. 부패는 저장이 생긴 뒤 다시 잰다.
-4. 그다음 암수 → 몸짓 → 기록 → 도구.
-5. develop 후보: 신호 내는 쪽 판정, 재생 실험, 신호 값 기록.
+1. **1부 고친 부분 다시 검토 한 번** — `bash <superpowers>/skills/subagent-driven-development/scripts/review-package docs/superpowers/plans/2026-11-05-harsh-world-part1.md 3e875dd ade96fd` → 그 스킬의 `re-review-prompt.md`로 sonnet에게(지적 목록은 장부 `Final review:` 줄과 `final-fix-brief.md`). 남는 지적은 장부에 Ruling으로 묶고(두 번째 고치기 없음) → `finishing-a-development-branch`(main 합치기는 대표님 몫이라 "가지에 둠") → **대표님 보고에 장부의 Ruling 모두**(특히 ① 겨울 목표를 "절반 안쪽" → "지구 나쁜 해 55~92% 안 + 무너지지 않음"으로 고침 ② 지구값으로 기초 대사 1.5·겨울 부패 0.2 ③ 실행 방식) → 작업 공간(`.superpowers/sdd/2026-11-05-harsh-world-part1/`) 삭제.
+2. **혹독한 세계 설계 여섯째 판** — `harsh-world-review.md` 끝 "다섯째 판(2부) 검토 두 갈래": 명세 축 7건은 판단을 달아 둠(특히 포식 목표 40~55%는 산수로 불가능, 넘친 사냥감 몫이 겨울을 피해 감, 저장이 생길 잉여 창이 없음 → 가을 열매철 등), 규칙 축은 **요지만 적었고 코드 확인 전**(먹이 일련번호 저장 필드 없음, `C_NFOOD` 겸용, `KIND_MEAT`가 독으로 처리, `preset=harsh` 뜻 바뀜 → `harsh2`, 난수 번호표 하나로 등). 확인 → 판단 → 여섯째 판 → 계획(해시·계수기 공유 첫 과제부터, 암수 설계 "저장·해시·기록"과 같음) → 구현.
+3. 그다음 암수(셋째 판, 검토 반영 끝 — 구현 계획만 쓰면 됨) → 몸짓 → 기록 → 도구.
+4. develop 후보: 신호 내는 쪽 판정, 재생 실험, 신호 값 기록.
 
 ## 일하는 방식
 - 서버가 바쁘다. 실험은 2스레드, 메모리 상한 1.5GB, 한 번에 하나, `memcap --bg`. 서브에이전트에게 시뮬레이션을 시키지 않는다(시험은 됨).
@@ -33,6 +32,8 @@
 - 작업 폴더 밖은 Edit·Write가 막힌다. 스크립트는 작업 폴더 안(장부 폴더)에 쓰고 `bash <절대 경로>`로 부른다.
 
 ## 교훈·주의 (보관된 것은 `archive/kkumteul-history.md`)
+- ★ (11/05) 설계에 목표 비율이나 "몇 %"를 적기 전에 `config.py` 기본값으로 상한을 셈한다(서버 17: 장식 유지비 0.002를 "몇 %"라 적었는데 기초 대사의 67%, 포식 40~55%는 포식자 셋·쿨다운 30으로 최대 약 11% — 둘 다 검토자가 잡음).
+- (11/05) 서브에이전트가 같은 작업 폴더에서 커밋하는 동안 내 커밋은 그쪽이 끝난 뒤에 한다(인덱스 겹침). 읽기만 하는 검토는 같이 돌려도 된다.
 - ★ (11/05) 저장·지방이 없는 생물은 겨울에 **수용력을 거의 바로 따라간다**(400~800스텝). 겨울 감소폭 ≈ 1 − (겨울 풀 ÷ 여름 풀 ÷ 겨울 대사 배수). "수명이 겨울보다 길어 늦게 따라간다"는 예측은 틀렸다. 계절 장치는 이 식으로 먼저 셈한다.
 - ★ (11/05) 계획이 정한 장부 시험이 장치를 못 가릴 수 있다: 잔차에 들어가지 않는 예산(`budget`)만 옮기는 경로는 잔차 시험으로 안 잡힌다. 그 장치를 빼면 실패하는지 확인하는 시험을 둔다(과제 3 고치기).
 - ★ (11/05) 알림 턴에 교대가 막히면 그 사이 서브에이전트를 또 띄우지 않는다(서버 15: 16만 → 19만).
@@ -60,4 +61,4 @@
 - ★ (11/05) 서버 `/tmp`는 메모리 디스크다. 시험 임시 폴더는 `runs/` 아래로.
 
 ## 세션 기록 (앞의 것은 보관 파일)
-- 16:35~17:12 ET (서버 16, 넘겨받음 → 대표님 "끝까지, 특히 wrap"): 과제 2 검토 통과, 과제 3 구현·고치기 1회·통과(`80ca405`, `f1dcd1f`), 과제 4 구현·통과(`621c300`), 0번 예측 커밋 → 실험 네 갈래 → 결과 커밋, pushover. 맥락 16.5만이라 교대.
+- 17:12~17:38 ET (서버 17, 넘겨받음): 1부 최종 검토(opus, Critical 0·Important 3) → 고치기 한 번(sonnet, `ade96fd`). 암수 둘째 판 → 검토 두 갈래 → 셋째 판(`af4ba03`, `3e875dd`). 혹독한 세계 다섯째 판 + 2부 검토 두 갈래 기록(`f820d97`). 맥락 21만이라 교대.
