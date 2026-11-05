@@ -1287,7 +1287,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
     add("태어남", "밝은 고리", function (c) { drawEvent(c, 44, 44, EV.born, 0.3, 6, 2); });
     add("죽음", "흐려지는 ×", function (c) { drawEvent(c, 44, 44, EV.died, 0.1, 9, 2); });
     if (on.social) {
-      add("신호", "이 기록에서 가장 세게 내는 5%(세기 " + SIG_MIN.toFixed(2) + " 넘음)의 둘레에 고리. 빛깔이 신호의 종류입니다", function (c) {
+      add("신호", "이 기록에서 가장 세게 내는 5%(세기 " + SIG_MIN.toFixed(2) + " 넘음)의 둘레에 고리. 세게 낸다는 표시일 뿐, 뜻이 있거나 누가 알아듣는다는 표시는 아닙니다(그건 한쪽만 못 듣게 하고 겨뤄서 가립니다). 빛깔은 두 신호의 비율입니다", function (c) {
         drawCreature(c, 46, 46, 9, -0.45, demo, 1, 0, false);
         c.strokeStyle = "hsl(190,85%,68%)"; c.lineWidth = 2.6; c.globalAlpha = 0.8; c.beginPath(); c.arc(44, 44, 24, 0, TAU); c.stroke(); c.globalAlpha = 1;
       });
