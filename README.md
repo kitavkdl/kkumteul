@@ -10,6 +10,7 @@
 | 3 사회 | 신호, 혈연, 이웃 보기, 에너지 주기 | 장치를 넣음(기본은 꺼짐). 위와 같음 |
 | 4 판이 바뀌는 세계 | 길, 거름, 재난·기후 각본 | 장치를 넣음(기본은 꺼짐). 위와 같음 |
 | 항상 | 성장 측정, 저장/분기, 관찰 화면 | 구현됨 |
+| 참여 | 각본(재난·기후 변화를 파일로 준다), 생물 묶음, 실험 카드 | 구현됨 |
 
 - 왜 만드는지와 설계 생각: [docs/design-notes-2026-10-28.md](docs/design-notes-2026-10-28.md)
 - 2~4단계 장치: [docs/stages-2-4.md](docs/stages-2-4.md)
@@ -41,6 +42,13 @@ python3 -m kkumteul.run branch --from runs/main --run runs/costly-brain --set br
 # 선택 없는 대조 실행: 본 실행의 출생·사망 횟수를 무작위 개체에 그대로 적용한다
 python3 -m kkumteul.run branch --from runs/main --at 0 --run runs/main-passive --passive --new-stream
 
+# 각본(재난·기후 변화)을 주고 돌린다. 형식과 예는 scenarios/README.md
+python3 -m kkumteul.scenario scenarios/drought.json          # 각본 검사와 미리 보기
+python3 -m kkumteul.run branch --from runs/main --run runs/main-drought --scenario scenarios/drought.json
+
+# 실험 카드: 같은 체크포인트에서 대조와 각본을 갈라 돌리고 겨루게 한 뒤 experiments/<이름>/에 결과를 쓴다
+python3 -m kkumteul.experiment --from runs/main --scenario scenarios/drought.json --steps 200000 --name my-drought
+
 # 관찰 화면 (폰에서 보려면 --host 0.0.0.0)
 python3 -m kkumteul.viewer --runs runs --port 8765
 
@@ -51,6 +59,11 @@ python3 -m kkumteul.analyze runs/main --last-steps 5000000
 # 성장 측정: 옛 체크포인트 개체와 지금 개체를 새 세계에 같은 수로 풀어 겨루게 한다
 python3 -m kkumteul.measure assay --a runs/main/checkpoints/ckpt_000001000000.npz --b runs/main/checkpoints/ckpt_000008000000.npz
 python3 -m kkumteul.measure ladder --run runs/main --count 5
+
+# 생물 묶음: 유전체만 담은 작은 파일을 만들어 주고받고, 묶음끼리 겨루게 한다
+python3 -m kkumteul.pack export --from runs/main --out mine.pack.npz --label "내 세계 800만 스텝"
+python3 -m kkumteul.pack info mine.pack.npz
+python3 -m kkumteul.measure assay --a mine.pack.npz --b yours.pack.npz
 
 # 속도·램 실측
 python3 -m kkumteul.bench
@@ -78,13 +91,18 @@ python3 -m pytest -q
 |---|---|
 | `kkumteul/config.py` | 모든 설정값과 검사 |
 | `kkumteul/rng.py` | 상태 없는 난수(씨앗·용도·번호를 섞어 만든다) |
-| `kkumteul/kernels.py` | numba 계산 커널: 격자, 감각, 뇌, 움직임, 충돌, 먹기, 죽음, 번식, 대조 실행 |
+| `kkumteul/kernels.py` | numba 계산 커널: 격자, 감각, 뇌, 움직임, 충돌, 먹기, 죽음, 번식, 대조 실행, 운석 |
 | `kkumteul/world.py` | 세계 하나: 한 스텝의 순서, 사건 기록, 에너지 장부 점검 |
 | `kkumteul/checkpoint.py` | 저장·복구(임시 파일에 쓰고 이름을 바꾼다), 오래된 체크포인트 정리 |
-| `kkumteul/run.py` | 실행기: 새로 시작·이어 돌리기·분기, 통계·프레임·체크포인트 기록, 실행 폴더 잠금, 디스크 여유 감시 |
+| `kkumteul/run.py` | 실행기: 새로 시작·이어 돌리기·분기, 각본 적용, 통계·프레임·체크포인트 기록, 실행 폴더 잠금, 디스크 여유 감시 |
+| `kkumteul/scenario.py` | 각본: 재난·기후 변화를 적은 json을 읽고 검사해 스텝마다 설정과 운석을 정한다 |
+| `scenarios/` | 각본 예(가뭄, 빙하기, 계절, 운석 등)와 형식 설명 |
 | `kkumteul/events.py` | 출생·사망 기록 파일(스텝 구간마다 나눔) |
 | `kkumteul/_cache.py` | 계산 소스가 바뀌면 numba 캐시를 지운다 |
-| `kkumteul/measure.py` | 성장 측정(겨루기, 사다리) |
+| `kkumteul/measure.py` | 성장 측정(겨루기, 사다리). 체크포인트와 생물 묶음을 모두 받는다 |
+| `kkumteul/pack.py` | 생물 묶음: 유전체만 담은 파일 만들기와 보기 |
+| `kkumteul/experiment.py` | 실험 카드: 대조와 각본을 갈라 돌리고 겨루게 한 결과를 `experiments/<이름>/`에 쓴다 |
+| `experiments/` | 올라온 실험 카드와 올리는 방법 |
 | `kkumteul/analyze.py` | 기록 분석(세대, 출생 비, Fitness Transmission) |
 | `kkumteul/viewer.py`, `viewer.html` | 관찰 화면 |
 | `kkumteul/bench.py` | 속도·램 실측 |
@@ -94,10 +112,11 @@ python3 -m pytest -q
 
 | 파일 | 내용 |
 |---|---|
-| `config.json`, `run.json` | 설정, 만든 방법(분기면 부모 체크포인트 해시와 설정 차이) |
+| `config.json`, `run.json` | 설정(각본을 쓰면 각본이 바꾸기 전의 바탕 설정), 만든 방법(분기면 부모 체크포인트 해시와 설정 차이, 각본을 쓰면 이름과 시작 스텝) |
+| `scenario.json` | 각본을 준 실행에만 있다. 받은 각본의 사본 |
 | `checkpoints/ckpt_<스텝>.npz` + `.json` | 세계 전체 상태. 100만 스텝마다 쓰고, 최근 12개와 5천만 스텝마다 하나를 남긴다 |
 | `events/births_<번호>.bin`, `deaths_<번호>.bin` | 출생·사망 기록(덧붙이기 전용, 200만 스텝마다 새 파일). 형식은 `world.py`의 `BIRTH_DTYPE`, `DEATH_DTYPE` |
-| `stats.jsonl` | 5,000스텝마다 한 줄 요약 |
+| `stats.jsonl` | 5,000스텝마다 한 줄 요약. 각본을 쓰면 `scn`(각본이 건드리는 설정의 그때 값)이 붙는다 |
 | `STOPPED.txt` | 스스로 멈췄을 때 그 까닭(디스크 여유 부족) |
 | `frames/seg_*.bin`, `keyframes.bin` | 관찰 화면용 프레임. 최근 것만 남기고(고리), 드문 프레임은 계속 남긴다 |
 
