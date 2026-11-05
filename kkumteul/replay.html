@@ -2,29 +2,30 @@
 <title>꿈틀 다시 보기</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
-/* 배치: 어두운 표본 창(지도) 하나가 주인공이고, 나머지는 그 창을 읽는 계기판이다. 폰은 한 줄로, 넓은 화면은 지도 옆에 패널. */
+/* 배치: 관측 장비의 화면. 어두운 관측 창(지도) 하나가 주인공이고, 둘레는 그 창을 읽는 기록지다. 직각, 가는 선, 숫자는 고정폭.
+   폰은 한 줄로, 넓은 화면은 지도 옆에 기록지. 귀여움은 빼고, 하찮미는 생물의 꼬리·잠·일생 자막에만 둔다. */
 :root {
-  --bg: #eef2f3; --panel: #ffffff; --ink: #14222b; --dim: #51626b; --faint: #7f8e96; --line: #d2dbdf; --grid: #e3e9eb;
-  --accent: #0b6f8f; --accent-ink: #ffffff; --wash: rgba(11, 111, 143, 0.10);
-  --food: #1f8f4d; --poison: #7a44c9; --danger: #c93a31; --warn: #b9770a; --series: #2a78d6;
-  --stage: #0b1218; --stage-line: #1e2a33; --stage-ink: #dfe8ec; --stage-edge: rgba(223, 232, 236, 0.34);
-  --stage-glass: rgba(11, 18, 24, 0.74); --stage-poison: #b58cff;
+  --bg: #f1f2f0; --panel: #fafaf8; --ink: #161a1b; --dim: #4f5a5d; --faint: #7d878a; --line: #cfd4d3; --grid: #e2e5e4;
+  --accent: #2f6275; --accent-ink: #ffffff; --wash: rgba(47, 98, 117, 0.09);
+  --food: #3d7a50; --poison: #6b4fa8; --danger: #b8392f; --warn: #a87708; --series: #2f6275;
+  --stage: #0c0f10; --stage-line: #2a3134; --stage-ink: #e8ecec; --stage-edge: rgba(232, 236, 236, 0.28);
+  --stage-glass: rgba(12, 15, 16, 0.82); --stage-mark: rgba(232, 236, 236, 0.55); --stage-alert: #d8b25a;
   --font: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #101a21; --panel: #16222b; --ink: #e3ecef; --dim: #9fb1b9; --faint: #74868f; --line: #26343d; --grid: #1e2b33;
-    --accent: #6cc5e0; --accent-ink: #06222c; --wash: rgba(108, 197, 224, 0.14);
-    --food: #58d68a; --poison: #b58cff; --danger: #ff6b5e; --warn: #f0b24a; --series: #3987e5;
-    --stage: #0a1016; --stage-line: #24323b; color-scheme: dark;
+    --bg: #0f1213; --panel: #151a1b; --ink: #e4e8e8; --dim: #9ba5a7; --faint: #6f7a7c; --line: #2a3033; --grid: #1f2426;
+    --accent: #8fb6c4; --accent-ink: #0c1a1f; --wash: rgba(143, 182, 196, 0.11);
+    --food: #7fbf8f; --poison: #ab96dc; --danger: #f0685e; --warn: #d8b25a; --series: #7fa9bc;
+    --stage: #0a0c0d; --stage-line: #2a3033; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #101a21; --panel: #16222b; --ink: #e3ecef; --dim: #9fb1b9; --faint: #74868f; --line: #26343d; --grid: #1e2b33;
-  --accent: #6cc5e0; --accent-ink: #06222c; --wash: rgba(108, 197, 224, 0.14);
-  --food: #58d68a; --poison: #b58cff; --danger: #ff6b5e; --warn: #f0b24a; --series: #3987e5;
-  --stage: #0a1016; --stage-line: #24323b; color-scheme: dark;
+  --bg: #0f1213; --panel: #151a1b; --ink: #e4e8e8; --dim: #9ba5a7; --faint: #6f7a7c; --line: #2a3033; --grid: #1f2426;
+  --accent: #8fb6c4; --accent-ink: #0c1a1f; --wash: rgba(143, 182, 196, 0.11);
+  --food: #7fbf8f; --poison: #ab96dc; --danger: #f0685e; --warn: #d8b25a; --series: #7fa9bc;
+  --stage: #0a0c0d; --stage-line: #2a3033; color-scheme: dark;
 }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--font); -webkit-text-size-adjust: 100%; }
 #rp { max-width: 1180px; margin: 0 auto; padding-block: 18px 44px;
@@ -32,10 +33,12 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
 #rp [hidden] { display: none !important; }
 #rp button { font-family: inherit; }
 #rp button:focus-visible, #rp .rp-track:focus-visible, #rp summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-#rp .rp-eyebrow { font: 600 12px/1 var(--mono); letter-spacing: 0.06em; color: var(--accent); margin: 0 0 8px; }
-#rp h1 { font-size: 24px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.02em; text-wrap: balance; }
-#rp .rp-intro { margin: 0; color: var(--dim); max-width: 68ch; }
-#rp .rp-grid { display: grid; gap: 20px; margin-top: 16px; grid-template-columns: minmax(0, 1fr); }
+#rp .rp-head { display: grid; gap: 6px; padding-bottom: 14px; border-bottom: 1px solid var(--ink); }
+#rp .rp-eyebrow { font: 500 12px/1 var(--mono); letter-spacing: 0.08em; color: var(--dim); margin: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+#rp .rp-eyebrow span + span { color: var(--faint); }
+#rp h1 { font-size: 22px; font-weight: 650; line-height: 1.25; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+#rp .rp-intro { margin: 0; color: var(--dim); max-width: 68ch; font-size: 14.5px; }
+#rp .rp-grid { display: grid; gap: 22px; margin-top: 16px; grid-template-columns: minmax(0, 1fr); }
 #rp .rp-stagecol { min-width: 0; }
 #rp .rp-stagewrap { width: min(100%, max(300px, calc(100vh - 290px))); max-width: 100%; margin: 0 auto; }
 @media (min-width: 980px) {
@@ -44,129 +47,152 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
 }
 
 /* 한 줄 상태 */
-#rp .rp-state { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; justify-content: space-between; margin: 0 0 8px; font-size: 14px; }
-#rp .rp-keys { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; min-width: 0; }
+#rp .rp-state { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; justify-content: space-between; margin: 0 0 6px; font-size: 13.5px; }
+#rp .rp-keys { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; min-width: 0; }
 #rp .rp-key { display: inline-flex; align-items: center; gap: 6px; }
-#rp .rp-glyph { width: 11px; height: 11px; display: inline-block; flex: none; }
+#rp .rp-glyph { width: 9px; height: 9px; display: inline-block; flex: none; }
 #rp .rp-glyph.circle { border-radius: 50%; }
 #rp .rp-glyph.diamond { transform: rotate(45deg) scale(0.82); }
 #rp .rp-glyph.good { background: var(--food); }
-#rp .rp-glyph.bad { background: var(--poison); }
-#rp .rp-pop { font: 600 14px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+#rp .rp-glyph.bad { background: var(--poison); box-shadow: inset 0 0 0 2.5px var(--poison), inset 0 0 0 9px var(--bg); }
+#rp .rp-pop { font: 500 13px/1.2 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim); }
+#rp .rp-pop b { color: var(--ink); font-weight: 600; }
 
-/* 표본 창 */
-#rp .rp-stage { position: relative; aspect-ratio: 1; max-width: 100%; border-radius: 12px; overflow: hidden;
-  background: var(--stage); border: 1px solid var(--stage-line); }
-#rp #rp-map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
-#rp #rp-mini { position: absolute; top: 10px; right: 10px; width: 27%; max-width: 132px; aspect-ratio: 1; padding: 0;
-  border-radius: 8px; border: 1px solid var(--stage-edge); background: var(--stage); cursor: pointer; overflow: hidden;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45); }
+/* 관측 창 */
+#rp .rp-stage { position: relative; aspect-ratio: 1; max-width: 100%; overflow: hidden; background: var(--stage); border: 1px solid var(--stage-line); }
+#rp .rp-stage::after { content: ""; position: absolute; inset: 3px; pointer-events: none;
+  background:
+    linear-gradient(var(--stage-mark), var(--stage-mark)) left top / 12px 1px no-repeat,
+    linear-gradient(var(--stage-mark), var(--stage-mark)) left top / 1px 12px no-repeat,
+    linear-gradient(var(--stage-mark), var(--stage-mark)) right top / 12px 1px no-repeat,
+    linear-gradient(var(--stage-mark), var(--stage-mark)) right top / 1px 12px no-repeat,
+    linear-gradient(var(--stage-mark), var(--stage-mark)) left bottom / 12px 1px no-repeat,
+    linear-gradient(var(--stage-mark), var(--stage-mark)) left bottom / 1px 12px no-repeat,
+    linear-gradient(var(--stage-mark), var(--stage-mark)) right bottom / 12px 1px no-repeat,
+    linear-gradient(var(--stage-mark), var(--stage-mark)) right bottom / 1px 12px no-repeat; }
+#rp #rp-map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+#rp #rp-mini { position: absolute; top: 12px; right: 12px; width: 27%; max-width: 132px; aspect-ratio: 1; padding: 0;
+  border-radius: 0; border: 1px solid var(--stage-edge); background: var(--stage); cursor: pointer; overflow: hidden; }
 #rp #rp-mini canvas { width: 100%; height: 100%; display: block; }
-#rp .rp-cap { position: absolute; left: 10px; top: 10px; max-width: calc(73% - 26px); font-size: 13px; line-height: 1.35;
-  color: var(--stage-ink); background: var(--stage-glass); border: 1px solid var(--stage-edge); border-radius: 9px;
-  padding: 6px 10px; pointer-events: none; }
-#rp .rp-cap.toast { border-color: var(--stage-poison); }
-#rp .rp-flash { position: absolute; inset: 0; border: 3px solid var(--stage-poison); border-radius: 12px; opacity: 0; pointer-events: none; }
+#rp .rp-cap { position: absolute; left: 12px; top: 12px; max-width: calc(73% - 28px); font-size: 13px; line-height: 1.4;
+  color: var(--stage-ink); background: var(--stage-glass); border-left: 2px solid var(--stage-ink); border-radius: 0;
+  padding: 5px 9px; pointer-events: none; }
+#rp .rp-cap.toast { border-left-color: var(--stage-alert); }
+#rp .rp-flash { position: absolute; inset: 0; border: 2px solid var(--stage-alert); opacity: 0; pointer-events: none; }
 #rp .rp-flash.on { animation: rp-flash 1.3s ease-out; }
 @keyframes rp-flash { from { opacity: 0.95; } to { opacity: 0; } }
-#rp .rp-view { position: absolute; left: 10px; bottom: 10px; display: flex; border-radius: 999px; overflow: hidden;
-  border: 1px solid var(--stage-edge); background: var(--stage-glass); }
-#rp .rp-view button { font-size: 12.5px; font-weight: 600; line-height: 1; padding: 9px 12px; border: 0; background: transparent;
+#rp .rp-view { position: absolute; left: 12px; bottom: 12px; display: flex; border: 1px solid var(--stage-edge); background: var(--stage-glass); }
+#rp .rp-view button { font-size: 12.5px; font-weight: 600; line-height: 1; padding: 9px 12px; border: 0; border-radius: 0; background: transparent;
   color: var(--stage-ink); cursor: pointer; }
+#rp .rp-view button + button { border-left: 1px solid var(--stage-edge); }
 #rp .rp-view button[aria-pressed="true"] { background: var(--stage-ink); color: var(--stage); }
-#rp .rp-zoom { position: absolute; right: 10px; bottom: 10px; display: flex; flex-direction: column; gap: 6px; }
-#rp .rp-zoom button { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--stage-edge);
-  background: var(--stage-glass); color: var(--stage-ink); font-size: 19px; line-height: 1; cursor: pointer; }
+#rp .rp-zoom { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; border: 1px solid var(--stage-edge); background: var(--stage-glass); }
+#rp .rp-zoom button { width: 36px; height: 36px; border: 0; border-radius: 0; background: transparent; color: var(--stage-ink);
+  font: 17px/1 var(--mono); cursor: pointer; }
+#rp .rp-zoom button + button { border-top: 1px solid var(--stage-edge); }
 
 /* 시간 막대 */
 #rp .rp-transport { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 8px; align-items: center; margin-top: 10px; }
-#rp .rp-btn { font-size: 14px; font-weight: 600; line-height: 1; height: 44px; min-width: 52px; padding: 0 12px; border-radius: 10px;
+#rp .rp-btn { font-size: 14px; font-weight: 600; line-height: 1; height: 44px; min-width: 52px; padding: 0 12px; border-radius: 0;
   border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
-#rp .rp-btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; min-width: 64px; }
-#rp .rp-track { height: 44px; touch-action: none; cursor: pointer; border-radius: 8px; min-width: 0; }
+#rp #rp-speed { font-family: var(--mono); font-weight: 500; }
+#rp .rp-btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); min-width: 72px; }
+#rp .rp-track { height: 44px; touch-action: none; cursor: pointer; min-width: 0; }
 #rp .rp-track canvas { width: 100%; height: 100%; display: block; }
 #rp .rp-stepline { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px; font: 12px/1.4 var(--mono);
   color: var(--dim); margin-top: 6px; font-variant-numeric: tabular-nums; }
+#rp #rp-step { color: var(--ink); }
 
-/* 패널 */
-#rp .rp-panelcol { display: grid; gap: 22px; min-width: 0; }
+/* 기록지 */
+#rp .rp-panelcol { display: grid; gap: 24px; min-width: 0; }
 #rp .rp-sec { min-width: 0; }
-#rp .rp-sec > h2 { font-size: 13px; font-weight: 700; letter-spacing: 0.02em; color: var(--dim); margin: 0 0 10px;
-  padding-top: 14px; border-top: 1px solid var(--line); }
-#rp .rp-who { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px 6px; }
-#rp .rp-who > h2 { border-top: 0; padding-top: 0; }
-#rp .rp-stars { display: flex; flex-wrap: wrap; gap: 6px; }
-#rp .rp-chip { font-size: 12.5px; font-weight: 600; line-height: 1; padding: 9px 11px; border-radius: 999px;
-  border: 1px solid var(--line); background: transparent; color: var(--dim); cursor: pointer; }
-#rp .rp-chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+#rp .rp-sec > h2 { font: 600 12px/1.2 var(--font); letter-spacing: 0.06em; color: var(--dim); margin: 0 0 12px;
+  padding-top: 8px; border-top: 1px solid var(--ink); display: flex; justify-content: space-between; gap: 8px; }
+#rp .rp-sec > h2 small { font: 500 11px/1.2 var(--mono); color: var(--faint); letter-spacing: 0.02em; }
+#rp .rp-who { background: var(--panel); border: 1px solid var(--line); padding: 0 14px 6px; }
+#rp .rp-who > h2 { border-top: 0; padding-top: 12px; margin-left: -14px; margin-right: -14px; padding-left: 14px; padding-right: 14px;
+  padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+#rp .rp-stars { display: flex; flex-wrap: wrap; gap: 0; border: 1px solid var(--line); }
+#rp .rp-chip { flex: 1 1 auto; font-size: 12.5px; font-weight: 600; line-height: 1.2; padding: 9px 10px; border-radius: 0;
+  border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--dim); cursor: pointer; }
+#rp .rp-chip:last-child { border-right: 0; }
+#rp .rp-chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
 #rp .rp-card { display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 12px; align-items: center; margin-top: 14px; }
-#rp #rp-face { width: 60px; height: 60px; border-radius: 12px; background: var(--stage); display: block; }
-#rp .rp-name { font-size: 17px; font-weight: 700; line-height: 1.25; margin: 0; }
+#rp #rp-face { width: 60px; height: 60px; background: var(--stage); display: block; }
+#rp .rp-name { font: 600 17px/1.25 var(--mono); margin: 0; letter-spacing: -0.01em; }
 #rp .rp-why { color: var(--dim); font-size: 13px; margin: 2px 0 0; }
 #rp .rp-facts { display: flex; flex-wrap: wrap; gap: 2px 14px; font: 12.5px/1.5 var(--mono); color: var(--dim); margin: 10px 0 0; }
 #rp .rp-vital { margin: 10px 0 0; font-size: 14px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
-#rp .rp-energy { flex: 1 1 90px; max-width: 160px; height: 8px; border-radius: 999px; background: var(--grid); overflow: hidden; }
-#rp .rp-energy i { display: block; height: 100%; width: 0; background: var(--food); border-radius: 999px; }
+#rp .rp-energy { flex: 1 1 90px; max-width: 160px; height: 9px; background: var(--grid); overflow: hidden; position: relative; }
+#rp .rp-energy::after { content: ""; position: absolute; inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), var(--panel) calc(10% - 1px) 10%); }
+#rp .rp-energy i { display: block; height: 100%; width: 0; background: var(--food); }
 #rp .rp-link { font-size: 13px; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 4px 0; cursor: pointer;
   text-decoration: underline; text-underline-offset: 3px; }
 #rp .rp-sofar { font: 12.5px/1.5 var(--mono); color: var(--dim); margin: 6px 0 0; }
 #rp .rp-story { list-style: none; margin: 12px -4px 0; padding: 0; max-height: 264px; overflow-y: auto; border-top: 1px solid var(--line);
   position: relative; overscroll-behavior: contain; }
-#rp .rp-story button { display: grid; grid-template-columns: 50px 10px minmax(0, 1fr); gap: 9px; align-items: baseline; width: 100%;
+#rp .rp-story button { display: grid; grid-template-columns: 50px 8px minmax(0, 1fr); gap: 9px; align-items: baseline; width: 100%;
   text-align: left; font-size: 14px; color: inherit; background: none; border: 0; border-bottom: 1px solid var(--grid);
-  padding: 8px 4px; cursor: pointer; }
+  padding: 7px 4px; cursor: pointer; }
 #rp .rp-story .age { font: 12px/1.5 var(--mono); color: var(--faint); text-align: right; font-variant-numeric: tabular-nums; }
-#rp .rp-story .dot { width: 9px; height: 9px; border-radius: 50%; align-self: center; background: var(--faint); }
+#rp .rp-story .dot { width: 7px; height: 7px; align-self: center; background: var(--faint); }
 #rp .rp-story .t-good .dot { background: var(--food); }
 #rp .rp-story .t-poison .dot, #rp .rp-story .t-hit .dot { background: var(--danger); }
 #rp .rp-story .t-born .dot, #rp .rp-story .t-child .dot { background: var(--accent); }
-#rp .rp-story .t-died .dot { background: var(--ink); border-radius: 2px; }
+#rp .rp-story .t-died .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink); }
 #rp .rp-story .t-gave .dot { background: var(--warn); }
 #rp .rp-story li.future button { opacity: 0.42; }
-#rp .rp-story li.now button { background: var(--wash); }
+#rp .rp-story li.now button { background: var(--wash); box-shadow: inset 2px 0 0 var(--accent); }
 #rp .rp-fine { font-size: 12.5px; color: var(--faint); margin: 8px 0 0; line-height: 1.5; }
 
-/* 지금 숫자 */
+/* 현황 */
 #rp .rp-verdict { font-size: 16px; line-height: 1.5; margin: 0 0 12px; }
-#rp .rp-verdict strong { font-weight: 800; }
+#rp .rp-verdict strong { font-weight: 750; }
 #rp .rp-bars { display: grid; grid-template-columns: auto minmax(0, 1fr) 42px; gap: 8px 10px; align-items: center; font-size: 13px; color: var(--dim); }
-#rp .rp-bar { height: 8px; border-radius: 999px; background: var(--grid); overflow: hidden; }
-#rp .rp-bar i { display: block; height: 100%; width: 0; border-radius: 999px; }
+#rp .rp-bar { height: 9px; background: var(--grid); overflow: hidden; position: relative; }
+#rp .rp-bar::after { content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent calc(50% - 0.5px), var(--faint) calc(50% - 0.5px) calc(50% + 0.5px), transparent calc(50% + 0.5px)); }
+#rp .rp-bar i { display: block; height: 100%; width: 0; }
 #rp .rp-bar .b-eat { background: var(--poison); }
 #rp .rp-bar .b-blind { background: var(--faint); }
 #rp .rp-bars .num { font: 600 13px/1 var(--mono); color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
-#rp .rp-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 12px; margin-top: 16px; }
+#rp .rp-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 0; margin-top: 16px;
+  border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+#rp .rp-tile { padding: 8px 10px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 #rp .rp-tile .k { font-size: 12px; color: var(--dim); }
-#rp .rp-tile .v { font-size: 20px; font-weight: 700; line-height: 1.25; }
+#rp .rp-tile .v { font: 600 19px/1.3 var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 #rp .rp-tile .s { font: 12px/1.4 var(--mono); color: var(--faint); min-height: 17px; }
 
-/* 읽는 법 */
+/* 범례 */
 #rp .rp-legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 10px 14px; }
 #rp .rp-lg { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 10px; align-items: center; }
-#rp .rp-lg canvas { width: 44px; height: 44px; border-radius: 9px; background: var(--stage); display: block; }
+#rp .rp-lg canvas { width: 44px; height: 44px; background: var(--stage); display: block; }
 #rp .rp-lg b { display: block; font-size: 13.5px; line-height: 1.3; }
 #rp .rp-lg span { display: block; font-size: 12px; color: var(--dim); line-height: 1.35; }
 
-/* 긴 흐름 */
+/* 장기 기록 */
 #rp .rp-long { position: relative; }
 #rp #rp-longcv { width: 100%; display: block; touch-action: pan-y; }
-#rp .rp-tip { position: absolute; top: 0; left: 0; pointer-events: none; background: var(--panel); border: 1px solid var(--line);
-  border-radius: 8px; padding: 6px 9px; font: 12px/1.5 var(--mono); color: var(--dim); white-space: nowrap;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14); }
+#rp .rp-tip { position: absolute; top: 0; left: 0; pointer-events: none; background: var(--panel); border: 1px solid var(--ink);
+  padding: 6px 9px; font: 12px/1.5 var(--mono); color: var(--dim); white-space: nowrap; }
 #rp .rp-tip b { color: var(--ink); font-weight: 700; }
 #rp details { margin-top: 8px; font-size: 13px; color: var(--dim); }
 #rp summary { cursor: pointer; padding: 4px 0; }
 #rp .rp-tablewrap { overflow-x: auto; }
 #rp table { border-collapse: collapse; font: 12px/1.4 var(--mono); width: 100%; font-variant-numeric: tabular-nums; }
 #rp th, #rp td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
-#rp th { color: var(--dim); font-weight: 600; }
+#rp th { color: var(--dim); font-weight: 600; border-bottom-color: var(--ink); }
 #rp .rp-about p { margin: 0 0 8px; font-size: 13.5px; color: var(--dim); max-width: 68ch; }
+@media (prefers-reduced-motion: reduce) { #rp .rp-flash.on { animation: none; } }
 </style>
 <!--/HEAD-->
 <div id="rp">
-  <p class="rp-eyebrow">꿈틀 다시 보기</p>
-  <h1 id="rp-title">세계</h1>
-  <p class="rp-intro" id="rp-intro"></p>
+  <div class="rp-head">
+    <p class="rp-eyebrow" id="rp-eyebrow"><span>꿈틀 · 관측 기록</span></p>
+    <h1 id="rp-title">세계</h1>
+    <p class="rp-intro" id="rp-intro"></p>
+  </div>
 
   <div class="rp-grid">
     <div class="rp-stagecol">
@@ -176,7 +202,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
           <div class="rp-pop" id="rp-pop"></div>
         </div>
         <div class="rp-stage" id="rp-stage">
-          <canvas id="rp-map" aria-label="세계 지도. 끌면 움직이고, 생물을 누르면 그 생물을 따라갑니다."></canvas>
+          <canvas id="rp-map" aria-label="관측 창. 끌면 움직이고, 생물을 누르면 그 생물을 따라갑니다."></canvas>
           <button type="button" id="rp-mini" aria-label="세계 전체 보기"><canvas id="rp-minicv"></canvas></button>
           <div class="rp-cap" id="rp-cap" aria-live="polite" hidden></div>
           <div class="rp-flash" id="rp-flash"></div>
@@ -200,7 +226,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
 
     <div class="rp-panelcol">
       <div class="rp-sec rp-who">
-        <h2>따라가 볼 생물</h2>
+        <h2>관측 대상 <small>지도에서 눌러 바꿈</small></h2>
         <div class="rp-stars" id="rp-stars"></div>
         <div class="rp-card">
           <canvas id="rp-face" width="120" height="120"></canvas>
@@ -221,7 +247,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
       </div>
 
       <div class="rp-sec">
-        <h2>지금 이 세계는</h2>
+        <h2>현황 <small id="rp-nowstep"></small></h2>
         <p class="rp-verdict" id="rp-verdict"></p>
         <div class="rp-bars" id="rp-bars">
           <span>먹은 것 가운데 독</span><span class="rp-bar"><i class="b-eat" id="rp-bar-eat"></i></span><span class="num" id="rp-num-eat"></span>
@@ -232,12 +258,12 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
       </div>
 
       <div class="rp-sec">
-        <h2>읽는 법</h2>
+        <h2>범례</h2>
         <div class="rp-legend" id="rp-legend"></div>
       </div>
 
       <div class="rp-sec" id="rp-longsec" hidden>
-        <h2>이 세계의 긴 흐름</h2>
+        <h2>장기 기록 <small>원래 실행</small></h2>
         <div class="rp-long" id="rp-long">
           <canvas id="rp-longcv"></canvas>
           <div class="rp-tip" id="rp-tip" hidden></div>
@@ -250,7 +276,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
       </div>
 
       <div class="rp-sec rp-about">
-        <h2>이 장면에 대하여</h2>
+        <h2>기록 정보</h2>
         <div id="rp-about"></div>
       </div>
     </div>
@@ -517,9 +543,11 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
   var pct = function (v) { return Math.round(v * 100) + "%"; };
   var rate = function (v) { return v >= 0.001 ? v.toFixed(3) : v > 0 ? v.toPrecision(1).replace(/e-0?/, "e-") : "0"; };
 
-  // 표본 창의 색. 창은 밝은·어두운 테마 어디서나 어두운 바탕 하나로 둔다(어떤 핏줄 색이든 읽히게)
-  var S = { stage: "#0b1218", patch: "96,190,140", food: "#58d68a", poison: "#b58cff", corpse: "#8b95a1", eat: "#7dffa8",
-            bad: "#ff5f57", born: "#fff2b0", dead: "#d5dce2", give: "#ffd36b", ink: "#dfe8ec", strike: "#ff9f43" };
+  // 관측 창의 색. 창은 밝은·어두운 테마 어디서나 어두운 바탕 하나로 둔다(어떤 핏줄 색이든 읽히게).
+  // 형광을 빼고 채도를 낮춘 계기 빛깔. 사건 빛깔은 tests/replay_screen_probe.js가 세므로 바꾸면 거기도 고친다.
+  var S = { stage: "#0c0f10", grid: "232,236,236", patch: "127,174,140", food: "#7fae8c", poison: "#a48fd0", corpse: "#7d8587",
+            eat: "#9fd8a8", bad: "#e5534b", born: "#e9e2c4", dead: "#c3cacc", give: "#d8b25a", ink: "#e8ecec", strike: "#e08a3c",
+            sig: "55%,66%" };
   var T = {};   // 쪽의 색 토큰(테마를 따른다)
   function readTokens() {
     var cs = getComputedStyle(document.documentElement);
@@ -564,40 +592,33 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
   // ---------- 그리기의 낱개 ----------
   function drawCreature(g, X, Y, r, h, color, alpha, wig, asleep) {
     var ux = Math.cos(h), uy = Math.sin(h), nx = -uy, ny = ux;
-    var bx = X - ux * r * 0.5, by = Y - uy * r * 0.5, L = r * 2.3;
-    g.globalAlpha = alpha; g.strokeStyle = color; g.fillStyle = color; g.lineCap = "round";
-    g.lineWidth = r * 0.3;
+    var fx = X + ux * r * 1.15, fy = Y + uy * r * 1.15;          // 앞 끝(뾰족)
+    var bx = X - ux * r * 0.85, by = Y - uy * r * 0.85;          // 뒤 끝
+    var L = r * 1.9;
+    g.globalAlpha = alpha; g.strokeStyle = color; g.fillStyle = color; g.lineCap = "butt"; g.lineJoin = "miter";
+    // 꼬리: 가는 선 하나. 움직일 때만 흔들린다(이 화면의 하찮미)
+    g.lineWidth = Math.max(1, r * 0.16);
     g.beginPath(); g.moveTo(bx, by);
-    g.quadraticCurveTo(bx - ux * L * 0.5 - nx * wig * r * 0.9, by - uy * L * 0.5 - ny * wig * r * 0.9,
-                       bx - ux * L + nx * wig * r * 1.2, by - uy * L + ny * wig * r * 1.2);
+    g.quadraticCurveTo(bx - ux * L * 0.5 + nx * wig * r * 1.1, by - uy * L * 0.5 + ny * wig * r * 1.1,
+                       bx - ux * L - nx * wig * r * 1.3, by - uy * L - ny * wig * r * 1.3);
     g.stroke();
-    g.lineWidth = r * 0.72;
-    g.beginPath(); g.moveTo(bx, by);
-    g.lineTo(bx - ux * L * 0.34 - nx * wig * r * 0.25, by - uy * L * 0.34 - ny * wig * r * 0.25);
-    g.stroke();
-    g.beginPath(); g.ellipse(X, Y, r, r * 0.8, h, 0, TAU); g.fill();
-    if (r > 6.5) {
-      var ex = X + ux * r * 0.42, ey = Y + uy * r * 0.42, er = r * 0.16;
-      g.fillStyle = S.stage; g.strokeStyle = S.stage;
-      if (asleep) {
-        g.lineWidth = Math.max(1, r * 0.09);
-        g.beginPath();
-        g.moveTo(ex + nx * r * 0.2, ey + ny * r * 0.2); g.lineTo(ex + nx * r * 0.52, ey + ny * r * 0.52);
-        g.moveTo(ex - nx * r * 0.2, ey - ny * r * 0.2); g.lineTo(ex - nx * r * 0.52, ey - ny * r * 0.52);
-        g.stroke();
-      } else {
-        g.beginPath();
-        g.arc(ex + nx * r * 0.36, ey + ny * r * 0.36, er, 0, TAU);
-        g.arc(ex - nx * r * 0.36, ey - ny * r * 0.36, er, 0, TAU);
-        g.fill();
-      }
+    // 몸: 앞이 뾰족하고 뒤가 뭉툭한 방추형
+    g.beginPath(); g.moveTo(fx, fy);
+    g.quadraticCurveTo(X + nx * r * 0.95, Y + ny * r * 0.95, bx + nx * r * 0.28, by + ny * r * 0.28);
+    g.lineTo(bx - nx * r * 0.28, by - ny * r * 0.28);
+    g.quadraticCurveTo(X - nx * r * 0.95, Y - ny * r * 0.95, fx, fy);
+    g.closePath(); g.fill();
+    if (asleep && r > 7) {           // 자는 개체: 가까이서만 작은 z
+      g.globalAlpha = Math.min(1, alpha + 0.25); g.fillStyle = S.ink;
+      g.font = Math.round(r * 0.9) + "px " + (T.mono || "monospace"); g.textAlign = "left"; g.textBaseline = "alphabetic";
+      g.fillText("z", X + r * 0.9, Y - r * 0.7);
     }
     g.globalAlpha = 1;
   }
-  function drawFar(g, X, Y, r, h, color, alpha) {      // 멀리서: 점과 짧은 꼬리
-    g.globalAlpha = alpha; g.fillStyle = color; g.strokeStyle = color; g.lineCap = "round"; g.lineWidth = r * 0.9;
-    g.beginPath(); g.moveTo(X, Y); g.lineTo(X - Math.cos(h) * r * 2.3, Y - Math.sin(h) * r * 2.3); g.stroke();
-    g.beginPath(); g.arc(X, Y, r, 0, TAU); g.fill();
+  function drawFar(g, X, Y, r, h, color, alpha) {      // 멀리서: 네모 점과 짧은 꼬리
+    g.globalAlpha = alpha; g.fillStyle = color; g.strokeStyle = color; g.lineCap = "butt"; g.lineWidth = Math.max(1, r * 0.6);
+    g.beginPath(); g.moveTo(X, Y); g.lineTo(X - Math.cos(h) * r * 2.4, Y - Math.sin(h) * r * 2.4); g.stroke();
+    g.fillRect(X - r, Y - r, 2 * r, 2 * r);
     g.globalAlpha = 1;
   }
   // 먹이의 모양을 지금 경로에 보탠다. 0·2 동그라미(A), 1·3 마름모(B), 4 사체 조각
@@ -614,23 +635,25 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
   }
   // 사건 표시. ag는 0(방금)에서 1(사라짐)
   function drawEvent(g, X, Y, ty, ag, br, px) {
-    var base = Math.max(br * 1.5, 4 * px), grow = Math.max(br * 2.4, 7 * px), k, r1, r2, an;
-    g.globalAlpha = 1 - ag; g.lineCap = "round";
+    var base = Math.max(br * 1.5, 4 * px), grow = Math.max(br * 2.4, 7 * px), k, r1, r2, an, q;
+    g.globalAlpha = 1 - ag; g.lineCap = "butt";
     if (ty === EV.good || ty === EV.poison) {
       g.strokeStyle = ty === EV.good ? S.eat : S.bad;
-      g.lineWidth = (ty === EV.good ? 2 : 2.8) * px;
+      g.lineWidth = (ty === EV.good ? 1.2 : 2) * px;
       g.beginPath(); g.arc(X, Y, base + grow * ag, 0, TAU); g.stroke();
-    } else if (ty === EV.born) {
-      g.fillStyle = S.born; g.globalAlpha = (1 - ag) * 0.3;
-      g.beginPath(); g.arc(X, Y, base * (1.2 - ag * 0.6), 0, TAU); g.fill();
-      g.globalAlpha = 1 - ag; g.strokeStyle = S.born; g.lineWidth = 1.6 * px;
-      g.beginPath(); g.arc(X, Y, base * 0.7 + grow * 1.3 * ag, 0, TAU); g.stroke();
+    } else if (ty === EV.born) {       // 태어남: 옅은 네모 칸과 퍼지는 네모 테
+      g.fillStyle = S.born; g.globalAlpha = (1 - ag) * 0.22;
+      q = base * (1.1 - ag * 0.5);
+      g.beginPath(); g.rect(X - q, Y - q, 2 * q, 2 * q); g.fill();
+      g.globalAlpha = 1 - ag; g.strokeStyle = S.born; g.lineWidth = 1.2 * px;
+      q = base * 0.7 + grow * 1.1 * ag;
+      g.beginPath(); g.rect(X - q, Y - q, 2 * q, 2 * q); g.stroke();
     } else if (ty === EV.died) {
       var d = Math.max(br * 1.15, 4.5 * px);
-      g.strokeStyle = S.dead; g.lineWidth = 2 * px;
+      g.strokeStyle = S.dead; g.lineWidth = 1.4 * px;
       g.beginPath(); g.moveTo(X - d, Y - d); g.lineTo(X + d, Y + d); g.moveTo(X + d, Y - d); g.lineTo(X - d, Y + d); g.stroke();
     } else if (ty === EV.gave) {
-      g.strokeStyle = S.give; g.lineWidth = 2 * px;
+      g.strokeStyle = S.give; g.lineWidth = 1.4 * px;
       r1 = base + grow * ag * 0.8; r2 = r1 + 4.5 * px;
       g.beginPath();
       for (k = 0; k < 4; k++) {
@@ -639,7 +662,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
       }
       g.stroke();
     } else if (ty === EV.hit) {
-      g.strokeStyle = S.bad; g.lineWidth = 2 * px;
+      g.strokeStyle = S.bad; g.lineWidth = 1.4 * px;
       r1 = base * 0.95; r2 = r1 + grow * (0.25 + ag * 0.6);
       g.beginPath();
       for (k = 0; k < 6; k++) {
@@ -649,6 +672,34 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
       g.stroke();
     }
     g.globalAlpha = 1;
+  }
+  // 고른 개체 표시: 네 모서리 괄호와 번호
+  function drawBrackets(g, X, Y, q, px) {
+    var k = Math.max(4 * px, q * 0.45);
+    g.beginPath();
+    g.moveTo(X - q, Y - q + k); g.lineTo(X - q, Y - q); g.lineTo(X - q + k, Y - q);
+    g.moveTo(X + q - k, Y - q); g.lineTo(X + q, Y - q); g.lineTo(X + q, Y - q + k);
+    g.moveTo(X + q, Y + q - k); g.lineTo(X + q, Y + q); g.lineTo(X + q - k, Y + q);
+    g.moveTo(X - q + k, Y + q); g.lineTo(X - q, Y + q); g.lineTo(X - q, Y + q - k);
+    g.stroke();
+  }
+  // 관측 창의 눈금선(세계 좌표에 붙는다)과 축척 막대
+  function drawGrid(g, cw, ch, cam, px) {
+    var s = cam.s, step = niceStep(110 * px / s), hw = cw / 2, hh = ch / 2, x, y, X, Y, k;
+    if (step * s < 24 * px) return 0;
+    g.fillStyle = "rgba(" + S.grid + ",0.07)";
+    x = Math.floor((cam.x - hw / s) / step) * step;
+    for (; x <= cam.x + hw / s; x += step) { X = Math.round(hw + (x - cam.x) * s); g.fillRect(X, 0, px, ch); }
+    y = Math.floor((cam.y - hh / s) / step) * step;
+    for (; y <= cam.y + hh / s; y += step) { Y = Math.round(hh + (y - cam.y) * s); g.fillRect(0, Y, cw, px); }
+    return step;
+  }
+  function drawScale(g, cw, ch, step, s, px) {
+    var L = Math.round(step * s), x0 = 14 * px, y0 = ch - 62 * px;
+    g.fillStyle = "rgba(" + S.grid + ",0.75)";
+    g.fillRect(x0, y0, L, px); g.fillRect(x0, y0 - 4 * px, px, 9 * px); g.fillRect(x0 + L - px, y0 - 4 * px, px, 9 * px);
+    g.font = 11 * px + "px " + (T.mono || "monospace"); g.textAlign = "left"; g.textBaseline = "middle";
+    g.fillText(fmt(step), x0 + L + 6 * px, y0);
   }
 
   // ---------- 장면 하나를 그린다 (뒤에 실시간 화면도 이 함수를 쓴다) ----------
@@ -667,8 +718,9 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.globalAlpha = 1;
     g.fillStyle = S.stage; g.fillRect(0, 0, cw, ch);
+    var gridStep = mini ? 0 : drawGrid(g, cw, ch, cam, px);
 
-    // 먹이가 뭉쳐 나는 자리: 옅은 바탕
+    // 먹이가 뭉쳐 나는 자리: 아주 옅은 바탕과 점선 경계
     var pt = patchAt(f);
     if (pt) {
       var pr = pt.sigma * 2.3 * s;
@@ -676,8 +728,12 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
         X = hw + wrapW(pt.pts[i][0] - cx) * s; Y = hh + wrapH(pt.pts[i][1] - cy) * s;
         if (X < -pr || X > cw + pr || Y < -pr || Y > ch + pr) continue;
         var gr = g.createRadialGradient(X, Y, 0, X, Y, pr);
-        gr.addColorStop(0, "rgba(" + S.patch + ",0.17)"); gr.addColorStop(1, "rgba(" + S.patch + ",0)");
+        gr.addColorStop(0, "rgba(" + S.patch + ",0.10)"); gr.addColorStop(1, "rgba(" + S.patch + ",0)");
         g.fillStyle = gr; g.fillRect(X - pr, Y - pr, 2 * pr, 2 * pr);
+        if (!mini) {
+          g.strokeStyle = "rgba(" + S.patch + ",0.32)"; g.lineWidth = px; g.setLineDash([3 * px, 5 * px]);
+          g.beginPath(); g.arc(X, Y, pt.sigma * 1.6 * s, 0, TAU); g.stroke(); g.setLineDash([]);
+        }
       }
     }
 
@@ -726,8 +782,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
       g.beginPath(); g.moveTo(X, Y);
       g.arc(X, Y, cfg.vision_range * s, sp.h - cfg.vision_fov / 2, sp.h + cfg.vision_fov / 2);
       g.closePath();
-      g.fillStyle = "rgba(223,232,236,0.07)"; g.fill();
-      g.strokeStyle = "rgba(223,232,236,0.22)"; g.lineWidth = px; g.stroke();
+      g.fillStyle = "rgba(" + S.grid + ",0.05)"; g.fill();
+      g.strokeStyle = "rgba(" + S.grid + ",0.28)"; g.lineWidth = px; g.setLineDash([2 * px, 4 * px]); g.stroke(); g.setLineDash([]);
     }
 
     // 개체: 머리와 꼬리. 색은 핏줄, 크기는 에너지, 자는 개체는 흐리게
@@ -752,8 +808,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
         mg = Math.max(Math.abs(sig[sigW * p]), Math.abs(sig[sigW * p + 1])) / 127;
         if (mg > SIG_MIN) {
           g.globalAlpha = 0.15 + 0.55 * (mg - SIG_MIN) / (1 - SIG_MIN);
-          g.strokeStyle = "hsl(" + Math.round(mod(Math.atan2(sig[sigW * p + 1], sig[sigW * p]) / TAU, 1) * 360) + ",85%,68%)";
-          g.lineWidth = 1.4 * px;
+          g.strokeStyle = "hsl(" + Math.round(mod(Math.atan2(sig[sigW * p + 1], sig[sigW * p]) / TAU, 1) * 360) + "," + S.sig + ")";
+          g.lineWidth = 1.1 * px;
           g.beginPath(); g.arc(X, Y, r * (2 + 0.35 * Math.sin(time * 0.006 + n)), 0, TAU); g.stroke();
           g.globalAlpha = 1;
         }
@@ -790,18 +846,25 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
           X = hw + wrapW(st.x - cx) * s; Y = hh + wrapH(st.y - cy) * s;
           g.globalAlpha = (1 - d) * 0.42; g.fillStyle = S.strike;
           g.beginPath(); g.arc(X, Y, st.radius * s * Math.min(1, 0.25 + d * 3), 0, TAU); g.fill();
-          g.globalAlpha = 1 - d; g.strokeStyle = S.strike; g.lineWidth = 2 * px;
-          g.beginPath(); g.arc(X, Y, st.radius * s, 0, TAU); g.stroke();
+          g.globalAlpha = 1 - d; g.strokeStyle = S.strike; g.lineWidth = 1.4 * px;
+          g.beginPath(); g.arc(X, Y, st.radius * s, 0, TAU);
+          g.moveTo(X - st.radius * s * 1.2, Y); g.lineTo(X - st.radius * s * 0.8, Y); g.moveTo(X + st.radius * s * 0.8, Y); g.lineTo(X + st.radius * s * 1.2, Y);
+          g.moveTo(X, Y - st.radius * s * 1.2); g.lineTo(X, Y - st.radius * s * 0.8); g.moveTo(X, Y + st.radius * s * 0.8); g.lineTo(X, Y + st.radius * s * 1.2);
+          g.stroke();
           g.globalAlpha = 1;
         }
       }
     }
     if (selOn) {
-      g.strokeStyle = S.ink; g.lineWidth = 1.6 * px;
-      if (!mini) g.setLineDash([4 * px, 4 * px]);
-      g.beginPath(); g.arc(selX, selY, mini ? 5 * px : selR * 1.9 + 4 * px, 0, TAU); g.stroke();
-      g.setLineDash([]);
+      g.strokeStyle = S.ink; g.lineWidth = (mini ? 1.2 : 1) * px;
+      var sq = mini ? 4 * px : selR * 1.7 + 4 * px;
+      drawBrackets(g, selX, selY, sq, px);
+      if (!mini) {
+        g.fillStyle = S.ink; g.font = 11 * px + "px " + (T.mono || "monospace"); g.textAlign = "left"; g.textBaseline = "alphabetic";
+        g.fillText("#" + idOf(sel), selX + sq + 4 * px, selY - sq + 9 * px);
+      }
     }
+    if (gridStep) drawScale(g, cw, ch, gridStep, s, px);
   }
   var scratch = { x: 0, y: 0, h: 0, p: -1, ok: false };
   var SIG_MIN = meta.sig_min || 0.5;   // 이 기록에서 가장 센 신호 5%만 고리를 단다(replay.py _sig_min)
@@ -881,7 +944,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
       mcam.s = Math.min(w / WW, h / WH);
       drawScene(mgx, w, h, mcam, Math.floor(t), { sel: sel, px: dpr, mini: true });
       var vw = cw / cam.s * mcam.s, vh = ch / cam.s * mcam.s, X = cam.x * mcam.s, Y = cam.y * mcam.s, ox, oy;
-      mgx.strokeStyle = "rgba(223,232,236,0.9)"; mgx.lineWidth = dpr;
+      mgx.strokeStyle = "rgba(" + S.grid + ",0.85)"; mgx.lineWidth = dpr;
       for (ox = -1; ox <= 1; ox++) for (oy = -1; oy <= 1; oy++) mgx.strokeRect(X - vw / 2 + ox * WW * mcam.s, Y - vh / 2 + oy * WH * mcam.s, vw, vh);
     }
   }
@@ -992,7 +1055,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
   function cardStatic() {
     var n = sel, star = null, i, facts = $("rp-facts"), fc = $("rp-face").getContext("2d");
     for (i = 0; i < stars.length; i++) if (stars[i].agent === n) star = stars[i];
-    $("rp-name").textContent = "생물 #" + idOf(n);
+    $("rp-name").textContent = "개체 #" + idOf(n);
     $("rp-why").textContent = star ? star.why + " · " + fmt(star.n) + star.unit : "지도에서 고른 생물";
     facts.textContent = "";
     facts.appendChild(el("span", "", "세대 " + fmt(A.ag_gen[n])));
@@ -1075,7 +1138,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
   }
   function lightUI(f) {
     $("rp-step").textContent = fmt(stepOf(f)) + "스텝";
-    $("rp-pop").textContent = fmt(A.fr_off[f + 1] - A.fr_off[f]) + "마리";
+    var popEl = $("rp-pop");
+    popEl.textContent = "개체 ";
+    popEl.appendChild(el("b", "", fmt(A.fr_off[f + 1] - A.fr_off[f])));
+    popEl.appendChild(document.createTextNode("마리"));
     var good = A.f_good[f];
     if (on.kinds && good !== uiGood) {
       uiGood = good;
@@ -1096,6 +1162,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
     var seg = KK.segOf(D, f), st = KK.windowStats(D, f, WIN, seg.a);
     var prev = seg.prev && seg.prev.b >= seg.prev.a ? KK.rangeStats(D, seg.prev.a, seg.prev.b) : null;
     var v = KK.verdict(st, on.kinds, prev), vd = $("rp-verdict"), pe = st.eaten ? st.poisoned / st.eaten : 0;
+    $("rp-nowstep").textContent = "최근 " + fmt(st.steps) + "스텝";
     vd.textContent = "";
     if (on.kinds) {
       vd.appendChild(document.createTextNode("먹은 것 가운데 독 " + (st.eaten ? pct(pe) : "–") + " · 눈 감고 먹어도 " + pct(st.blind) + " → "));
@@ -1183,8 +1250,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
     }
     xa = X(t);
     tg.fillStyle = T.ink; tg.fillRect(xa - px, 0, 2 * px, h);
-    tg.beginPath(); tg.arc(xa, yRail, 7 * px, 0, TAU); tg.fillStyle = T.bg; tg.fill();
-    tg.beginPath(); tg.arc(xa, yRail, 5 * px, 0, TAU); tg.fillStyle = T.accent; tg.fill();
+    tg.fillStyle = T.bg; tg.fillRect(xa - 5 * px, yRail - 6 * px, 10 * px, 12 * px);
+    tg.fillStyle = T.ink; tg.fillRect(xa - 3 * px, yRail - 4 * px, 6 * px, 8 * px);
   }
   function trackTo(e) {
     var r = track.getBoundingClientRect();
@@ -1270,13 +1337,13 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
     var box = $("rp-legend"), items = [];
     var add = function (title, note, draw) { items.push([title, note, draw]); };
     var demo = "rgb(244,178,92)";
-    add("생물", "색은 핏줄, 크기는 에너지. 꼬리 반대쪽으로 갑니다", function (c) { drawCreature(c, 50, 46, 15, -0.45, demo, 1, 0.4, false); });
-    if (on.mind) add("자는 생물", "흐리게 보입니다", function (c) { drawCreature(c, 50, 46, 15, -0.45, demo, 0.45, 0, true); });
+    add("생물", "색은 핏줄, 크기는 에너지. 뾰족한 쪽이 앞입니다", function (c) { drawCreature(c, 52, 46, 14, -0.45, demo, 1, 0.4, false); });
+    if (on.mind) add("자는 생물", "흐리게 보이고, 가까이서는 z가 뜹니다", function (c) { drawCreature(c, 46, 50, 14, -0.45, demo, 0.45, 0, true); });
     if (on.kinds) {
       add("먹이와 독", "초록은 먹이, 보라는 독. 어느 모양이 독인지는 바뀝니다", function (c) {
         c.fillStyle = S.food; c.beginPath(); foodPath(c, 28, 44, 11, 0); c.fill();
         c.fillStyle = S.poison; c.beginPath(); foodPath(c, 61, 44, 11, 3); c.fill();
-        c.fillStyle = S.stage; c.beginPath(); c.arc(61, 44, 3.8, 0, TAU); c.fill();
+        c.fillStyle = S.stage; c.beginPath(); c.arc(61, 44, 3.8, 0, TAU); c.fill();     // 독은 가운데가 뚫려 있다
       });
     } else {
       add("먹이", "먹으면 에너지를 얻습니다", function (c) { c.fillStyle = S.food; c.beginPath(); foodPath(c, 44, 44, 12, 0); c.fill(); });
@@ -1284,29 +1351,31 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
     add("사체 조각", "죽은 생물이 남긴 먹이. 늘 먹을 수 있습니다", function (c) { c.fillStyle = S.corpse; c.beginPath(); foodPath(c, 44, 44, 13, 4); c.fill(); });
     add("먹은 순간", "초록 고리", function (c) { drawEvent(c, 44, 44, EV.good, 0.35, 6, 2); });
     if (on.kinds) add("독을 먹은 순간", "붉은 고리", function (c) { drawEvent(c, 44, 44, EV.poison, 0.35, 6, 2); });
-    add("태어남", "밝은 고리", function (c) { drawEvent(c, 44, 44, EV.born, 0.3, 6, 2); });
+    add("태어남", "밝은 네모", function (c) { drawEvent(c, 44, 44, EV.born, 0.3, 6, 2); });
     add("죽음", "흐려지는 ×", function (c) { drawEvent(c, 44, 44, EV.died, 0.1, 9, 2); });
     if (on.social) {
       add("신호", "이 기록에서 가장 세게 내는 5%(세기 " + SIG_MIN.toFixed(2) + " 넘음)의 둘레에 고리. 세게 낸다는 표시일 뿐, 뜻이 있거나 누가 알아듣는다는 표시는 아닙니다(그건 한쪽만 못 듣게 하고 겨뤄서 가립니다). 빛깔은 두 신호의 비율입니다", function (c) {
         drawCreature(c, 46, 46, 9, -0.45, demo, 1, 0, false);
-        c.strokeStyle = "hsl(190,85%,68%)"; c.lineWidth = 2.6; c.globalAlpha = 0.8; c.beginPath(); c.arc(44, 44, 24, 0, TAU); c.stroke(); c.globalAlpha = 1;
+        c.strokeStyle = "hsl(190," + S.sig + ")"; c.lineWidth = 2; c.globalAlpha = 0.8; c.beginPath(); c.arc(44, 44, 24, 0, TAU); c.stroke(); c.globalAlpha = 1;
       });
       add("에너지 건넴", "곁의 생물에게 나눠 준 순간", function (c) { drawEvent(c, 44, 44, EV.gave, 0.3, 6, 2); });
     }
     if (on.conflict) add("공격", "맞은 생물에 붉은 가시", function (c) { drawEvent(c, 44, 44, EV.hit, 0.3, 6, 2); });
     add("시야", "고른 생물이 보는 범위", function (c) {
       c.beginPath(); c.moveTo(20, 62); c.arc(20, 62, 56, -1.25, -0.2); c.closePath();
-      c.fillStyle = "rgba(223,232,236,0.12)"; c.fill(); c.strokeStyle = "rgba(223,232,236,0.4)"; c.lineWidth = 1.5; c.stroke();
+      c.fillStyle = "rgba(" + S.grid + ",0.08)"; c.fill(); c.strokeStyle = "rgba(" + S.grid + ",0.45)"; c.lineWidth = 1.5; c.setLineDash([3, 5]); c.stroke(); c.setLineDash([]);
       drawFar(c, 20, 62, 5, -0.72, demo, 1);
     });
-    if (meta.patches.length) add("먹이 자리", "먹이가 뭉쳐 나는 곳의 옅은 바탕", function (c) {
+    if (meta.patches.length) add("먹이 자리", "먹이가 뭉쳐 나는 곳. 옅은 바탕과 점선 경계", function (c) {
       var gr = c.createRadialGradient(44, 44, 0, 44, 44, 44);
-      gr.addColorStop(0, "rgba(" + S.patch + ",0.5)"); gr.addColorStop(1, "rgba(" + S.patch + ",0)");
+      gr.addColorStop(0, "rgba(" + S.patch + ",0.35)"); gr.addColorStop(1, "rgba(" + S.patch + ",0)");
       c.fillStyle = gr; c.fillRect(0, 0, 88, 88);
+      c.strokeStyle = "rgba(" + S.patch + ",0.7)"; c.lineWidth = 1.5; c.setLineDash([4, 6]); c.beginPath(); c.arc(44, 44, 30, 0, TAU); c.stroke(); c.setLineDash([]);
     });
     if (meta.scenario && meta.scenario.strikes.length) add("운석", "각본이 떨어뜨린 재난", function (c) {
       c.globalAlpha = 0.4; c.fillStyle = S.strike; c.beginPath(); c.arc(44, 44, 22, 0, TAU); c.fill();
-      c.globalAlpha = 1; c.strokeStyle = S.strike; c.lineWidth = 3; c.beginPath(); c.arc(44, 44, 30, 0, TAU); c.stroke();
+      c.globalAlpha = 1; c.strokeStyle = S.strike; c.lineWidth = 2; c.beginPath(); c.arc(44, 44, 30, 0, TAU);
+      c.moveTo(4, 44); c.lineTo(14, 44); c.moveTo(74, 44); c.lineTo(84, 44); c.moveTo(44, 4); c.lineTo(44, 14); c.moveTo(44, 74); c.lineTo(44, 84); c.stroke();
     });
     items.forEach(function (it) {
       var d = el("div", "rp-lg"), c = el("canvas"), tx = el("div");
@@ -1490,6 +1559,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
 
   readTokens();
   $("rp-title").textContent = meta.title || "세계";
+  $("rp-eyebrow").appendChild(el("span", "", "체크포인트 " + fmt(meta.ckpt_step) + "스텝"));
+  $("rp-eyebrow").appendChild(el("span", "", fmt(nF) + "장 · " + every + "스텝 간격"));
   $("rp-intro").textContent = meta.intro.join(" ");
   (function () {       // 한 줄 상태: 지금 어느 모양이 먹이이고 독인지
     var keys = $("rp-keys");
