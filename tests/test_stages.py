@@ -383,3 +383,50 @@ def test_checkpoint_from_before_new_fields_still_resumes(tmp_path):
     assert again.world.step_no == 400
     again.loop(200, quiet=True)
     again.close()
+
+
+def test_coop_food_needs_a_partner_and_is_shared():
+    cfg = small("coop", init_agents=2, min_agents=0, food_inflow=0.0)
+    w = World(cfg)
+    s = w.s
+    i, j = np.flatnonzero(s.alive)[:2]
+    s.x[i], s.y[i], s.heading[i] = 100.0, 100.0, 0.0
+    s.x[j], s.y[j] = 140.0, 100.0          # 멀리 있다
+    s.vx[:] = s.vy[:] = 0.0
+    s.fx[0], s.fy[0], s.f_energy[0], s.f_kind[0], s.f_alive[0] = 101.0, 100.0, cfg.big_food_energy, 3, True
+    s.counters[k.C_NFOOD] = 1
+    s.ledger[k.L_SPAWN] += cfg.big_food_energy
+    gw, gh, inv = cfg.grid_w, cfg.grid_h, 1.0 / cfg.cell
+    def grids():
+        k.build_grid(s.x, s.y, s.alive, inv, gw, gh, s.a_start, s.a_items, s.cursor)
+        k.build_grid(s.fx, s.fy, s.f_alive, inv, gw, gh, s.f_start, s.f_items, s.cursor)
+    grids()
+    k.sense(0, s, w.fp, w.ip)
+    R = cfg.vision_sectors
+    food, agent = s.obs[i, :R], s.obs[i, R:2 * R]
+    seen = food != 0
+    assert seen.any() and np.allclose(agent[seen], -food[seen]), "큰 먹이는 개체 칸에 음수로도 보인다"
+    e0 = s.energy[i]
+    k.eat(0, s, w.fp, w.ip)
+    assert s.f_alive[0] and s.energy[i] == e0, "혼자서는 못 먹는다"
+    s.x[j] = 104.0                         # 곁에 온다
+    grids()
+    ei, ej = s.energy[i], s.energy[j]
+    k.eat(0, s, w.fp, w.ip)
+    assert not s.f_alive[0]
+    assert s.energy[i] == pytest.approx(ei + cfg.big_food_energy / 2)
+    assert s.energy[j] == pytest.approx(ej + cfg.big_food_energy / 2)
+    assert s.ate[i] == 1.0 and s.ate[j] == 1.0 and s.counters[k.C_SHARED] == 1
+    assert rel_residual(w) < 1e-9
+
+
+def test_coop_world_runs_and_conserves_energy():
+    a = World(small("stage3", "coop", "kinds"))
+    a.run(2000)
+    a.check_sane()
+    sm = a.summary()
+    assert sm["pop"] > 10 and sm["shared_meals"] > 0 and rel_residual(a) < 1e-9
+    assert (a.s.f_kind[a.s.f_alive] == 3).any()
+    b = World(small("stage3", "coop", "kinds"))
+    b.run(2000)
+    assert a.state_hash() == b.state_hash()

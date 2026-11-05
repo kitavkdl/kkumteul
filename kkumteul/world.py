@@ -277,6 +277,8 @@ class World:
                 })
             if cfg.conflict_enabled:
                 out["attacks"] = int(c[st.C_ATTACKS])
+            if cfg.coop_food_enabled:
+                out["shared_meals"] = int(c[k.C_SHARED])
             if cfg.food_kinds_enabled:
                 out["poisoned"] = int(c[k.C_POISONED])
                 out["good_kind"] = int(k.good_kind(cfg.seed, self.step_no, cfg.kind_flip_period))

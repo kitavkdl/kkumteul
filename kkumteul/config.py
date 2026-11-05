@@ -131,6 +131,12 @@ class Config:
     kind_flip_period: int = 1500  # 이 스텝마다 어느 종류가 독인지 다시 정한다(무작위라 안 바뀔 때도 있다)
     poison: float = 1.0           # 독인 먹이를 먹으면 잃는 에너지(먹이 자체의 에너지도 사라진다)
 
+    # --- 협력 먹이 (기본은 꺼짐. 어느 단계 묶음에도 들어 있지 않다) ---
+    coop_food_enabled: bool = False  # 큰 먹이: 곁에 다른 개체가 있어야 먹을 수 있고, 둘이 나눠 갖는다
+    big_food_prob: float = 0.15   # 먹이가 날 때 큰 먹이일 확률
+    big_food_energy: float = 4.0  # 큰 먹이 한 알의 에너지
+    coop_range: float = 6.0       # 큰 먹이에서 이 거리 안에 다른 개체가 있어야 먹을 수 있다
+
     # --- 다툼 (기본은 꺼짐. 어느 단계 묶음에도 들어 있지 않다) ---
     conflict_enabled: bool = False  # 공격: 닿은 이웃의 에너지를 깎고 일부를 얻는다(포식·처벌의 수단)
     attack_damage: float = 0.2    # 공격 출력 1일 때 스텝당 상대가 잃는 에너지
@@ -233,6 +239,8 @@ class Config:
             raise ValueError("eta_max와 sleep_recover는 0보다 커야 한다")
         if not (0.0 <= self.attack_gain <= 1.0):
             raise ValueError("attack_gain은 0과 1 사이여야 한다(1을 넘으면 에너지가 생긴다)")
+        if not (0.0 <= self.big_food_prob <= 1.0) or self.big_food_energy <= 0 or not (0 < self.coop_range <= self.cell):
+            raise ValueError("big_food_prob는 0~1, big_food_energy는 양수, coop_range는 0보다 크고 cell 이하여야 한다")
         if self.kind_flip_period < 1:
             raise ValueError("kind_flip_period는 1 이상이어야 한다")
         for name in ("soil_use", "link_cap", "give_min_energy", "alpha_init", "attack_damage", "attack_cost", "poison"):
@@ -328,7 +336,8 @@ def preset(name: str) -> dict:
         "stage4": dict(mind_enabled=True, social_enabled=True, niche_enabled=True),
         "conflict": dict(conflict_enabled=True),     # 다른 묶음에 덧붙여 쓴다: preset=stage3 preset=conflict
         "kinds": dict(food_kinds_enabled=True),      # 먹이 두 종류와 독. 덧붙여 쓴다: preset=stage2 preset=kinds
+        "coop": dict(coop_food_enabled=True),        # 함께 있어야 먹는 큰 먹이. 덧붙여 쓴다: preset=stage3 preset=coop
     }
     if name not in table:
-        raise ValueError(f"모르는 preset: {name} (stage1~stage4, conflict, kinds)")
+        raise ValueError(f"모르는 preset: {name} (stage1~stage4, conflict, kinds, coop)")
     return table[name]
