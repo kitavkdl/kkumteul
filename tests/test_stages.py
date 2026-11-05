@@ -24,9 +24,8 @@ def small(*presets, **kw) -> Config:
     base = dict(world_w=256.0, world_h=256.0, max_agents=600, init_agents=150, food_cap=500,
                 food_inflow=2.2, n_patches=4, stats_every=200, frame_every=50, clip_every=300,
                 clip_len=20, ckpt_every=400, keyframe_every=200, min_agents=20, event_segment_steps=700)
-    base.update(kw)
-    cfg = Config.from_dict({**Config().to_dict(), **base})
-    return cfg.with_overrides([f"preset={p}" for p in presets])
+    cfg = Config.from_dict({**Config().to_dict(), **base}).with_overrides([f"preset={p}" for p in presets])
+    return Config.from_dict({**cfg.to_dict(), **kw}) if kw else cfg   # 묶음 뒤에 kw(장치는 확장 크기 위에서 검사)
 
 
 def rel_residual(w: World) -> float:

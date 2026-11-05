@@ -5,20 +5,18 @@
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from test_stages import small as _small  # noqa: E402
-from kkumteul.config import ACT_CARRY, N_EXT_IN, N_EXT_OUT, N_INTERNAL, N_STAGE_IN, N_STAGE_OUT, Config  # noqa: E402
+from test_stages import rel_residual, small  # noqa: E402
+from kkumteul import checkpoint as ckpt  # noqa: E402
+from kkumteul import replay  # noqa: E402
+from kkumteul.config import ACT_CARRY, N_EXT_IN, N_EXT_OUT, N_INTERNAL, N_STAGE_IN, N_STAGE_OUT  # noqa: E402
+from kkumteul.run import Runner  # noqa: E402
 from kkumteul.world import World  # noqa: E402
-
-
-def small(*presets, **kw) -> Config:
-    """test_stages.small과 같되, 묶음을 먼저 적용한 뒤 kw를 덧붙인다(장치는 확장 크기 위에서 검사)."""
-    cfg = _small(*presets)
-    return Config.from_dict({**cfg.to_dict(), **kw}) if kw else cfg
 
 
 def test_ext_preset_sizes():
@@ -46,3 +44,46 @@ def test_default_size_has_no_carry_slot():
 def test_harsh_preset_turns_devices_on():
     c = small("harsh")
     assert c.season_enabled and c.spoil_enabled and c.needs_ext
+
+
+# ---- 갈라 켜기: 기본 크기 체크포인트에서 확장 크기로 ----
+def _main(tmp_path, *presets):
+    r = Runner.new(tmp_path / "main", small(*presets)); r.loop(400, quiet=True); r.close()
+
+
+def _ckpt_at(run_dir, step):
+    return dict(ckpt.list_checkpoints(run_dir / "checkpoints"))[step]
+
+
+def test_branch_into_ext_from_default_size(tmp_path):
+    _main(tmp_path, "stage4")
+    src, _ = ckpt.load(_ckpt_at(tmp_path / "main", 400))
+    r = Runner.branch(tmp_path / "main", tmp_path / "ext", 400, ["preset=ext"], False, False)
+    a, n_in0, n_out0 = r.world.s.alive, src.cfg.n_in, src.cfg.n_out
+    assert r.world.cfg.n_spare_in == 26 and r.world.s.Win.shape[1] == r.world.cfg.n_in
+    assert np.array_equal(r.world.s.Win[a][:, :n_in0], src.s.Win[a][:, :n_in0])
+    assert not r.world.s.Win[a][:, n_in0:].any() and not r.world.s.Wout[a][:, n_out0:].any()
+    assert (r.world.s.bout[a, ACT_CARRY] == -1.0).all() and "bout[ACT_CARRY]=-1" in r.meta["genome_edits"]
+    r.loop(400, quiet=True); r.close()
+    assert rel_residual(r.world) < 1e-9
+
+
+def test_branch_ext_is_idempotent(tmp_path):
+    _main(tmp_path, "ext")
+    r = Runner.branch(tmp_path / "main", tmp_path / "again", 400, ["preset=ext"], False, False)
+    assert (r.world.cfg.n_spare_in, r.world.cfg.n_spare_out) == (26, 7) and r.meta["genome_edits"] == []
+    r.close()
+
+
+def test_ext_branch_resumes_exactly(tmp_path):
+    _main(tmp_path)
+    r = Runner.branch(tmp_path / "main", tmp_path / "ext", 400, ["preset=ext"], False, False)
+    r.loop(400, quiet=True); r.close()
+    again = Runner.resume(tmp_path / "ext")
+    assert again.world.state_hash() == r.world.state_hash(); again.close()
+
+
+def test_replay_record_with_ext_override(tmp_path):
+    _main(tmp_path)
+    rep = replay.record(_ckpt_at(tmp_path / "main", 400), steps=50, overrides=["preset=ext"])
+    assert rep is not None

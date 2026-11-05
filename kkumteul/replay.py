@@ -615,15 +615,18 @@ def record(ckpt_path, steps: int | None = None, every: int = 2, from_flip: bool 
     """체크포인트를 읽어 steps 스텝을 다시 돌리며 장면을 적는다. 체크포인트와 실행 폴더는 읽기만 한다.
     overrides(["poison=0", ...])를 주면 그 설정으로 바꿔 돌린다(같은 체크포인트에서 설정 하나만 바꾼 대조)."""
     path = Path(ckpt_path)
-    world, cmeta = ckpt.load(path)
-    if world.cfg.passive:
+    overrides = list(overrides or [])
+    if overrides:     # 설정을 먼저 만들어 읽는다(preset=ext면 확장 크기로)
+        world, cmeta = ckpt.load(path, ckpt.read_config(path).with_overrides(overrides))
+        world.calm_new_outputs(cmeta["enlarged_out"][0])
+    else:
+        world, cmeta = ckpt.load(path)
+    if cmeta["config"].get("passive"):     # 덮어쓴 설정이 아니라 저장된 설정으로 가린다
         raise ValueError("선택 없는 대조 실행의 체크포인트는 다시 보기로 만들 수 없다"
                          "(대조 일정 없이 돌리면 전혀 다른 세계가 된다). 본 실행의 체크포인트를 쓴다.")
     run_dir = path.parent.parent
     notes: list[str] = []
-    overrides = list(overrides or [])
     if overrides:
-        world.set_config(world.cfg.with_overrides(overrides))
         notes.append("원래 실행과 설정을 바꿔 다시 돌렸습니다: " + ", ".join(overrides) + ".")
     if cmeta.get("source_hash") not in (None, SOURCE_HASH):
         notes.append("이 체크포인트는 지금과 다른 판의 코드로 저장됐습니다. 다시 돌린 장면이 원래 실행이 "
