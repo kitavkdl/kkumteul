@@ -143,6 +143,10 @@ class Config:
     attack_gain: float = 0.5      # 깎은 에너지 중 공격한 쪽이 얻는 비율(나머지는 사라진다)
     attack_cost: float = 0.02     # 공격 출력 1일 때 스텝당 드는 비용(빗나가도 든다)
 
+    # --- 혹독한 세계 장치 (기본은 꺼짐. 켜려면 확장 크기: preset=ext) ---
+    season_enabled: bool = False  # 겨울: 풀이 줄고 기초 대사가 는다 (과제 3에서 구현)
+    spoil_enabled: bool = False   # 부패: 난 지 오래된 먹이가 줄어든다 (과제 3에서 구현)
+
     # --- 4단계: 판이 바뀌는 세계 (기본은 꺼짐) ---
     niche_enabled: bool = False   # 다닌 자리가 길이 되고, 쌓은 거름이 먹이를 끌어온다
     wear_rate: float = 0.002      # 지나갈 때 그 칸에 남는 흔적 = wear_rate * 속도.
@@ -183,6 +187,16 @@ class Config:
     @property
     def n_out(self) -> int:
         return N_ACTIONS + self.n_spare_out
+
+    @property
+    def needs_ext(self) -> bool:
+        """확장 입출력 칸이 필요한 장치가 하나라도 켜져 있는가(2부·암수가 여기에 덧붙인다)."""
+        return self.season_enabled or self.spoil_enabled
+
+    @property
+    def ext_in0(self) -> int:
+        """확장 입력 블록의 첫 입력 번호."""
+        return 2 * self.vision_sectors + N_INTERNAL + N_STAGE_IN
 
     @property
     def grid_w(self) -> int:
@@ -229,6 +243,8 @@ class Config:
             raise ValueError("vision_fov는 pi 이하여야 한다(뒤쪽에 걸친 물체를 놓친다)")
         if self.n_spare_in < N_STAGE_IN or self.n_spare_out < N_STAGE_OUT:
             raise ValueError(f"n_spare_in은 {N_STAGE_IN} 이상, n_spare_out은 {N_STAGE_OUT} 이상이어야 한다")
+        if self.needs_ext and (self.n_spare_in < N_STAGE_IN + N_EXT_IN or self.n_spare_out < N_STAGE_OUT + N_EXT_OUT):
+            raise ValueError("혹독한 세계·암수 장치는 확장 크기가 필요하다: preset=ext")
         for name in ("give_loss", "deposit_loss", "path_bonus", "fert_frac", "sleep_basal", "trace_decay",
                      "hormone_rate_hunger", "hormone_rate_stress", "hormone_rate_dopamine",
                      "hormone_rate_boredom", "reward_baseline_rate", "proto_lr", "sleep_forget",
@@ -324,6 +340,17 @@ IN_KIN = 8       # 가장 가까운 이웃이 나와 닮은 정도
 IN_SAWEAT = 9    # 가까운 이웃이 방금 먹었는가
 IN_TRAIL = 10    # 흔적: 내 자리, 왼쪽 앞, 오른쪽 앞
 N_STAGE_IN = 13
+# 확장 블록: 기본 입출력 뒤에 늘 같은 자리에 둔다(꺼진 장치의 칸은 0). 기본 크기는 건드리지 않는다.
+N_EXT_IN = 13        # 혹독한 세계 9칸(들기 1, 계절 2, 사냥감·포식자·약탈자 방향 각 2) + 암수 4칸
+N_EXT_OUT = 1        # 들기
+ACT_CARRY = N_ACTIONS + N_STAGE_OUT   # 9
+# 확장 입력 안 자리(절대 번호 = Config.ext_in0 + EXT_*)
+EXT_CARRY = 0
+EXT_SEASON = 1       # sin, cos
+EXT_PREY = 3
+EXT_PRED = 5
+EXT_SCAV = 7
+EXT_SEX = 9          # 네 칸
 N_REWARD = 8     # 보상 특징: 먹음, 에너지 변화, 닿음, 호기심, 허기*먹음, 스트레스, 이웃이 먹음, 상수
 
 
@@ -336,7 +363,9 @@ def preset(name: str) -> dict:
         "stage4": dict(mind_enabled=True, social_enabled=True, niche_enabled=True),
         "conflict": dict(conflict_enabled=True),     # 다른 묶음에 덧붙여 쓴다: preset=stage3 preset=conflict
         "kinds": dict(food_kinds_enabled=True),      # 먹이 두 종류와 독. 덧붙여 쓴다: preset=stage2 preset=kinds
+        "ext": dict(n_spare_in=N_STAGE_IN + N_EXT_IN, n_spare_out=N_STAGE_OUT + N_EXT_OUT),  # 크기만 올린다(대조 갈래용)
     }
+    table["harsh"] = {**table["ext"], "season_enabled": True, "spoil_enabled": True}  # 2부가 장치를 덧붙인다
     if name not in table:
-        raise ValueError(f"모르는 preset: {name} (stage1~stage4, conflict, kinds)")
+        raise ValueError(f"모르는 preset: {name} (stage1~stage4, conflict, kinds, ext, harsh)")
     return table[name]
