@@ -135,3 +135,16 @@
 | 판단: `knockout.py` 섞기 | 구현 메모에 없었음 | `--channel hear-shuffle` |
 | 판단: 기본 크기 옛 묶음 | 맞음 | 겨루는 두 쪽 모두 확장 크기 갈래에서 |
 | 판단: 운석과 동물 | 정하지 않았음 | 동물은 다치지 않음 |
+
+## 2부-가 계획(`33bb8d9`) 검토 두 갈래 (2026-11-05 서버 세션 18)
+sonnet 둘이 서로 모르게. **반영 전 — 다음 세션이 코드로 확인하고 계획을 고친 뒤 구현한다.**
+
+### 명세 축 (받은 요지)
+1. (치명) 먹이를 **놓는** 곳 셋(`spawn_food`, `stages.niche_world` 686행 근처, `_remove` 1041행 근처)에 `field_cap`을 넘기라는 지시가 없고 `_place_food(..., field_cap=0)` 기본값이라 빠뜨려도 조용히 `C_NFIELD`만 어긋남. `_remove`·`process_deaths`·`passive_events`·`strike`는 `ip`를 안 받아 사체에 `store_room`을 부르려면 시그니처 변경이 필요. → 시험 "매 스텝 `C_NFIELD` == 살아 있는 들판 알 수" 필요. 기본값 없는 인자로 하는 것도 검토.
+2. 다시 보기 형식: `food_rows`는 `[x, y, kind, 시작, 끝, why]` 자리 하나뿐, WHY는 끝날 때만, `replay.html`은 WHY를 안 읽음 → 든 알이 손을 따라 그려지려면 형식·`replay.html`·node 시험 변경(계획 Files에 없음). `evict_stored`로 치운 알이 `unknown`이 됨. 시험 `unknown/사라진 수 ≤ 0.02`는 분모가 커서 추적이 깨져도 통과 → 든 알 행이 하나로 이어지는지 직접 단언.
+3. 시험이 못 가림: `test_cap_counts_field_only` 주석 모순 · 1부 코드로 박아 둔 ext/harsh 해시가 없어 "harsh 해시가 1부와 같음"을 못 지킴(꼬리 시험은 자르기 비교일 뿐) · Task 3 시험이 손을 직접 씀.
+4. 계획 안 불일치: `harsh2`에 `carry_enabled`를 더하는 과제가 3/4로 엇갈림 · `autumn_len > 0`인데 겨울이 꺼진 경우를 `validate`가 안 막음.
+5. 숨은 동작: `stages.after_think`가 잠든 개체 출력을 0으로 만듦(463~468행) → 잠들 때마다 든 알을 떨굼. 설계는 `f_dropped=1`을 내려놓을 때, 계획은 들 때(계수기 때문에 필요하나 설계와 다름).
+6. (낮음) `evict_stored`는 내려놓은 알만 치워 사체가 `max_agents`를 채우면 들기가 막힘 — 2부-나의 고기에서 커짐.
+7. 과제 5에 부패 재기(`C_SPOILED`) 빠짐.
+확인된 것: 가을 식 1.02, 꺼짐 값이 1부와 비트까지 같음, 번호표가 설계와 같음, `load` 순서에서 `recount_field`가 맞게 돎.
