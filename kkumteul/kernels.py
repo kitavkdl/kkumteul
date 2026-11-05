@@ -12,7 +12,7 @@ from collections import namedtuple
 import numpy as np
 from numba import njit, prange
 
-from .config import ACT_REPRO, ACT_THRUST, ACT_TURN
+from .config import ACT_REPRO, ACT_THRUST, ACT_TURN, N_REWARD
 from .rng import (S_BIRTH_ORDER, S_BIRTH_POS, S_FOOD, S_INIT_AGE, S_INIT_GENOME, S_INIT_POS, S_MUT_GENE,
                   S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, normal, u01)
 
@@ -45,6 +45,26 @@ AGENT_FIELDS = [
     ("Wout", np.float32, ("O", "H"), True),   # 은닉 k -> 출력 o
     ("bout", np.float32, ("O",), True),
     ("h", np.float32, ("H",), True),
+    # 2단계 유전자: 보상 가중치, 학습률, 뉴런별 가소성
+    ("rw", np.float32, ("NR",), True),
+    ("eta", np.float32, (), True),
+    ("alpha", np.float32, ("H",), True),
+    # 2~3단계 평생 상태(태어날 때 0). PI·PH·NP·ND는 마음이 꺼져 있으면 1이다
+    ("horm", np.float32, ("4",), True),       # 허기, 스트레스, 도파민, 지루함
+    ("mod", np.float32, (), True),            # 이번 스텝의 학습 조절 신호
+    ("exp_r", np.float32, (), True),          # 기대 보상
+    ("e_prev", np.float64, (), True),
+    ("fatigue", np.float32, (), True),
+    ("asleep", np.float32, (), True),
+    ("epost", np.float32, ("PH",), True),
+    ("epre_h", np.float32, ("PH",), True),
+    ("epre_in", np.float32, ("PI",), True),
+    ("Hin", np.float32, ("PI", "PH"), True),  # 살면서 배운 것(입력 -> 은닉)
+    ("Hrec", np.float32, ("PH", "PH"), True),
+    ("proto", np.float32, ("NP", "ND"), True),
+    ("link", np.float32, ("NP", "NP"), True),
+    ("last_proto", np.int32, (), True),
+    ("sig", np.float32, ("2",), True),        # 지난 스텝에 낸 신호
     ("hnew", np.float32, ("H",), False),
     ("obs", np.float32, ("I",), False),
     ("act", np.float32, ("O",), False),
@@ -57,7 +77,9 @@ FOOD_FIELDS = [
     ("f_alive", np.bool_, True),
     ("f_energy", np.float64, True),
 ]
-OTHER_SAVED = ["counters", "ledger", "budget"]
+OTHER_SAVED = ["counters", "ledger", "budget", "trail", "soil"]
+# 크기가 설정에 따라 달라도 되는 평생 상태(체크포인트와 크기가 다르면 0에서 시작한다)
+LIFETIME_FLEX = ("epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link")
 OTHER_SCRATCH = ["a_start", "a_items", "f_start", "f_items", "cursor", "bbuf", "dbuf", "dbuf_f"]
 
 State = namedtuple(
@@ -110,7 +132,8 @@ DEATH_PASSIVE = 2
  P_CHILD_FRAC, P_BIRTH_COST, P_BASAL, P_BRAIN, P_BRAIN_ACT, P_THRUST_COST, P_TURN_COST,
  P_FOV, P_VRANGE, P_VNOISE, P_SMELL_LEN, P_SMELL_GAIN, P_INIT_WIN, P_INIT_WREC, P_INIT_WOUT,
  P_BIAS_THRUST, P_BIAS_REPRO, P_SIGMA_INIT, P_SIGMA_MIN, P_SIGMA_MAX, P_SIGMA_TAU,
- P_P_HIDDEN, P_COLOR_SIGMA, P_SYN, P_BACK_COST, N_FP) = range(44)
+ P_P_HIDDEN, P_COLOR_SIGMA, P_SYN, P_BACK_COST, P_ETA_INIT, P_ETA_MAX, P_ALPHA_INIT,
+ N_FP) = range(47)
 
 # ---- 정수 설정 칸 ----
 (Q_SEED, Q_GW, Q_GH, Q_FOOD_CAP, Q_N_PATCH, Q_PATCH_LIFE, Q_MAX_AGE, Q_MIN_AGENTS,
@@ -164,6 +187,9 @@ def pack_params(cfg):
     fp[P_COLOR_SIGMA] = cfg.color_sigma
     fp[P_SYN] = cfg.synapse_cost
     fp[P_BACK_COST] = cfg.back_cost_mult
+    fp[P_ETA_INIT] = cfg.eta_init
+    fp[P_ETA_MAX] = cfg.eta_max
+    fp[P_ALPHA_INIT] = cfg.alpha_init
     ip[Q_SEED] = cfg.seed
     ip[Q_GW] = cfg.grid_w
     ip[Q_GH] = cfg.grid_h
@@ -186,7 +212,10 @@ def pack_params(cfg):
 
 def alloc_state(cfg) -> State:
     n = cfg.max_agents
-    dims = {"3": 3, "I": cfg.n_in, "H": cfg.h_max, "O": cfg.n_out}
+    mind = cfg.mind_enabled
+    dims = {"3": 3, "4": 4, "2": 2, "I": cfg.n_in, "H": cfg.h_max, "O": cfg.n_out, "NR": N_REWARD,
+            "PI": cfg.n_in if mind else 1, "PH": cfg.h_max if mind else 1,
+            "NP": cfg.n_proto if mind else 1, "ND": 2 * cfg.vision_sectors if mind else 1}
     d = {}
     for name, dt, extra, _ in AGENT_FIELDS:
         d[name] = np.zeros((n,) + tuple(dims[e] for e in extra), dtype=dt)
@@ -196,7 +225,9 @@ def alloc_state(cfg) -> State:
     ncell = cfg.grid_w * cfg.grid_h
     d["counters"] = np.zeros(N_COUNTERS, dtype=np.int64)
     d["ledger"] = np.zeros(N_LEDGER, dtype=np.float64)
-    d["budget"] = np.zeros(1, dtype=np.float64)
+    d["budget"] = np.zeros(2, dtype=np.float64)   # [0] 보통 먹이, [1] 거름 땅에 날 먹이
+    d["trail"] = np.zeros(ncell, dtype=np.float64)
+    d["soil"] = np.zeros(ncell, dtype=np.float64)
     d["a_start"] = np.zeros(ncell + 1, dtype=np.int32)
     d["a_items"] = np.zeros(n, dtype=np.int32)
     d["f_start"] = np.zeros(ncell + 1, dtype=np.int32)
@@ -680,6 +711,32 @@ def _reset_body(s, j, aid, parent, gen, tag, step, px, py, hd, e):
     s.ate[j] = 0.0
     for k in range(s.h.shape[1]):
         s.h[j, k] = 0.0
+    # 평생 상태는 물려받지 않는다
+    for k in range(4):
+        s.horm[j, k] = 0.0
+    s.mod[j] = 0.0
+    s.exp_r[j] = 0.0
+    s.e_prev[j] = e
+    s.fatigue[j] = 0.0
+    s.asleep[j] = 0.0
+    s.last_proto[j] = 0
+    s.sig[j, 0] = 0.0
+    s.sig[j, 1] = 0.0
+    for k in range(s.epost.shape[1]):
+        s.epost[j, k] = 0.0
+        s.epre_h[j, k] = 0.0
+    for a in range(s.epre_in.shape[1]):
+        s.epre_in[j, a] = 0.0
+        for k in range(s.Hin.shape[2]):
+            s.Hin[j, a, k] = 0.0
+    for a in range(s.Hrec.shape[1]):
+        for k in range(s.Hrec.shape[2]):
+            s.Hrec[j, a, k] = 0.0
+    for a in range(s.proto.shape[1]):
+        for k in range(s.proto.shape[2]):
+            s.proto[j, a, k] = 0.0
+        for k in range(s.link.shape[2]):
+            s.link[j, a, k] = 0.0
     s.counters[C_NALIVE] += 1
 
 
@@ -712,6 +769,20 @@ def random_genome(s, j, aid, fp, ip):
     s.sigma[j] = fp[P_SIGMA_INIT]
     for c in range(3):
         s.color[j, c] = u01(seed, S_INIT_GENOME, aid, q)
+        q += 1
+    # 2단계 유전자. 타고난 보상: 먹으면 좋고, 에너지가 늘면 좋고, 새 연결이 생기면 조금 좋다
+    for f in range(N_REWARD):
+        s.rw[j, f] = 0.1 * normal(seed, S_INIT_GENOME, aid, q)
+        q += 1
+    s.rw[j, 0] += 1.0
+    s.rw[j, 1] += 0.5
+    s.rw[j, 3] += 0.2
+    s.rw[j, 4] += 0.5
+    s.rw[j, 5] -= 0.2
+    s.rw[j, 6] += 0.2
+    s.eta[j] = fp[P_ETA_INIT]
+    for k in range(hm):
+        s.alpha[j, k] = fp[P_ALPHA_INIT] * normal(seed, S_INIT_GENOME, aid, q)
         q += 1
 
 
@@ -787,6 +858,26 @@ def copy_genome(s, i, j, cid, fp, ip):
             if v > 1.0:
                 v = 1.0
         s.color[j, c] = v
+        q += 1
+    # 2단계 유전자(뒤에 덧붙여 앞쪽 난수 번호가 바뀌지 않게 한다)
+    for f in range(N_REWARD):
+        v = s.rw[i, f]
+        if mut:
+            v += amp * normal(seed, S_MUT_W, cid, q)
+        s.rw[j, f] = v
+        q += 1
+    v = float(s.eta[i])
+    if mut:
+        v = v * math.exp(0.1 * normal(seed, S_MUT_W, cid, q))
+        if v > fp[P_ETA_MAX]:
+            v = fp[P_ETA_MAX]
+    s.eta[j] = v
+    q += 1
+    for k in range(hm):
+        v = s.alpha[i, k]
+        if mut:
+            v += amp * normal(seed, S_MUT_W, cid, q)
+        s.alpha[j, k] = v
         q += 1
     if nh > nh_p:
         # 새로 켜진 뉴런은 처음에는 아무 데도 영향을 주지 않는다(중립)

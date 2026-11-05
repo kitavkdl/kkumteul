@@ -73,13 +73,13 @@ class Config:
     vision_noise: float = 0.0     # 시야 값에 더하는 잡음 표준편차(기본은 끔: 흐릿함은 낮은 해상도로 만든다)
     smell_length: float = 12.0    # 냄새가 줄어드는 거리 척도
     smell_gain: float = 0.25
-    n_spare_in: int = 4           # 2단계(호르몬·신호)용으로 비워 둔 입력
+    n_spare_in: int = 13          # 2~4단계 입력 자리: 호르몬 4, 듣기 4, 혈연 1, 이웃이 먹음 1, 흔적 3
 
     # --- 뇌 (T12) ---
     h_max: int = 64               # 은닉 뉴런 최대 수(배열 크기)
     h_init: int = 16              # 처음 개체의 활성 뉴런 수
     h_min: int = 1
-    n_spare_out: int = 2          # 2단계용으로 비워 둔 출력
+    n_spare_out: int = 6          # 2~4단계 출력 자리: 잠, 신호 2, 주기, 쌓기, 예비 1
     init_w_in: float = 0.1
     init_w_rec: float = 0.1
     init_w_out: float = 0.1
@@ -94,6 +94,50 @@ class Config:
     sigma_tau: float = 0.0        # 변이 크기 자체가 변하는 정도(log 정규). 0이면 고정
     p_hidden_change: float = 0.03  # 출생 때 활성 뉴런 수가 +-1 될 확률
     color_sigma: float = 0.02     # 색 유전자 변이(화면에서 계통을 구분하는 용도)
+
+    # --- 2단계: 마음 (기본은 꺼짐) ---
+    mind_enabled: bool = False    # 호르몬, 보상으로 조절되는 평생 학습, 호기심, 잠
+    eta_init: float = 0.01        # 처음 개체의 학습률 유전자
+    eta_max: float = 0.2
+    alpha_init: float = 0.05      # 처음 개체의 뉴런별 가소성 유전자 표준편차
+    trace_decay: float = 0.8      # 활동 흔적이 남는 정도(스텝마다 곱함)
+    hebb_decay: float = 0.001     # 배운 것이 스텝마다 흐려지는 정도
+    plast_cost: float = 0.002     # 스텝당 학습 비용 = plast_cost * (학습률 / eta_max) * (활성 뉴런 수 / h_max)
+    n_proto: int = 8              # 개체가 기억하는 감각 패턴 수
+    proto_lr: float = 0.05        # 패턴이 새 경험 쪽으로 움직이는 정도
+    link_cap: float = 20.0        # 패턴 사이 연결 세기 상한
+    hormone_rate_hunger: float = 0.02
+    hormone_rate_stress: float = 0.05
+    hormone_rate_dopamine: float = 0.2
+    hormone_rate_boredom: float = 0.01
+    reward_baseline_rate: float = 0.05  # 기대 보상이 따라가는 속도
+    fatigue_rate: float = 0.002   # 깨어 있을 때 스텝당 쌓이는 피로
+    sleep_recover: float = 0.01   # 잘 때 스텝당 풀리는 피로
+    sleep_min_fatigue: float = 0.3  # 이보다 덜 피곤하면 잠들 수 없다
+    sleep_basal: float = 0.6      # 자는 동안 기초 대사 배율
+    sleep_forget: float = 0.01    # 자는 동안 약한 학습 흔적이 스텝마다 지워지는 정도
+    sleep_keep: float = 0.3       # 이보다 센 학습 흔적은 자는 동안 지워지지 않는다
+
+    # --- 3단계: 사회 (기본은 꺼짐) ---
+    social_enabled: bool = False  # 신호 내기·듣기, 혈연 알아보기, 이웃이 먹는 것 보기, 에너지 주기
+    hear_range: float = 24.0
+    signal_cost: float = 0.0005   # 스텝당 신호 비용 = signal_cost * (|신호1| + |신호2|)
+    give_rate: float = 0.02       # 주기 출력 1일 때 스텝당 건네는 에너지
+    give_loss: float = 0.1        # 건네는 중에 사라지는 비율
+    give_min_energy: float = 1.0  # 이보다 에너지가 적으면 주지 못한다
+
+    # --- 4단계: 판이 바뀌는 세계 (기본은 꺼짐) ---
+    niche_enabled: bool = False   # 다닌 자리가 길이 되고, 쌓은 거름이 먹이를 끌어온다
+    wear_rate: float = 0.02       # 지나갈 때 그 칸에 남는 흔적 = wear_rate * 속도
+    trail_decay: float = 0.0005   # 흔적이 스텝마다 흐려지는 정도
+    trail_sat: float = 5.0        # 흔적이 이만큼 쌓이면 "다 닦인 길"
+    path_bonus: float = 0.5       # 다 닦인 길에서 이동 비용이 줄어드는 비율
+    deposit_rate: float = 0.01    # 쌓기 출력 1일 때 스텝당 땅에 넣는 에너지
+    deposit_loss: float = 0.1     # 쌓는 중에 사라지는 비율
+    soil_decay: float = 0.0002    # 거름이 스텝마다 사라지는 정도
+    soil_ref: float = 50.0        # 세계 전체 거름이 이만큼이면 먹이 유입의 fert_frac이 거름 땅에 난다
+    fert_frac: float = 0.5
+    soil_use: float = 0.2         # 먹이 한 알이 날 때 그 칸에서 줄어드는 거름
 
     # --- 대조 실행 (T14) ---
     passive: bool = False         # True면 자연 출생·사망을 끄고 기록된 사건을 무작위 개체에 적용
@@ -165,6 +209,19 @@ class Config:
             raise ValueError("vision_sectors는 1~32여야 한다")
         if self.vision_fov > math.pi:
             raise ValueError("vision_fov는 pi 이하여야 한다(뒤쪽에 걸친 물체를 놓친다)")
+        if self.n_spare_in < N_STAGE_IN or self.n_spare_out < N_STAGE_OUT:
+            raise ValueError(f"n_spare_in은 {N_STAGE_IN} 이상, n_spare_out은 {N_STAGE_OUT} 이상이어야 한다")
+        for name in ("give_loss", "deposit_loss", "path_bonus", "fert_frac", "sleep_basal", "trace_decay"):
+            if not (0.0 <= getattr(self, name) <= 1.0):
+                raise ValueError(f"{name}은 0과 1 사이여야 한다")
+        for name in ("eta_init", "eta_max", "plast_cost", "signal_cost", "give_rate", "deposit_rate",
+                     "wear_rate", "trail_decay", "soil_decay", "hebb_decay", "fatigue_rate", "sleep_recover"):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name}은 0 이상이어야 한다")
+        if self.n_proto < 2 or self.hear_range <= 0 or self.trail_sat <= 0 or self.soil_ref <= 0:
+            raise ValueError("n_proto는 2 이상, hear_range·trail_sat·soil_ref는 양수여야 한다")
+        if 2 * int(math.ceil(self.hear_range / self.cell)) + 1 > min(gw, gh):
+            raise ValueError("세계가 듣는 범위에 비해 너무 작다")
 
     # ---- 입출력 ----
     def to_dict(self) -> dict:
@@ -196,6 +253,9 @@ class Config:
         for p in pairs or []:
             k, _, v = p.partition("=")
             k = k.strip()
+            if k == "preset":   # 단계 묶음: preset=stage2 처럼 쓴다
+                d.update(preset(v.strip()))
+                continue
             if k not in d:
                 raise ValueError(f"모르는 설정: {k}")
             if types[k] == "bool":
@@ -217,3 +277,31 @@ N_ACTIONS = 3
 ACT_THRUST = 0
 ACT_TURN = 1
 ACT_REPRO = 2
+# 2~4단계 출력(비워 둔 자리를 쓴다)
+ACT_SLEEP = 3
+ACT_SIG0 = 4
+ACT_SIG1 = 5
+ACT_GIVE = 6
+ACT_DEPOSIT = 7
+N_STAGE_OUT = 5
+# 2~4단계 입력: 시야·내부 감각 뒤에 이 순서로 붙는다
+IN_HORM = 0      # 스트레스, 도파민, 지루함, 피로
+IN_HEAR = 4      # 신호1 앞·뒤, 신호2 앞·뒤
+IN_KIN = 8       # 가장 가까운 이웃이 나와 닮은 정도
+IN_SAWEAT = 9    # 가까운 이웃이 방금 먹었는가
+IN_TRAIL = 10    # 흔적: 내 자리, 왼쪽 앞, 오른쪽 앞
+N_STAGE_IN = 13
+N_REWARD = 8     # 보상 특징: 먹음, 에너지 변화, 닿음, 호기심, 허기*먹음, 스트레스, 이웃이 먹음, 상수
+
+
+def preset(name: str) -> dict:
+    """단계 묶음. 앞 단계의 장치는 켠 채로 다음 단계를 더한다."""
+    table = {
+        "stage1": dict(mind_enabled=False, social_enabled=False, niche_enabled=False),
+        "stage2": dict(mind_enabled=True, social_enabled=False, niche_enabled=False),
+        "stage3": dict(mind_enabled=True, social_enabled=True, niche_enabled=False),
+        "stage4": dict(mind_enabled=True, social_enabled=True, niche_enabled=True),
+    }
+    if name not in table:
+        raise ValueError(f"모르는 preset: {name} (stage1~stage4)")
+    return table[name]
