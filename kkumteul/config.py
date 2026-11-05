@@ -1,0 +1,219 @@
+"""설정. 모든 값은 임시 결정(사용자 확인 전)이고 여기서만 바꾼다.
+
+근거는 `reports/인공생명 1단계 구현 결정.md`와 각 티켓에 있다.
+"""
+from __future__ import annotations
+
+import json
+import math
+from dataclasses import asdict, dataclass, fields
+
+
+@dataclass
+class Config:
+    # --- 실행 ---
+    seed: int = 1
+    threads: int = 0              # 0이면 numba 기본값
+    max_steps_per_sec: float = 0.0  # 0이면 제한 없음
+
+    # --- 세계 (T08) ---
+    world_w: float = 512.0        # 반대편으로 이어지는 세계(torus)
+    world_h: float = 512.0
+    cell: float = 8.0             # 이웃 탐색 격자 한 칸. world_w, world_h는 cell의 배수
+
+    # --- 먹이 (T08) ---
+    food_inflow: float = 9.0      # 스텝당 세계에 들어오는 먹이 에너지
+    food_energy: float = 1.0      # 먹이 한 알의 에너지
+    food_cap: int = 2000          # 먹이 알 수 상한(넘치는 유입은 버린다). 개체군 저장량보다 작게
+    food_radius: float = 0.5
+    n_patches: int = 16           # 먹이가 뭉쳐 나는 자리 수
+    patch_sigma: float = 18.0     # 자리 하나의 퍼짐
+    patch_life: int = 20000       # 자리가 다른 곳으로 옮겨 가는 주기(스텝)
+    food_uniform_frac: float = 0.15  # 자리와 무관하게 아무 데나 나는 비율
+
+    # --- 개체 수 (T09) ---
+    max_agents: int = 3000        # 배열 크기 = 계산 보호용 상한. 꽉 차면 출생이 막힌다.
+                                  # 먹이 유입 ÷ 최소 소비(약 0.0031)보다 크게 잡아 평소에는 닿지 않게 한다
+    init_agents: int = 400
+    min_agents: int = 100         # 이 아래로 떨어지면 살아 있는 개체의 변이 복제본을 넣는다(횟수 기록)
+
+    # --- 몸과 움직임 (T10) ---
+    agent_radius: float = 1.0
+    thrust_force: float = 0.1     # 추력 출력 1일 때 스텝당 가속
+    back_frac: float = 0.5        # 뒤로 갈 때 힘 비율
+    drag: float = 0.1             # 스텝마다 속도에 곱하는 (1 - drag)
+    v_max: float = 1.0            # 속도 상한(터널링 방지: 반지름 이하)
+    max_turn: float = 0.3         # 회전 출력 1일 때 스텝당 방향 변화(rad)
+    collide_max_push: float = 0.5  # 겹침을 한 스텝에 밀어내는 거리 상한
+
+    # --- 에너지 (T09, T10, T13) ---
+    e_start: float = 2.0          # 처음·재주입 개체의 에너지
+    e_max: float = 8.0            # 이 이상이면 더 먹지 않는다
+    e_repro: float = 4.0          # 번식 문턱
+    child_frac: float = 0.5       # 번식 때 부모 에너지 중 자식에게 가는 비율
+    birth_cost: float = 0.3       # 번식 때 사라지는 에너지
+    basal_cost: float = 0.003     # 스텝당 기초 대사
+    brain_cost: float = 0.006     # 스텝당 뉴런 유지비 = brain_cost * (활성 뉴런 수 / h_max). 최대 뇌가 기초 대사의 2배
+    synapse_cost: float = 0.0006  # 스텝당 시냅스 유지비 = synapse_cost * (활성 시냅스 수 / 최대 시냅스 수)
+    brain_activity_cost: float = 0.0  # 스텝당 활동 비용 = 이 값 * 평균 |활성| (기본은 끔)
+    thrust_cost: float = 0.006    # 스텝당 이동 비용 = thrust_cost * |추력|. 전속이 기초 대사의 2배
+    back_cost_mult: float = 1.5   # 뒤로 갈 때 이동 비용 배율
+    turn_cost: float = 0.0005     # 스텝당 회전 비용 = turn_cost * |회전|
+    max_age: int = 3000           # 최대 수명(스텝). 가득 찬 에너지로 굶기까지가 수명의 약 0.3배
+    corpse_to_food: bool = True   # 늙어 죽으면 남은 에너지가 먹이로 남는다
+
+    # --- 번식 (T09) ---
+    repro_brain_controlled: bool = True  # 번식 출력이 0보다 클 때만 번식
+    repro_min_age: int = 200
+
+    # --- 감각 (T11) ---
+    vision_sectors: int = 8       # 시야를 나눈 칸 수(낮은 해상도 = 흐릿함)
+    vision_fov: float = 2.094     # 시야각(rad), 120도
+    vision_range: float = 16.0
+    vision_noise: float = 0.0     # 시야 값에 더하는 잡음 표준편차(기본은 끔: 흐릿함은 낮은 해상도로 만든다)
+    smell_length: float = 12.0    # 냄새가 줄어드는 거리 척도
+    smell_gain: float = 0.25
+    n_spare_in: int = 4           # 2단계(호르몬·신호)용으로 비워 둔 입력
+
+    # --- 뇌 (T12) ---
+    h_max: int = 64               # 은닉 뉴런 최대 수(배열 크기)
+    h_init: int = 16              # 처음 개체의 활성 뉴런 수
+    h_min: int = 1
+    n_spare_out: int = 2          # 2단계용으로 비워 둔 출력
+    init_w_in: float = 0.1
+    init_w_rec: float = 0.1
+    init_w_out: float = 0.1
+    init_bias_thrust: float = 1.0  # 처음에는 앞으로 가려는 쪽으로 기울여 둔다
+    init_bias_repro: float = 1.0   # 처음에는 번식하려는 쪽으로 기울여 둔다
+
+    # --- 변이 (T12) ---
+    mutation_enabled: bool = True
+    sigma_init: float = 0.02      # 가중치 변이 크기(유전자 자리는 있지만 기본은 고정)
+    sigma_min: float = 0.003
+    sigma_max: float = 0.2
+    sigma_tau: float = 0.0        # 변이 크기 자체가 변하는 정도(log 정규). 0이면 고정
+    p_hidden_change: float = 0.03  # 출생 때 활성 뉴런 수가 +-1 될 확률
+    color_sigma: float = 0.02     # 색 유전자 변이(화면에서 계통을 구분하는 용도)
+
+    # --- 대조 실행 (T14) ---
+    passive: bool = False         # True면 자연 출생·사망을 끄고 기록된 사건을 무작위 개체에 적용
+
+    # --- 기록 ---
+    stats_every: int = 5000
+    frame_every: int = 500        # 드문 프레임(전체 흐름용)
+    clip_every: int = 200000      # 이 주기로 한 스텝씩 촘촘히 녹화한다(행동을 눈으로 보는 용도)
+    clip_len: int = 400           # 촘촘히 녹화하는 길이(스텝)
+    frames_per_segment: int = 500
+    frame_ring_segments: int = 40  # 최근 이만큼만 남긴다
+    keyframe_every: int = 200000   # 드문 프레임은 계속 남긴다
+    ckpt_every: int = 1000000
+    ckpt_keep_last: int = 12
+    ckpt_keep_every: int = 50000000  # 이 배수 스텝의 체크포인트는 지우지 않는다
+    event_segment_steps: int = 2000000  # 출생·사망 기록 파일을 이 스텝 수마다 새로 연다
+    event_keep_segments: int = 0   # 최근 이만큼의 기록 파일만 남긴다(0이면 전부 남김)
+    min_free_gb: float = 2.0       # 디스크 여유가 이보다 적으면 저장하고 멈춘다
+
+    # ---- 파생 값 ----
+    @property
+    def n_in(self) -> int:
+        return 2 * self.vision_sectors + N_INTERNAL + self.n_spare_in
+
+    @property
+    def n_out(self) -> int:
+        return N_ACTIONS + self.n_spare_out
+
+    @property
+    def grid_w(self) -> int:
+        return int(round(self.world_w / self.cell))
+
+    @property
+    def grid_h(self) -> int:
+        return int(round(self.world_h / self.cell))
+
+    @property
+    def food_slots(self) -> int:
+        return self.food_cap + self.max_agents
+
+    def validate(self) -> None:
+        gw, gh = self.grid_w, self.grid_h
+        if abs(gw * self.cell - self.world_w) > 1e-9 or abs(gh * self.cell - self.world_h) > 1e-9:
+            raise ValueError("world_w, world_h는 cell의 배수여야 한다")
+        reach = int(math.ceil(self.vision_range / self.cell))
+        if 2 * reach + 1 > min(gw, gh):
+            raise ValueError("세계가 시야 범위에 비해 너무 작다")
+        if self.cell < 2 * self.agent_radius or self.cell < self.agent_radius + self.food_radius:
+            raise ValueError("cell은 개체 지름 이상이어야 한다")
+        if self.v_max > self.agent_radius:
+            raise ValueError("v_max는 개체 반지름 이하여야 한다(터널링 방지)")
+        if not (1 <= self.h_min <= self.h_init <= self.h_max):
+            raise ValueError("h_min <= h_init <= h_max 여야 한다")
+        if self.init_agents > self.max_agents:
+            raise ValueError("init_agents > max_agents")
+        if not (0.0 < self.child_frac < 1.0) or self.birth_cost < 0 or self.e_repro <= 0:
+            raise ValueError("child_frac은 0과 1 사이, birth_cost는 0 이상, e_repro는 양수여야 한다")
+        for name in ("basal_cost", "brain_cost", "synapse_cost", "brain_activity_cost", "thrust_cost",
+                     "turn_cost", "food_inflow", "food_energy", "e_start", "vision_noise"):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name}은 0 이상이어야 한다")
+        if self.back_cost_mult < 1.0:
+            raise ValueError("back_cost_mult는 1 이상이어야 한다(환급 금지)")
+        for name in ("stats_every", "frame_every", "frames_per_segment", "frame_ring_segments",
+                     "ckpt_every", "ckpt_keep_last", "patch_life", "event_segment_steps", "max_age"):
+            if getattr(self, name) < 1:
+                raise ValueError(f"{name}은 1 이상이어야 한다")
+        if self.vision_sectors < 1 or self.vision_sectors > 32:
+            raise ValueError("vision_sectors는 1~32여야 한다")
+        if self.vision_fov > math.pi:
+            raise ValueError("vision_fov는 pi 이하여야 한다(뒤쪽에 걸친 물체를 놓친다)")
+
+    # ---- 입출력 ----
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Config":
+        known = {f.name for f in fields(cls)}
+        unknown = set(d) - known
+        if unknown:
+            raise ValueError(f"모르는 설정: {sorted(unknown)}")
+        cfg = cls(**d)
+        cfg.validate()
+        return cfg
+
+    def save(self, path) -> None:
+        with open(path, "w") as f:
+            json.dump(self.to_dict(), f, indent=1, sort_keys=True)
+
+    @classmethod
+    def load(cls, path) -> "Config":
+        with open(path) as f:
+            return cls.from_dict(json.load(f))
+
+    def with_overrides(self, pairs) -> "Config":
+        """["key=value", ...]를 적용한 새 설정."""
+        d = self.to_dict()
+        types = {f.name: str(f.type) for f in fields(self)}
+        for p in pairs or []:
+            k, _, v = p.partition("=")
+            k = k.strip()
+            if k not in d:
+                raise ValueError(f"모르는 설정: {k}")
+            if types[k] == "bool":
+                d[k] = v.strip().lower() in ("1", "true", "yes", "on")
+            elif types[k] == "int":
+                f = float(v)
+                if f != int(f):
+                    raise ValueError(f"{k}는 정수여야 한다: {v}")
+                d[k] = int(f)
+            else:
+                d[k] = float(v)
+        return Config.from_dict(d)
+
+
+# 입력 중 시야가 아닌 것: 에너지, 나이, 전진 속도, 옆 속도, 닿음, 먹음, 냄새, 상수 1
+N_INTERNAL = 8
+# 출력: 추력, 회전, 번식
+N_ACTIONS = 3
+ACT_THRUST = 0
+ACT_TURN = 1
+ACT_REPRO = 2
