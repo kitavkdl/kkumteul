@@ -396,7 +396,7 @@ def test_replay_uses_winter_spoil_speed_to_tell_spoiled_from_eaten(t, why):
 
 
 # ---- 공유 저장 틀: 해시 기본값 규칙, 번호표, 확장 세계 계수기 길이 ----
-# 1부 코드(0945b10)가 낸 300스텝 해시. 확장 크기 세계에 새 필드·늘린 계수기가 들어와도 장치를 끈 동안은 같아야 한다.
+# 장치를 넣기 전 코드(0945b10)가 낸 300스텝 해시. 확장 크기 세계에 새 필드·늘린 계수기가 들어와도 장치를 끈 동안은 같아야 한다.
 PINNED_EXT_HASH_300 = {
     ("ext",): "f99625e844a559b3d3518c2dc18ca85fb83642f4bc71046d3c74afdea5ec3fdf",
     ("harsh",): "edfcfe6ec79c8676c656d64cf4a01145c9a9b245e3cad99c9ffb10d9ec53a3ef",
@@ -438,7 +438,7 @@ def test_hash_skips_default_valued_field_but_not_changed_one():
 
 
 def test_old_ext_checkpoint_loads_exact(tmp_path):
-    # 확장 세계를 저장한 뒤 체크포인트의 counters를 24칸, budget을 2칸으로 잘라 1부 체크포인트처럼 만든다.
+    # 확장 세계를 저장한 뒤 체크포인트의 counters를 24칸, budget을 2칸으로 잘라 옛 체크포인트처럼 만든다.
     # 새 코드로 읽으면 채워 읽기가 되고, load_arrays가 True(exact)를 돌려주며, checkpoint.load의 저장 해시 검증을 통과한다.
     w = World(small("harsh")); w.run(60)
     path = ckpt.save(w, tmp_path)
