@@ -4,13 +4,14 @@
 
 **맡은 곳 (01:55 ET 사용자 지시)**: 서버에서 연 꿈틀 세션이 전담한다. 맥의 앞 세션은 아래 "지금 돌고 있는 것"(세 갈래 실험과 비교, 결과 기록)까지만 하고 인수인계를 이 레포에 남긴 뒤 끝낸다. "다음에 할 것"은 서버 세션이 한다 — 맥 세션은 새로 시작하지 않는다.
 
-## 지금 돌고 있는 것 (2026-11-05 01:40 ET 기준, 맥)
-- [ ] 단계 실험 세 갈래 — `runs/x-s2`(마음), `runs/x-s3`(+사회), `runs/x-s4`(+판)가 `runs/demo`의 80만 스텝 체크포인트에서 갈라져 110만 스텝까지 돈다. 대조는 `runs/x-ctrl`(끝남, 110만 스텝 체크포인트 있음).
-  확인: `pgrep -fl "kkumteul.run branch"`, `tail -1 runs/x-s2/stats.jsonl`.
-- [ ] 세 갈래 비교 — 갈래가 끝나면 앞 세션이 걸어 둔 명령이 `wayfinder/stage2-4/results/compare-s{2,3,4}.{json,txt}`를 쓴다. **파일이 없거나 비어 있으면 직접 돌린다**:
-  `python3 -m kkumteul.compare --control runs/x-ctrl --treatment runs/x-s2 --at 1100000 --reps 4 --out wayfinder/stage2-4/results/compare-s2.json` (s3, s4도 같게).
-  완료 기준: 단계마다 "켠 규칙에서 이김 / 양쪽에서 이김 / 가를 수 없음"과 형질 변화가 `wayfinder/stage2-4/results.md`에 적히고 README 단계 표가 고쳐짐. 추세만으로 "쓰게 됐다"고 쓰지 않는다.
-- 중간에 본 것: 세 갈래 모두 평균 학습률이 0.0065 → 0.0015로 줄었다(배움이 값을 못 한다). 4단계 갈래는 거름 합이 160~196까지 올랐다(쌓기가 선택됐는지, 변이로 떠다닌 것인지는 비교로 봐야 한다).
+## 맥의 앞 세션이 끝낸 것과 남긴 것 (2026-11-05 02:05 ET, 맥 세션은 끝남)
+- [x] 단계 실험 세 갈래와 대조 — 끝남. 맥 `runs/x-ctrl`, `x-s2`, `x-s3`, `x-s4`(git에 없음).
+- [x] 세 갈래 비교와 기록 — `wayfinder/stage2-4/results.md`, 원자료 `wayfinder/stage2-4/results/compare-s{2,3,4}.json`. README 단계 표도 고쳤다.
+  결론: 켠 세계의 생물은 켠 규칙에 적응했지만, 학습(학습률 0.01 → 0.0001~0.0006)과 주기는 진화가 꺼 버렸고, 신호·혈연·길·거름은 쓰인다는 증거가 없다.
+- 맥 세션이 지시 뒤에 잘못 새로 시작했다가 멈춘 것(서버 세션이 참고만 한다):
+  - 맥의 `runs/k-ctrl`, `runs/k-mind`, `runs/c-s3`은 돌다 만 것이다. 결과로 쓰지 않는다. 지워도 된다.
+  - 새 코드 검토 워크플로(6갈래)는 중간에 멈췄다. 결과는 없다. 아래 "독립 검토" 항목은 그대로 남아 있다.
+  - 협력 먹이(곁에 다른 개체가 있어야 먹는 큰 먹이, `preset=coop`)를 쓰다 말았다. 가지 `wip/coop-food`에 있고 시험을 끝까지 돌리지 못했다. `main`에는 없다. 쓸지 말지는 서버 세션이 정한다. 넣은 까닭은 `wayfinder/stage2-4/results.md`의 "그래서 하는 것".
 
 ## 다음에 할 것 (위에서부터)
 - [ ] "배워야 먹는 세계" 실험 — `preset=kinds`(먹이 두 종류와 독)에서 학습이 값을 하는지. 서버의 `runs/main` 100만 스텝에서 `--set preset=kinds`(대조, `runs/k-ctrl`)와 `--set preset=stage2 --set preset=kinds`(`runs/k-s2`)를 30만 스텝씩 가르고(02:00 ET 서버에서 시작, 각 2스레드) `kkumteul.compare`로 견준다. 학습률이 유지되는지도 본다. 완료 기준: 결과가 `wayfinder/stage2-4/results.md`에 적힘
