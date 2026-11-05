@@ -47,6 +47,22 @@ def test_stage_world_lives_conserves_energy_and_repeats(preset):
     assert a.state_hash() == b.state_hash()
 
 
+# 혹독한 세계를 넣기 전(커밋 4255214) 코드가 낸 해시. 같은 코드 안의 비교로는 입출력 크기·계수기 길이 같은
+# 모양 변화가 잡히지 않아 값을 박아 둔다. 기존 장치의 계산을 일부러 바꿨을 때만 고친다.
+PINNED_HASH_300 = {
+    (): "a0c7ab7867bcbfa786d85faa3c59ff5be55588a0116d273e651e69fad2e5231d",
+    ("stage4",): "9702d7f31560cb6ce90b9a65e7f1f3c3453e13f9781b7c10da741250dd8498bc",
+    ("stage4", "conflict", "kinds"): "8789e3308b48fa4665b4a9b47e6ff6f203ff2b1a086336e0b95c447f97b59341",
+}
+
+
+@pytest.mark.parametrize("presets", list(PINNED_HASH_300))
+def test_worlds_without_harsh_keep_pinned_hash(presets):
+    w = World(small(*presets))
+    w.run(300)
+    assert w.state_hash() == PINNED_HASH_300[presets]
+
+
 def test_stage_flags_off_do_not_change_stage1():
     """장치를 끈 채로는 그 설정값을 아무리 바꿔도 세계가 같아야 한다."""
     a = World(small())
