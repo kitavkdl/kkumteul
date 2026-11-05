@@ -11,6 +11,7 @@
 - 격리된 세션에서는 경로에 `git`이 든 명령에 반복문·변수가 섞이면 거절될 수 있다. 여러 줄 편집은 임시 폴더의 스크립트로.
 
 ## 현재 상태
+- **11:45 ET 서버 9**: 여정 아티팩트 올림, 대기열 셋 읽음, `placed.py`와 `record(overrides=)` 추가(TDD), 전체 시험 144건 통과.
 - **다시 보기**: `python -m kkumteul.replay --ckpt <체크포인트> [--out] [--steps] [--from-flip] [--title] [--artifact]`. 화면까지 끝났다. 시험 14건(마지막 것은 node로 화면의 계산을 견준다).
   정한 것·확인한 것·**아직 눈으로 못 본 것**(신호·건넴·공격·각본 표시)은 `docs/visualization.md`의 "구현 기록".
   아티팩트를 고쳐 올릴 때: 작업 폴더에서 `--artifact`로 `runs/replay-k4-s2-art.html`을 다시 만들고 `Artifact`에 `url`로 위 주소를 준다(다른 세션에서는 `url`이 없으면 새 주소가 생긴다).
@@ -22,7 +23,7 @@
 
 ## 다음 할 일 (위에서부터. 대표님이 순서를 바꾸시면 그대로)
 1. ~~여정 아티팩트~~ — 11:35 ET에 올렸다(https://claude.ai/artifact/EZUf6Mkz429VDmrkWddk3H , 원본 `docs/journey.html`). 대기열 결과를 읽으면 "지금 상태" 장을 고쳐 다시 올린다.
-2. **대기열 결과 읽기** — `python wayfinder/stage2-4/windows.py <실행 폴더>`로 개체 수·재주입·공격 횟수를 보고, 가려 먹기는 **놓인 먹이의 구성을 독이 바뀌기 전후로** 읽는다
+2. ~~대기열 결과 읽기~~ — 11:45 ET에 끝(결과 문서 "대기열 세 세계의 결과", T28, T32). 공격이 퍼졌다(사망의 20%). 먹이 종류 넷은 독을 따라가지 않는다(독 0 대조와 같음). 아래는 옛 메모: — `python wayfinder/stage2-4/windows.py <실행 폴더>`로 개체 수·재주입·공격 횟수를 보고, 가려 먹기는 **놓인 먹이의 구성을 독이 바뀌기 전후로** 읽는다
    (각 실행의 마지막 체크포인트에서 `kkumteul.replay --from-flip`을 만들면 화면의 "지금 이 세계는"이 그대로 말해 준다. 숫자는 `replay.read_embedded`의 `f_blind`, `f_eaten`, `f_poisoned`).
    `k4-ctrl` 230만도 같이 잰다. 결과 문서, T28·T32, tasks.md에 적는다. 공격 세계가 무너졌으면 `attack_damage`·`attack_gain`을 낮춘다.
 3. **화면의 남은 확인** — 공격 세계와 각본 실행으로 다시 보기를 만들어 신호 고리(문턱 `SIG_MIN` 0.5)·건넴·공격·운석 표시를 본다. 헤드리스 브라우저는 playwright가 받아 둔 `chrome-headless-shell`
