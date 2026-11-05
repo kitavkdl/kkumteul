@@ -2,6 +2,7 @@
 
     python3 -m pytest -q tests/test_harsh.py
 """
+import json
 import sys
 from pathlib import Path
 
@@ -392,3 +393,66 @@ def test_replay_uses_winter_spoil_speed_to_tell_spoiled_from_eaten(t, why):
     rep = rec.finish()
     assert rep.seen["good"] + rep.seen["spoiled"] + rep.seen["unknown"] == 1
     assert rep.seen[why] == 1
+
+
+# ---- 공유 저장 틀: 해시 기본값 규칙, 번호표, 확장 세계 계수기 길이 ----
+# 1부 코드(0945b10)가 낸 300스텝 해시. 확장 크기 세계에 새 필드·늘린 계수기가 들어와도 장치를 끈 동안은 같아야 한다.
+PINNED_EXT_HASH_300 = {
+    ("ext",): "f99625e844a559b3d3518c2dc18ca85fb83642f4bc71046d3c74afdea5ec3fdf",
+    ("harsh",): "edfcfe6ec79c8676c656d64cf4a01145c9a9b245e3cad99c9ffb10d9ec53a3ef",
+    ("harsh", "stage4", "conflict", "kinds"): "09def17063df81639d606807ce530c6de55df7e87e8f00f6ac95c0f6dc990ed7",
+}
+
+
+@pytest.mark.parametrize("presets", list(PINNED_EXT_HASH_300))
+def test_ext_worlds_keep_pinned_hash(presets):
+    w = World(small(*presets)); w.run(300)
+    assert w.state_hash() == PINNED_EXT_HASH_300[presets]
+
+
+def test_counter_and_budget_length_follow_ext_size():
+    base = World(small())
+    assert len(base.s.counters) == k.N_COUNTERS_BASE and len(base.s.budget) == k.N_BUDGET_BASE   # 기본 크기
+    w = World(small("ext"))
+    assert len(w.s.counters) == k.N_COUNTERS_EXT and len(w.s.budget) == k.N_BUDGET_EXT
+
+
+def test_ext_hash_ignores_zero_tail():
+    w = World(small("harsh")); w.run(50)
+    h = w.state_hash()
+    w.s = w.s._replace(counters=w.s.counters[:24].copy(), budget=w.s.budget[:2].copy())
+    assert w.state_hash() == h          # 꼬리가 0이면 옛 길이 해시와 같다
+    w2 = World(small("harsh")); w2.run(50)
+    w2.s.counters[k.C_RESCUES] = 1
+    assert w2.state_hash() != h         # 꼬리에 값이 있으면 들어간다
+
+
+def test_hash_skips_default_valued_field_but_not_changed_one():
+    w = World(small("harsh")); w.run(20)
+    h = w.state_hash()
+    w.s.elig_in[...] = 0
+    assert w.state_hash() == h          # 기본값 그대로면 건너뛴다
+    a = np.flatnonzero(w.s.alive)[0]
+    w.s.elig_in[a].flat[0] = 1.0
+    assert w.state_hash() != h
+
+
+def test_old_ext_checkpoint_loads_exact(tmp_path):
+    # 확장 세계를 저장한 뒤 체크포인트의 counters를 24칸, budget을 2칸으로 잘라 1부 체크포인트처럼 만든다.
+    # 새 코드로 읽으면 채워 읽기가 되고, load_arrays가 True(exact)를 돌려주며, checkpoint.load의 저장 해시 검증을 통과한다.
+    w = World(small("harsh")); w.run(60)
+    path = ckpt.save(w, tmp_path)
+    with np.load(path) as z:
+        arrays = {n: z[n] for n in z.files}
+    arrays["counters"] = arrays["counters"][:24].copy()
+    arrays["budget"] = arrays["budget"][:2].copy()
+    np.savez(path, **arrays)
+    meta_path = path.with_suffix(".json")
+    meta = json.loads(meta_path.read_text())
+    meta["npz_sha256"] = ckpt.file_sha256(path)
+    meta_path.write_text(json.dumps(meta))
+    w2, _ = ckpt.load(path)                       # 저장 해시 검증을 켠 채로 읽는다
+    assert len(w2.s.counters) == k.N_COUNTERS_EXT and len(w2.s.budget) == k.N_BUDGET_EXT
+    assert w2.state_hash() == w.state_hash()
+    w3 = World(small("harsh"), populate=False)
+    assert w3.load_arrays(arrays) is True

@@ -7,7 +7,7 @@ numba는 함수가 정의된 파일의 수정 시각만 보고 캐시를 다시 
 import hashlib
 from pathlib import Path
 
-_SOURCES = ("rng.py", "config.py", "kernels.py")
+_SOURCES = ("rng.py", "config.py", "kernels.py", "stages.py", "world.py")
 
 
 def source_hash() -> str:

@@ -208,6 +208,12 @@ class Config:
         return self.season_enabled or self.spoil_enabled
 
     @property
+    def ext_size(self) -> bool:
+        """입출력 자리가 확장 크기(preset=ext)인가. 계수기·예산 배열 길이가 이것을 따른다."""
+        return (self.n_spare_in >= N_STAGE_IN + N_EXT_IN
+                and self.n_spare_out >= N_STAGE_OUT + N_EXT_OUT)
+
+    @property
     def ext_in0(self) -> int:
         """확장 입력 블록의 첫 입력 번호."""
         return 2 * self.vision_sectors + N_INTERNAL + N_STAGE_IN

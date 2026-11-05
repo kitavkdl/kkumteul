@@ -39,6 +39,18 @@ S_FERTILE = 15      # 거름 땅에 나는 먹이의 자리
 S_KIND = 16         # 먹이 종류와, 어느 종류가 독인지
 S_ATTACK_ORDER = 17 # 공격을 처리하는 순서의 시작 칸(스텝마다 돌린다)
 S_PERTURB = 18      # 노드 섭동: 은닉 뉴런의 출력을 흔드는 잡음 (개체 id, 스텝 × h_max + 뉴런 번호)
+S_ANIMAL_POS = 19   # 동물이 나타나는 자리
+S_WANDER = 20       # 동물의 떠돎
+S_CHASE = 21        # 동물의 추격
+S_CONFUSE = 22      # 동물을 헷갈리게 하는 것
+S_MEAT = 23         # 고기(시체 먹이)
+S_SHUFFLE = 24      # 처리 순서 섞기
+S_SEX = 25          # 암수 정하기
+S_ORNAMENT = 26     # 장식 형질
+S_CROSS = 27        # 교배
+S_PATHOGEN = 28     # 병원체
+S_RESERVOIR = 29    # 병원체 보균 자리
+S_SEX_SPARE = 30    # 암수용 예비
 
 
 @njit(cache=True, inline="always")

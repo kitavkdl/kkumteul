@@ -224,8 +224,8 @@ class World:
         for name in k.SAVED_FIELDS:
             dst = getattr(s, name)
             if name not in arrays:
-                if name in k.PERTURB_FLEX:
-                    # 이 배열이 생기기 전의 체크포인트. 0에서 시작하고, 0뿐이면 해시에 넣지 않으므로
+                if name in k.HASH_DEFAULTS:
+                    # 이 필드가 생기기 전의 체크포인트. 기본값에서 시작하고, 기본값뿐이면 해시에 넣지 않으므로
                     # 저장 때의 상태 해시와 그대로 견줄 수 있다(빠진 것으로 치지 않는다)
                     continue
                 if name not in NEW_SINCE_STAGE1:
@@ -236,7 +236,7 @@ class World:
             if dst.shape == src.shape:
                 dst[...] = src
                 continue
-            exact = False
+            was_exact, exact = exact, False
             if name in k.LIFETIME_FLEX:
                 if src.any():
                     self.lifetime_reset.append(name)
@@ -246,6 +246,8 @@ class World:
                                             and src.shape[0] == dst.shape[0]))):
                 dst[...] = 0
                 dst[tuple(slice(0, n) for n in src.shape)] = src
+                if name in ("budget", "counters"):
+                    exact = was_exact   # 늘어난 꼬리는 0이고 해시가 0 꼬리를 넣지 않으므로 저장 때와 같다
             else:
                 raise ValueError(f"{name}: 크기가 다르다 {src.shape} != {dst.shape}")
         if "eta" in missing:
@@ -273,16 +275,22 @@ class World:
             if saved:
                 # 죽은 칸에 남은 값은 뜻이 없으므로 살아 있는 칸만 본다
                 v = getattr(s, name)[alive]
-                if name in k.PERTURB_FLEX and not v.any():
-                    continue    # 노드 섭동을 안 쓰는 세계의 해시가 이 필드가 생기기 전과 같게
+                if name in k.HASH_DEFAULTS and (v == k.HASH_DEFAULTS[name]).all():
+                    continue    # 기본값뿐이면 넣지 않는다: 그 장치를 안 쓰는 세계의 해시가 이 필드가 생기기 전과 같게
                 m.update(np.ascontiguousarray(v).tobytes())
         fa = s.f_alive
         for name, _, saved in k.FOOD_FIELDS:
             if saved:
-                m.update(np.ascontiguousarray(getattr(s, name)[fa]).tobytes())
-        m.update(s.counters.tobytes())
+                v = getattr(s, name)[fa]
+                if name in k.HASH_DEFAULTS and (v == k.HASH_DEFAULTS[name]).all():
+                    continue
+                m.update(np.ascontiguousarray(v).tobytes())
+        # 늘어난 꼬리가 모두 0이면 넣지 않는다(기본 길이 세계·옛 체크포인트의 해시와 같게)
+        c = s.counters
+        m.update((c[:k.N_COUNTERS_BASE] if not c[k.N_COUNTERS_BASE:].any() else c).tobytes())
         m.update(s.ledger.tobytes())
-        m.update(s.budget.tobytes())
+        b = s.budget
+        m.update((b[:k.N_BUDGET_BASE] if not b[k.N_BUDGET_BASE:].any() else b).tobytes())
         if s.trail.any() or s.soil.any():   # 땅이 비어 있으면 넣지 않는다(1~3단계 해시가 그대로 유효하게)
             m.update(s.trail.tobytes())
             m.update(s.soil.tobytes())
