@@ -290,8 +290,8 @@ def _think_plastic_par(fs, seed, step, h_max, alive, ids, n_hidden, obs, h, hnew
     학습 규칙은 둘이다. 둘 다 "학습률 × 보상 신호 × 흔적"만큼 배운 것(Hin, Hrec)을 고치고, 흔적이 다르다.
     - 헤브(perturb_sigma = 0, 기본): 흔적 = 입력의 흔적(epre) × 뉴런 활동의 흔적(epost).
       보상이 오면 함께 활동한 짝이 세진다.
-    - 노드 섭동(perturb_sigma > 0): 은닉 뉴런이 출력으로 보내는 값을 잡음으로 흔들고, 연결마다
-      "그 순간 들어온 값 × 흔든 양"을 쌓는다(elig_in, elig_rec). 보상이 오면 흔든 쪽으로 옮긴다.
+    - 노드 섭동(perturb_sigma > 0): 은닉 뉴런이 움직임 출력(추력, 회전)으로 보내는 값을 잡음으로 흔들고,
+      연결마다 "그 순간 들어온 값 × 흔든 양"을 쌓는다(elig_in, elig_rec). 보상이 오면 흔든 쪽으로 옮긴다.
       뉴런이 조용해도(출력 0) 배울 수 있다. 흔든 양은 그 순간의 입력과만 짝짓는다: 왼쪽으로 흔들면
       그 뒤에는 먹이가 오른쪽에 보이므로, 나중에 본 것과 짝지으면 거꾸로 배운다.
     """
@@ -379,20 +379,30 @@ def _think_plastic_par(fs, seed, step, h_max, alive, ids, n_hidden, obs, h, hnew
                             v = -1.0
                         Hrec[i, j, k] = v
         if sigma > 0.0:
-            # 노드 섭동. 흔든 값은 출력으로만 간다. 되먹임으로 남는 은닉 상태(h)는 흔들지 않은 값이라
-            # 되먹임 연결의 흔적에 잡음이 섞이지 않는다(섞이면 자기 연결에 잡음끼리의 곱이 쌓인다).
-            # 흔든 양은 tanh 뒤에서 실제로 바뀐 만큼이다: 포화한 뉴런은 흔들어도 거의 안 바뀐다.
+            # 노드 섭동. 흔든 값은 움직임 출력(추력, 회전)으로만 간다. 잠·번식·신호 같은 다른 출력은 흔들지
+            # 않은 값을 읽는다(흔들면 잠드는 빈도가 달라져 켠 세계와 끈 세계의 비교가 흐려진다).
+            # 되먹임으로 남는 은닉 상태(h)도 흔들지 않은 값이라 되먹임 연결의 흔적에 잡음이 섞이지 않는다
+            # (섞이면 자기 연결에 잡음끼리의 곱이 쌓인다).
+            # 출력에는 tanh 뒤에서 실제로 바뀐 만큼(d)이 가고, 흔적에는 "잡음 × 기울기(1 − c²)"(e)를 쌓는다.
+            # 둘은 잡음이 작으면 같다. d는 tanh가 굽어 있어 평균이 0이 아니고(약 −σ²·c·(1−c²)), 그대로 쌓으면
+            # 보상과 상관없이 가중치가 한쪽으로 밀린다. e는 평균이 0이고, 포화한 뉴런에서는 d처럼 작아진다.
             # 자는 동안은 흔들지 않는다(행동이 꺼져 있어 흔들어도 결과가 없다). 흔적은 흐려지기만 한다.
-            # 이 규칙에서는 epost를 "이번 스텝에 흔든 양"을 담는 칸으로 쓰고 epre_in, epre_h는 쓰지 않는다.
+            # 이 규칙에서는 epost를 "이번 스텝에 흔적에 넣는 양"을 담는 칸으로 쓰고 epre_in, epre_h는 쓰지 않는다.
             awake = asleep[i] <= 0.0
+            d_thrust = 0.0
+            d_turn = 0.0
             for k in range(nh):
                 c = float(hnew[i, k])
-                d = 0.0
+                e = 0.0
                 if awake:
+                    xi = sigma * normal(seed, S_PERTURB, ids[i], step * h_max + k)
                     # tanh(a + b) = (tanh a + tanh b) / (1 + tanh a · tanh b): tanh 앞에 잡음을 더한 것과 같다
-                    tn = math.tanh(sigma * normal(seed, S_PERTURB, ids[i], step * h_max + k))
+                    tn = math.tanh(xi)
                     d = (c + tn) / (1.0 + c * tn) - c
-                epost[i, k] = d
+                    d_thrust += Wout[i, ACT_THRUST, k] * d
+                    d_turn += Wout[i, ACT_TURN, k] * d
+                    e = (1.0 - c * c) * xi
+                epost[i, k] = e
             for j in range(n_in):
                 xj = obs[i, j]
                 for k in range(nh):
@@ -406,7 +416,11 @@ def _think_plastic_par(fs, seed, step, h_max, alive, ids, n_hidden, obs, h, hnew
             for o in range(n_out):
                 acc = bout[i, o]
                 for k in range(nh):
-                    acc += Wout[i, o, k] * (h[i, k] + epost[i, k])
+                    acc += Wout[i, o, k] * h[i, k]
+                if o == ACT_THRUST:
+                    acc += d_thrust
+                elif o == ACT_TURN:
+                    acc += d_turn
                 act[i, o] = math.tanh(acc)
             continue
         for k in range(nh):
