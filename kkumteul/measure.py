@@ -119,6 +119,7 @@ def inject_agent(world: World, genomes: dict, row: int, tag: int, x: float, y: f
     s.e_prev[j] = cfg.e_start
     s.mod[j] = s.exp_r[j] = s.fatigue[j] = s.asleep[j] = 0.0
     s.last_proto[j] = 0
+    s.a_held[j] = -1
     for name in ("horm", "sig", "epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link",
                  "elig_in", "elig_rec"):
         getattr(s, name)[j] = 0.0

@@ -13,7 +13,7 @@ from .config import ACT_CARRY, EXT_SEASON, Config, N_REWARD
 # 2~4단계에서 새로 생긴 저장 필드. 옛 체크포인트에는 없어도 된다(그 밖의 필드가 없으면 깨진 것이다)
 NEW_SINCE_STAGE1 = frozenset({"rw", "eta", "alpha", "horm", "mod", "exp_r", "e_prev", "fatigue", "asleep",
                               "epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link", "last_proto",
-                              "sig", "trail", "soil", "f_kind", "f_born"})
+                              "sig", "trail", "soil", "f_kind", "f_born", "a_held", "f_holder", "f_dropped"})
 
 BIRTH_DTYPE = np.dtype([("id", "<i8"), ("parent", "<i8"), ("step", "<i8"),
                         ("gen", "<i4"), ("n_hidden", "<i4"), ("kind", "<i4")])
@@ -34,6 +34,8 @@ class World:
         self.passive_births = None           # 대조 실행용: (스텝 배열, 횟수 배열)
         self.passive_deaths = None
         self.lifetime_reset: list[str] = []  # 크기를 올려 읽을 때 0에서 다시 시작한 평생 학습 배열(내용이 있던 것만)
+        if cfg.field_cap:
+            self.recount_field()
         if populate:
             nb = k.populate_initial(self.s, cfg.init_agents, cfg.max_age, self.fp, self.ip)
             self._take_births(nb)
@@ -64,6 +66,26 @@ class World:
         self.cfg = cfg
         self.fp, self.ip = k.pack_params(cfg)
         self.fs, self.isp = st.pack_stage_params(cfg)
+        if old.carry_enabled and not cfg.carry_enabled:
+            self.release_all()
+        if cfg.field_cap and not old.field_cap:
+            self.recount_field()    # 꺼져 있던 동안 들판 알 수를 맞추지 않았다
+
+    # ---- 들기: 물건 칸 ----
+    def recount_field(self) -> None:
+        """들판 알 수(C_NFIELD)를 살아 있는 들판 알(들판을 떠난 적 없고 사체가 아닌 것) 수로 다시 센다."""
+        s = self.s
+        s.counters[k.C_NFIELD] = int((s.f_alive & (s.f_dropped == 0) & (s.f_kind != k.KIND_CORPSE)).sum())
+
+    def release_all(self) -> None:
+        """모든 손을 푼다. 든 물건은 든 개체의 자리에 내려놓는다(f_dropped는 그대로 1이다)."""
+        s = self.s
+        items = np.flatnonzero(s.f_holder >= 0)
+        holders = s.f_holder[items]
+        s.fx[items] = s.x[holders]
+        s.fy[items] = s.y[holders]
+        s.f_holder[:] = -1
+        s.a_held[:] = -1
 
     def calm_new_outputs(self, old_n_out: int) -> list[str]:
         """크기를 올려 읽어 새로 생긴 출력 자리(old_n_out부터)의 편향을 새로 만든 개체의 기본값으로 맞춘다.
@@ -273,6 +295,8 @@ class World:
         # f_born이 없던 옛 체크포인트의 먹이는 난 스텝이 0으로 채워진다. 부패를 켜면 모두 오래된 먹이로 취급된다
         if "e_prev" in missing:
             s.e_prev[:] = s.energy
+        if self.cfg.field_cap:
+            self.recount_field()
         self.step_no = int(s.counters[k.C_STEP])
         return exact and not missing
 

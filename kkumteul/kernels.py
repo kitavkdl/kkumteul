@@ -68,6 +68,7 @@ AGENT_FIELDS = [
     # 노드 섭동(perturb_sigma > 0)의 연결별 흔적: 무엇이 들어올 때 어느 뉴런을 흔들었는가. EI·EH는 꺼져 있으면 1이다
     ("elig_in", np.float32, ("EI", "EH"), True),
     ("elig_rec", np.float32, ("EH", "EH"), True),
+    ("a_held", np.int32, (), True),           # 든 물건의 먹이 칸 번호(-1이면 빈손)
     ("hnew", np.float32, ("H",), False),
     ("obs", np.float32, ("I",), False),
     ("act", np.float32, ("O",), False),
@@ -81,6 +82,8 @@ FOOD_FIELDS = [
     ("f_energy", np.float64, True),
     ("f_kind", np.int8, True),       # 먹이 종류 0/1, 2는 늘 먹을 수 있는 것(사체)
     ("f_born", np.int64, True),      # 놓인 스텝(상한에서 가장 오래된 것을 고를 때, 부패의 나이를 셀 때 쓴다)
+    ("f_holder", np.int32, True),    # 이 물건을 든 개체 칸(-1이면 아무도 들지 않음)
+    ("f_dropped", np.int8, True),    # 1이면 들판을 떠난 적 있는 물건(들 때 켜고, 내려놓아도 1로 남는다)
 ]
 # ---- 먹이 종류 (f_kind) ----
 KIND_A = 0           # 시야에서 양수로 보이는 종류
@@ -94,8 +97,8 @@ LIFETIME_FLEX = ("epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link", "
 # 노드 섭동을 켰을 때만 크게 잡는 배열
 PERTURB_FLEX = ("elig_in", "elig_rec")
 # 나중에 생긴 저장 필드의 기본값. 값이 모두 기본값이면 상태 해시에 넣지 않고(그 필드가 생기기 전 해시와 같게),
-# 이 필드가 없는 옛 체크포인트를 읽으면 기본값으로 둔다. 새 저장 필드는 여기에 더한다.
-HASH_DEFAULTS = {"elig_in": 0, "elig_rec": 0}
+# 이 필드가 없는 옛 체크포인트를 읽으면 기본값으로 둔다(alloc_state가 이 값으로 채운다). 새 저장 필드는 여기에 더한다.
+HASH_DEFAULTS = {"elig_in": 0, "elig_rec": 0, "a_held": -1, "f_holder": -1, "f_dropped": 0}
 OTHER_SCRATCH = ["a_start", "a_items", "f_start", "f_items", "cursor", "bbuf", "dbuf", "dbuf_f"]
 
 State = namedtuple(
@@ -128,7 +131,7 @@ C_FOOD_REPLACED = 18    # 상한에서 새 먹이에 자리를 내주고 사라�
 C_DEATH_KILLED = 19     # 공격을 맞은 스텝에 에너지가 바닥나 죽은 수
 C_MIGRANTS = 20         # 다른 세계에서 옮겨 심은 개체 수(pack.migrate). 0이 아니면 이주가 있었던 세계다
 C_SPOILED = 21          # 썩어서 사라진 먹이 수(spoil_food)
-C_NFIELD = 22           # 들기 장치용 번호(아직 쓰는 곳 없음)
+C_NFIELD = 22           # 들판 알 수(든 적 없는 알, 사체 제외). 먹이 상한이 들판 알만 셀 때(Config.field_cap)만 맞춘다
 C_CARRIES = 23
 # 아래 칸은 확장 크기 세계에만 있다. 꼬리가 모두 0이면 상태 해시에 넣지 않는다.
 C_STORE_EVICTED = 24    # 저장소 자리가 차서 밀려난 먹이 수
@@ -181,12 +184,12 @@ DEATH_KILLED = 4         # 공격을 맞은 스텝에 에너지가 바닥남
  P_FOV, P_VRANGE, P_VNOISE, P_SMELL_LEN, P_SMELL_GAIN, P_INIT_WIN, P_INIT_WREC, P_INIT_WOUT,
  P_BIAS_THRUST, P_BIAS_REPRO, P_SIGMA_INIT, P_SIGMA_MIN, P_SIGMA_MAX, P_SIGMA_TAU,
  P_P_HIDDEN, P_COLOR_SIGMA, P_SYN, P_BACK_COST, P_ETA_INIT, P_ETA_MAX, P_ALPHA_INIT, P_POISON,
- P_KIND_RATIO, P_SPOIL_RATE, P_SPOIL_MIN, N_FP) = range(51)
+ P_KIND_RATIO, P_SPOIL_RATE, P_SPOIL_MIN, P_CARRY_COST, N_FP) = range(52)
 
 # ---- 정수 설정 칸 ----
 (Q_SEED, Q_GW, Q_GH, Q_FOOD_CAP, Q_N_PATCH, Q_PATCH_LIFE, Q_MAX_AGE, Q_MIN_AGENTS,
  Q_SECTORS, Q_H_MAX, Q_H_INIT, Q_H_MIN, Q_REPRO_BRAIN, Q_REPRO_MIN_AGE, Q_MUT, Q_CORPSE,
- Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, Q_CAP_REPLACE, Q_SPOIL_AFTER, N_IP) = range(22)
+ Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, Q_CAP_REPLACE, Q_SPOIL_AFTER, Q_FIELD_CAP, Q_CARRY, N_IP) = range(24)
 
 
 def pack_params(cfg):
@@ -242,6 +245,7 @@ def pack_params(cfg):
     fp[P_KIND_RATIO] = cfg.kind_ratio
     fp[P_SPOIL_RATE] = cfg.spoil_rate
     fp[P_SPOIL_MIN] = cfg.spoil_min_frac * cfg.food_energy
+    fp[P_CARRY_COST] = cfg.carry_cost_mult
     ip[Q_SEED] = cfg.seed
     ip[Q_GW] = cfg.grid_w
     ip[Q_GH] = cfg.grid_h
@@ -263,6 +267,8 @@ def pack_params(cfg):
     ip[Q_KIND_PERIOD] = cfg.kind_flip_period
     ip[Q_CAP_REPLACE] = int(cfg.food_cap_replace)
     ip[Q_SPOIL_AFTER] = cfg.spoil_after
+    ip[Q_FIELD_CAP] = int(cfg.field_cap)
+    ip[Q_CARRY] = int(cfg.carry_enabled)
     return fp, ip
 
 
@@ -295,6 +301,8 @@ def alloc_state(cfg) -> State:
     d["bbuf"] = np.zeros((2 * n + 8, 6), dtype=np.int64)
     d["dbuf"] = np.zeros((2 * n + 8, 7), dtype=np.int64)
     d["dbuf_f"] = np.zeros(2 * n + 8, dtype=np.float64)
+    for name, v in HASH_DEFAULTS.items():
+        d[name][...] = v    # 옛 체크포인트에 없는 필드는 이 값 그대로 남는다(a_held가 0이면 0번 칸을 든 꼴이 된다)
     return State(**d)
 
 
@@ -338,9 +346,15 @@ def pick_kind(seed, a, b, ratio):
     return KIND_A
 
 
+@njit(cache=True, inline="always")
+def is_field(s, j):
+    """먹이 칸 j가 들판 알인가: 들판을 떠난 적 없고 사체가 아니다."""
+    return s.f_dropped[j] == 0 and s.f_kind[j] != KIND_CORPSE
+
+
 @njit(cache=True)
-def _place_food(s, px, py, e, kind, step):
-    """빈 먹이 칸에 놓는다. 자리가 없으면 False."""
+def _place_food(s, px, py, e, kind, step, field_cap):
+    """빈 먹이 칸에 아무도 들지 않은 들판 물건으로 놓는다. field_cap이면 들판 알 수도 센다. 자리가 없으면 False."""
     nslots = s.fx.shape[0]
     cur = s.counters[C_FOOD_CURSOR]
     for _ in range(nslots):
@@ -352,8 +366,12 @@ def _place_food(s, px, py, e, kind, step):
             s.f_energy[cur] = e
             s.f_kind[cur] = kind
             s.f_born[cur] = step
+            s.f_holder[cur] = -1
+            s.f_dropped[cur] = 0
             s.f_alive[cur] = True
             s.counters[C_NFOOD] += 1
+            if field_cap != 0 and is_field(s, cur):
+                s.counters[C_NFIELD] += 1
             s.counters[C_FOOD_CURSOR] = cur + 1
             return True
         cur += 1
@@ -361,39 +379,79 @@ def _place_food(s, px, py, e, kind, step):
 
 
 @njit(cache=True)
-def _drop_food_slot(s, j):
-    """먹이 칸 j를 비운다(f_alive 끄고 먹이 수를 하나 줄인다). 에너지 장부는 부르는 쪽이 쓴다."""
+def _drop_food_slot(s, j, field_cap):
+    """먹이 칸 j를 비운다. 먹이 칸을 없애는 길은 모두 여기를 지난다.
+    든 개체가 있으면 손을 풀고, field_cap이고 들판 알이면 들판 알 수도 줄인다. 에너지 장부는 부르는 쪽이 쓴다."""
+    h = s.f_holder[j]
+    if h >= 0:
+        s.a_held[h] = -1
+        s.f_holder[j] = -1
+    if field_cap != 0 and is_field(s, j):
+        s.counters[C_NFIELD] -= 1
     s.f_alive[j] = False
     s.counters[C_NFOOD] -= 1
 
 
 @njit(cache=True)
-def _evict_oldest(s):
-    """가장 먼저 놓인 먹이 하나를 없앤다(같은 스텝에 놓인 것끼리는 낮은 칸부터, 사체도 가리지 않는다).
+def _evict_oldest(s, field_cap):
+    """가장 먼저 놓인 먹이 하나를 없앤다(같은 스텝에 놓인 것끼리는 낮은 칸부터).
+    field_cap이면 들판 알만 고르고(든 알·내려놓은 알·사체는 두고), 아니면 사체도 가리지 않는다.
     없앤 에너지는 장부의 L_LOST로 간다. 없앨 먹이가 없으면 False."""
     best = -1
     born = 0
     for j in range(s.fx.shape[0]):
-        if s.f_alive[j] and (best < 0 or s.f_born[j] < born):
+        if not s.f_alive[j] or (field_cap != 0 and not is_field(s, j)):
+            continue
+        if best < 0 or s.f_born[j] < born:
             best = j
             born = s.f_born[j]
     if best < 0:
         return False
-    s.f_alive[best] = False
-    s.counters[C_NFOOD] -= 1
+    _drop_food_slot(s, best, field_cap)
     s.counters[C_FOOD_REPLACED] += 1
     s.ledger[L_LOST] += s.f_energy[best]
     return True
 
 
 @njit(cache=True)
-def make_room(s, cap, replace):
-    """새 먹이 한 알을 놓아도 되는가. 상한에 닿았으면 replace일 때만 가장 오래된 것을 치우고 True."""
-    if s.counters[C_NFOOD] < cap:
+def make_room(s, cap, replace, field_cap):
+    """새 먹이 한 알을 놓아도 되는가. 상한에 닿았으면 replace일 때만 가장 오래된 것을 치우고 True.
+    field_cap이면 들판 알 수로, 아니면 칸 점유 수로 상한과 견준다."""
+    n = s.counters[C_NFIELD] if field_cap != 0 else s.counters[C_NFOOD]
+    if n < cap:
         return True
     if replace == 0:
         return False
-    return _evict_oldest(s)
+    return _evict_oldest(s, field_cap)
+
+
+@njit(cache=True)
+def evict_stored(s, field_cap):
+    """들지 않은 들판 아닌 물건(내려놓은 알·사체) 가운데 가장 먼저 놓인 것(같으면 낮은 칸)을 치운다.
+    에너지는 장부의 L_LOST로 간다. 치울 것이 없으면 False."""
+    best = -1
+    born = 0
+    for j in range(s.fx.shape[0]):
+        if not s.f_alive[j] or s.f_holder[j] >= 0 or is_field(s, j):
+            continue
+        if best < 0 or s.f_born[j] < born:
+            best = j
+            born = s.f_born[j]
+    if best < 0:
+        return False
+    _drop_food_slot(s, best, field_cap)
+    s.counters[C_STORE_EVICTED] += 1
+    s.ledger[L_LOST] += s.f_energy[best]
+    return True
+
+
+@njit(cache=True)
+def store_room(s, field_cap):
+    """들판 아닌 물건 하나를 더 둘 자리가 있는가. 들판 아닌 물건은 개체 칸 수(max_agents)까지만 둔다.
+    찼으면 evict_stored로 자리를 내 보고 그 결과를 돌려준다. 들판 알 수를 세는 세계(field_cap)에서만 부른다."""
+    if s.counters[C_NFOOD] - s.counters[C_NFIELD] < s.x.shape[0]:
+        return True
+    return evict_stored(s, field_cap)
 
 
 # ---- 먹이 ----
@@ -406,7 +464,7 @@ def spawn_food(step, s, fp, ip, mult=1.0):
     n_patches = ip[Q_N_PATCH]
     s.budget[0] += fp[P_INFLOW] * mult
     while s.budget[0] >= e_food:
-        if not make_room(s, ip[Q_FOOD_CAP], ip[Q_CAP_REPLACE]):
+        if not make_room(s, ip[Q_FOOD_CAP], ip[Q_CAP_REPLACE], ip[Q_FIELD_CAP]):
             s.ledger[L_DISCARD] += s.budget[0]
             s.budget[0] = 0.0
             break
@@ -423,7 +481,7 @@ def spawn_food(step, s, fp, ip, mult=1.0):
         kind = KIND_A
         if ip[Q_KINDS] != 0:
             kind = pick_kind(seed, serial, 0, fp[P_KIND_RATIO])
-        if _place_food(s, px, py, e_food, kind, step):
+        if _place_food(s, px, py, e_food, kind, step, ip[Q_FIELD_CAP]):
             s.ledger[L_SPAWN] += e_food
             s.budget[0] -= e_food
         else:
@@ -448,7 +506,7 @@ def spoil_food(step, s, fp, ip, rate_mult=1.0):
         s.ledger[L_LOST] += lost
         if s.f_energy[j] < floor:
             s.ledger[L_LOST] += s.f_energy[j]
-            _drop_food_slot(s, j)
+            _drop_food_slot(s, j, ip[Q_FIELD_CAP])
             s.counters[C_SPOILED] += 1
 
 
@@ -798,6 +856,7 @@ def eat(step, s, fp, ip):
     r = fp[P_A_RAD] + fp[P_F_RAD]
     r2 = r * r
     e_max = fp[P_E_MAX]
+    field_cap = ip[Q_FIELD_CAP]
     for i in range(n):
         s.ate[i] = 0.0
         if not s.alive[i] or s.energy[i] >= e_max:
@@ -822,14 +881,13 @@ def eat(step, s, fp, ip):
                 c = yy * gw + xx
                 for p in range(s.f_start[c], s.f_start[c + 1]):
                     j = s.f_items[p]
-                    if not s.f_alive[j]:
-                        continue
+                    if not s.f_alive[j] or s.f_holder[j] >= 0:
+                        continue    # 든 물건은 먹지 않는다(먹으려면 내려놓는다)
                     ddx = _wdiff(s.fx[j] - xi, w)
                     ddy = _wdiff(s.fy[j] - yi, hgt)
                     if ddx * ddx + ddy * ddy > r2:
                         continue
-                    s.f_alive[j] = False
-                    s.counters[C_NFOOD] -= 1
+                    _drop_food_slot(s, j, field_cap)
                     s.counters[C_EATEN] += 1
                     if kinds and s.f_kind[j] != KIND_CORPSE and s.f_kind[j] != good:
                         # 독: 먹이의 에너지는 사라지고 먹은 쪽도 에너지를 잃는다
@@ -900,6 +958,7 @@ def _reset_body(s, j, aid, parent, gen, tag, step, px, py, hd, e):
     for a in range(s.elig_rec.shape[1]):
         for k in range(s.elig_rec.shape[2]):
             s.elig_rec[j, a, k] = 0.0
+    s.a_held[j] = -1
     s.counters[C_NALIVE] += 1
 
 
@@ -1058,11 +1117,20 @@ def copy_genome(s, i, j, cid, fp, ip):
 
 # ---- 죽음 ----
 @njit(cache=True)
-def _remove(s, i, cause, step, recycle, nd):
+def _remove(s, i, cause, step, recycle, nd, field_cap):
     s.alive[i] = False
     s.counters[C_NALIVE] -= 1
+    j = s.a_held[i]
+    if j >= 0:
+        # 들고 있던 물건은 죽은 자리에 내려놓는다(f_dropped는 들 때 이미 1이다)
+        s.fx[j] = s.x[i]
+        s.fy[j] = s.y[i]
+        s.f_holder[j] = -1
+        s.a_held[i] = -1
     e = s.energy[i]
-    if recycle and e > 0.0 and _place_food(s, s.x[i], s.y[i], e, KIND_CORPSE, step):
+    # 사체는 들판 아닌 물건이다. 들판 알만 세는 세계에서는 저장 칸에 자리가 있어야 남는다
+    if (recycle and e > 0.0 and (field_cap == 0 or store_room(s, field_cap))
+            and _place_food(s, s.x[i], s.y[i], e, KIND_CORPSE, step, field_cap)):
         pass
     else:
         s.ledger[L_LOST] += e
@@ -1097,14 +1165,14 @@ def process_deaths(step, s, fp, ip):
             if s.touch[i] == TOUCH_HIT:
                 # 이번 스텝에 공격을 맞았고 에너지가 바닥났다. 굶어 죽음과 따로 센다
                 # (맞은 뒤 제 공격 비용으로 바닥난 드문 경우도 여기에 든다)
-                _remove(s, i, DEATH_KILLED, step, False, nd)
+                _remove(s, i, DEATH_KILLED, step, False, nd, ip[Q_FIELD_CAP])
                 s.counters[C_DEATH_KILLED] += 1
             else:
-                _remove(s, i, DEATH_STARVE, step, False, nd)
+                _remove(s, i, DEATH_STARVE, step, False, nd, ip[Q_FIELD_CAP])
                 s.counters[C_DEATH_STARVE] += 1
             nd += 1
         elif s.age[i] >= ip[Q_MAX_AGE]:
-            _remove(s, i, DEATH_AGE, step, corpse, nd)
+            _remove(s, i, DEATH_AGE, step, corpse, nd, ip[Q_FIELD_CAP])
             s.counters[C_DEATH_AGE] += 1
             nd += 1
     return nd
@@ -1273,7 +1341,7 @@ def passive_events(step, s, fp, ip, n_births, n_deaths):
         i = _nth_alive(s, int(u01(seed, S_PASSIVE, step, 2 * k) * na))
         if i < 0:
             break
-        _remove(s, i, DEATH_PASSIVE, step, False, nd)
+        _remove(s, i, DEATH_PASSIVE, step, False, nd, ip[Q_FIELD_CAP])
         s.counters[C_DEATH_PASSIVE] += 1
         nd += 1
     for k in range(n_births):
@@ -1342,7 +1410,7 @@ def strike(step, s, fp, ip, x, y, radius, kill_prob, burn_food, stream_seed, nd)
             continue
         if kill_prob < 1.0 and u01(seed, S_SCENARIO, s.ids[i], stream_seed) >= kill_prob:
             continue
-        _remove(s, i, DEATH_DISASTER, step, False, nd + killed)
+        _remove(s, i, DEATH_DISASTER, step, False, nd + killed, ip[Q_FIELD_CAP])
         s.counters[C_DEATH_DISASTER] += 1
         killed += 1
     if burn_food:
@@ -1353,7 +1421,6 @@ def strike(step, s, fp, ip, x, y, radius, kill_prob, burn_food, stream_seed, nd)
             ddy = _wdiff(s.fy[j] - y, hgt)
             if ddx * ddx + ddy * ddy > r2:
                 continue
-            s.f_alive[j] = False
-            s.counters[C_NFOOD] -= 1
+            _drop_food_slot(s, j, ip[Q_FIELD_CAP])
             s.ledger[L_LOST] += s.f_energy[j]
     return killed

@@ -294,10 +294,10 @@ def _empty_world(*presets, **kw):
     return World(small(*presets, init_agents=0, min_agents=0, food_inflow=0.0, **kw))
 
 
-def _place(w, e=1.0, born=0, kind=k.KIND_A):
+def _place(w, e=1.0, born=0, kind=k.KIND_A, x=10.0, y=10.0):
     """먹이 하나를 놓고 칸 번호를 돌려준다. 에너지 장부에도 들어온 것으로 적는다."""
     before = w.s.f_alive.copy()
-    assert k._place_food(w.s, 10.0, 10.0, e, kind, born)
+    assert k._place_food(w.s, x, y, e, kind, born, int(w.cfg.field_cap))
     w.s.ledger[k.L_SPAWN] += e
     return int(np.flatnonzero(w.s.f_alive & ~before)[0])
 
@@ -333,7 +333,7 @@ def test_corpse_spoils_too():
 def test_drop_food_slot_clears_slot_and_count():
     w = _empty_world("ext")
     j = _place(w)
-    k._drop_food_slot(w.s, j)
+    k._drop_food_slot(w.s, j, int(w.cfg.field_cap))
     assert not w.s.f_alive[j] and w.s.counters[k.C_NFOOD] == 0
 
 
@@ -499,3 +499,341 @@ def test_old_ext_checkpoint_loads_exact(tmp_path):
     assert w2.state_hash() == w.state_hash()
     w3 = World(small("harsh"), populate=False)
     assert w3.load_arrays(arrays) is True
+
+
+# ---- 들기: 물건 칸과 장부 ----
+def hold(w, i, j):
+    """개체 i가 물건 j를 든 꼴로 맞춘다. 들기처럼 들판 알이면 들판 수를 하나 줄이고 f_dropped를 켠다."""
+    s = w.s
+    if s.f_dropped[j] == 0 and s.f_kind[j] != k.KIND_CORPSE:
+        s.counters[k.C_NFIELD] -= 1
+    s.a_held[i], s.f_holder[j], s.f_dropped[j] = j, i, 1
+
+
+def unhold(w, i):
+    """개체 i가 든 물건을 놓는다(f_dropped는 1로 남는다)."""
+    s = w.s
+    j = int(s.a_held[i])
+    s.f_holder[j] = -1
+    s.a_held[i] = -1
+
+
+def _place_stored(w, e=1.0, born=0, kind=k.KIND_A, x=100.0, y=100.0):
+    """내려놓은 물건(들판을 떠난 적 있는 알) 하나를 놓고 칸 번호를 돌려준다."""
+    j = _place(w, e, born, kind, x, y)
+    if w.s.f_kind[j] != k.KIND_CORPSE:
+        w.s.counters[k.C_NFIELD] -= 1
+    w.s.f_dropped[j] = 1
+    return j
+
+
+def _n_field(s):
+    return int((s.f_alive & (s.f_dropped == 0) & (s.f_kind != k.KIND_CORPSE)).sum())
+
+
+def _check_hands(s):
+    """손과 물건이 서로를 가리키는가."""
+    held = np.flatnonzero(s.a_held >= 0)
+    assert s.alive[held].all() and (s.f_holder[s.a_held[held]] == held).all() and s.f_alive[s.a_held[held]].all()
+    items = np.flatnonzero(s.f_holder >= 0)
+    assert (s.a_held[s.f_holder[items]] == items).all()
+    assert (s.f_dropped[items] == 1).all()
+
+
+def _eat_once(w):
+    """먹이 격자를 세우고 eat만 한 번 부른다(개체가 움직이지 않게)."""
+    s, fp, ip = w.s, w.fp, w.ip
+    k.build_grid(s.fx, s.fy, s.f_alive, fp[k.P_INV_CELL], int(ip[k.Q_GW]), int(ip[k.Q_GH]),
+                 s.f_start, s.f_items, s.cursor)
+    k.eat(w.step_no, s, fp, ip)
+
+
+def _shuffle_hands(w, rng):
+    """든 손의 절반쯤을 풀고, 빈손 개체 몇에게 들지 않은 먹이를 쥐여 준다."""
+    s = w.s
+    for i in np.flatnonzero(s.a_held >= 0):
+        if rng.random() < 0.5:
+            unhold(w, int(i))
+    free_hands = np.flatnonzero(s.alive & (s.a_held < 0))
+    items = np.flatnonzero(s.f_alive & (s.f_holder < 0))
+    n = min(10, len(free_hands), len(items))
+    for i, j in zip(rng.choice(free_hands, n, replace=False), rng.choice(items, n, replace=False)):
+        hold(w, int(i), int(j))
+
+
+def test_carry_needs_ext_size():
+    with pytest.raises(ValueError, match="ext"):
+        small(carry_enabled=True)
+    c = small("ext", carry_enabled=True)
+    assert c.needs_ext and c.field_cap and not small("ext").field_cap
+
+
+def test_carry_fields_default_and_hash_unchanged():
+    w = World(small("ext"))
+    assert (w.s.a_held == -1).all() and (w.s.f_holder == -1).all() and (w.s.f_dropped == 0).all()
+    w.run(20); h = w.state_hash()
+    i = int(np.flatnonzero(w.s.alive)[0])
+    w.s.a_held[i] = 5
+    assert w.state_hash() != h          # 기본값이 아니면 해시에 들어간다
+    w.s.a_held[i] = -1
+    assert w.state_hash() == h          # 모두 기본값이면 빠진다
+
+
+def test_old_checkpoint_without_carry_fields_loads_exact(tmp_path):
+    # 확장 세계를 저장한 뒤 체크포인트에서 a_held, f_holder, f_dropped를 빼고 읽는다 →
+    # 기본값으로 채워지고 load_arrays가 True, 저장 해시 검증 통과
+    w = World(small("harsh")); w.run(60)
+    path = ckpt.save(w, tmp_path)
+    with np.load(path) as z:
+        arrays = {n: z[n] for n in z.files}
+    for name in ("a_held", "f_holder", "f_dropped"):
+        del arrays[name]
+    np.savez(path, **arrays)
+    meta_path = path.with_suffix(".json")
+    meta = json.loads(meta_path.read_text())
+    meta["npz_sha256"] = ckpt.file_sha256(path)
+    meta_path.write_text(json.dumps(meta))
+    w2, _ = ckpt.load(path)                       # 저장 해시 검증을 켠 채로 읽는다
+    assert (w2.s.a_held == -1).all() and (w2.s.f_holder == -1).all() and (w2.s.f_dropped == 0).all()
+    assert w2.state_hash() == w.state_hash()
+    w3 = World(small("harsh"), populate=False)
+    assert w3.load_arrays(arrays) is True
+    assert (w3.s.a_held == -1).all() and (w3.s.f_holder == -1).all()
+
+
+def test_field_counter_matches_every_step():
+    # carry 켠 ext 세계 + stage4(거름 niche_world) + corpse 켬 + spoil_enabled + food_cap_replace + 작은 food_cap,
+    # 각본 없이 매 스텝 strike를 가끔 손으로 부른다(burn_food). 400스텝 동안 매 스텝
+    # C_NFIELD == (f_alive & f_dropped==0 & f_kind != KIND_CORPSE).sum(), C_NFOOD == f_alive.sum(). 잔차 < 1e-9
+    w = World(small("stage4", "ext", carry_enabled=True, corpse_to_food=True, spoil_enabled=True, spoil_after=60,
+                    spoil_rate=0.02, food_cap_replace=True, food_cap=120, max_age=300))
+    w.s.soil[::7] = 2.0                         # 처음 개체는 거름을 쌓지 않으므로 거름 땅을 깔아 거름 먹이가 나게 한다
+    w.s.ledger[k.L_INJECT] += float(w.s.soil.sum())
+    rng = np.random.default_rng(5)
+    for t in range(400):
+        if t % 20 == 0:
+            _shuffle_hands(w, rng)
+        if t % 37 == 11:
+            w.strike(rng.random() * 256.0, rng.random() * 256.0, 40.0, kill=0.5, burn_food=True, key=t)
+        w.step()
+        s = w.s
+        assert s.counters[k.C_NFIELD] == _n_field(s), t
+        assert s.counters[k.C_NFOOD] == int(s.f_alive.sum()), t
+        _check_hands(s)
+        assert (s.a_held[~s.alive] == -1).all()
+    c = w.s.counters
+    # 시험이 지나간 길: 상한 교체, 부패, 늙어 죽음(사체), 운석, 거름 먹이, 내려놓은 물건
+    assert c[k.C_FOOD_REPLACED] > 0 and c[k.C_SPOILED] > 0 and c[k.C_DEATH_AGE] > 0 and c[k.C_DEATH_DISASTER] > 0
+    assert c[k.C_FERTILE] > 0
+    assert (w.s.f_alive & (w.s.f_dropped == 1)).any()
+    assert rel_residual(w) < 1e-9
+
+
+def test_eat_releases_and_counts_field():
+    # 들판 알을 먹으면 C_NFIELD가 하나 줄고, 내려놓은 알(f_dropped=1)을 먹으면 C_NFIELD는 그대로
+    w = World(small("ext", carry_enabled=True, init_agents=2, min_agents=0, food_inflow=0.0))
+    s = w.s
+    a, b = np.flatnonzero(s.alive)[:2]
+    s.ledger[k.L_LOST] += s.energy[a] - 1.0     # 시험이 깎는 에너지를 장부에도 적는다
+    s.x[a], s.y[a], s.energy[a] = 10.0, 10.0, 1.0
+    s.x[b], s.y[b] = 200.0, 200.0
+    field = _place(w, x=10.0, y=10.0)
+    _place(w, x=150.0, y=150.0)                 # 멀리 있는 들판 알 하나(먹히지 않는다)
+    assert s.counters[k.C_NFIELD] == 2 and s.counters[k.C_NFOOD] == 2
+    _eat_once(w)
+    assert not s.f_alive[field] and s.counters[k.C_NFIELD] == 1 and s.counters[k.C_NFOOD] == 1
+    stored = _place_stored(w, x=10.0, y=10.0)
+    assert s.counters[k.C_NFIELD] == 1 and s.counters[k.C_NFOOD] == 2
+    _eat_once(w)
+    assert not s.f_alive[stored] and s.counters[k.C_NFIELD] == 1 and s.counters[k.C_NFOOD] == 1
+    # 든 물건의 칸을 비우면 손도 풀린다
+    j = _place(w, x=200.0, y=200.0)
+    hold(w, b, j)
+    k._drop_food_slot(s, j, 1)
+    assert s.a_held[b] == -1 and s.f_holder[j] == -1 and s.counters[k.C_NFIELD] == 1
+    s.ledger[k.L_LOST] += s.f_energy[j]
+    assert rel_residual(w) < 1e-9
+
+
+def test_held_item_is_not_eaten():
+    # 든 알 곁에 배고픈 다른 개체를 두고 한 스텝 → 알이 그대로 f_alive, f_holder 그대로
+    w = World(small("ext", carry_enabled=True, init_agents=2, min_agents=0, food_inflow=0.0))
+    s = w.s
+    a, b = np.flatnonzero(s.alive)[:2]
+    for i in (a, b):
+        s.x[i], s.y[i], s.energy[i] = 10.0, 10.0, 1.0
+    j = _place(w, x=10.0, y=10.0)
+    hold(w, a, j)
+    _eat_once(w)
+    assert s.f_alive[j] and s.f_holder[j] == a and s.a_held[a] == j
+    assert s.ate[a] == 0.0 and s.ate[b] == 0.0 and s.counters[k.C_EATEN] == 0
+
+
+def test_death_drops_item_and_slot_reuse_is_empty_handed():
+    # 물건을 든 개체를 굶겨 죽인다 → 물건 f_holder == -1, f_dropped == 1, 자리 = 죽은 자리, f_alive
+    # 이어 그 칸에 새 개체가 나면(process_births/reseed) a_held == -1. strike로 죽인 경우도 같다
+    w = World(small("ext", carry_enabled=True, init_agents=5, min_agents=5, food_inflow=0.0))
+    s = w.s
+    assert s.alive[:5].all()
+    j = _place(w, x=50.0, y=50.0)
+    hold(w, 0, j)
+    s.ledger[k.L_LOST] += s.energy[0] + 0.5     # 시험이 깎는 에너지를 장부에도 적는다
+    s.x[0], s.y[0], s.energy[0] = 120.0, 80.0, -0.5
+    nd = k.process_deaths(w.step_no, s, w.fp, w.ip)
+    assert nd == 1 and not s.alive[0]
+    assert s.f_alive[j] and s.f_holder[j] == -1 and s.f_dropped[j] == 1 and s.a_held[0] == -1
+    assert (s.fx[j], s.fy[j]) == (120.0, 80.0)
+    assert s.counters[k.C_NFIELD] == 0          # 내려놓은 알은 들판으로 돌아가지 않는다
+    s.a_held[0] = 7                             # 빈 칸에 남은 값이 새 개체에게 넘어가지 않는지 보려고 일부러 더럽힌다
+    assert k.reseed(w.step_no, s, w.fp, w.ip, 0) == 1
+    assert s.alive[0] and s.a_held[0] == -1
+    # strike로 죽인 경우
+    j2 = _place(w, x=60.0, y=60.0)
+    hold(w, 1, j2)
+    s.x[1], s.y[1] = 30.0, 200.0
+    others = np.flatnonzero(s.alive)
+    assert (np.hypot(s.x[others] - 30.0, s.y[others] - 200.0)[others != 1] > 1.0).all()
+    assert w.strike(30.0, 200.0, 0.5, kill=1.0, burn_food=False) == 1
+    assert not s.alive[1] and s.a_held[1] == -1
+    assert s.f_alive[j2] and s.f_holder[j2] == -1 and s.f_dropped[j2] == 1 and (s.fx[j2], s.fy[j2]) == (30.0, 200.0)
+    assert rel_residual(w) < 1e-9
+
+
+def test_cap_counts_field_only():
+    # food_cap=50, 들판 알 50 + 내려놓은 알 30(C_NFOOD 80): 다음 유입은 놓이지 않고 L_DISCARD로 간다(C_NFIELD == cap).
+    # 들판 알 하나를 먹이면 다음 유입 한 알이 놓인다. 내려놓은 알 30은 상한에 세지 않는다
+    # (반대로 들판 알 20 + 내려놓은 알 30이면 C_NFOOD가 cap을 넘어도 유입이 놓인다). 장부 잔차 < 1e-9
+    def inflow(w, n):
+        """유입 n알어치를 넣고 버려진 양을 돌려준다."""
+        before = float(w.s.ledger[k.L_DISCARD])
+        w.s.budget[0] = n * w.cfg.food_energy
+        k.spawn_food(w.step_no, w.s, w.fp, w.ip, 0.0)
+        return float(w.s.ledger[k.L_DISCARD]) - before
+
+    w = World(small("ext", carry_enabled=True, food_cap=50, init_agents=1, min_agents=0, food_inflow=0.0))
+    s = w.s
+    a = int(np.flatnonzero(s.alive)[0])
+    s.x[a], s.y[a] = 200.0, 200.0
+    for _ in range(50):
+        _place(w, x=10.0, y=10.0)
+    for _ in range(30):
+        _place_stored(w)
+    assert s.counters[k.C_NFIELD] == 50 and s.counters[k.C_NFOOD] == 80
+    assert inflow(w, 1) == pytest.approx(1.0)
+    assert s.counters[k.C_NFIELD] == 50 and s.counters[k.C_NFOOD] == 80
+    s.ledger[k.L_INJECT] += w.cfg.e_max - 0.5 - s.energy[a]        # 시험이 더하는 에너지를 장부에도 적는다
+    s.x[a], s.y[a], s.energy[a] = 10.0, 10.0, w.cfg.e_max - 0.5     # 들판 알 한 알을 먹으면 배가 찬다
+    _eat_once(w)
+    assert s.counters[k.C_EATEN] == 1 and s.counters[k.C_NFIELD] == 49 and s.counters[k.C_NFOOD] == 79
+    assert inflow(w, 1) == 0.0
+    assert s.counters[k.C_NFIELD] == 50 and s.counters[k.C_NFOOD] == 80
+    assert inflow(w, 1) == pytest.approx(1.0)
+    assert rel_residual(w) < 1e-9
+
+    w = World(small("ext", carry_enabled=True, food_cap=50, init_agents=0, min_agents=0, food_inflow=0.0))
+    s = w.s
+    for _ in range(20):
+        _place(w, x=10.0, y=10.0)
+    for _ in range(30):
+        _place_stored(w)
+    assert s.counters[k.C_NFOOD] == 50 and s.counters[k.C_NFIELD] == 20
+    assert inflow(w, 10) == 0.0
+    assert s.counters[k.C_NFOOD] == 60 > w.cfg.food_cap and s.counters[k.C_NFIELD] == 30
+    assert rel_residual(w) < 1e-9
+
+
+def test_cap_replace_skips_stored_items():
+    # food_cap_replace=True + spoil_enabled: 가장 오래된 것이 내려놓은 알·든 알이어도 교체는 들판 알을 고른다
+    w = World(small("ext", carry_enabled=True, food_cap_replace=True, spoil_enabled=True, food_cap=4,
+                    init_agents=1, min_agents=0, food_inflow=0.0))
+    s = w.s
+    a = int(np.flatnonzero(s.alive)[0])
+    stored = _place_stored(w, born=-1000)
+    held = _place(w, born=-900)
+    hold(w, a, held)
+    field = [_place(w, born=b) for b in (-500, -400, -300, -200)]
+    assert s.counters[k.C_NFIELD] == 4 and s.counters[k.C_NFOOD] == 6
+    s.budget[0] = w.cfg.food_energy
+    k.spawn_food(w.step_no, s, w.fp, w.ip, 0.0)
+    assert s.counters[k.C_FOOD_REPLACED] == 1 and s.ledger[k.L_DISCARD] == 0.0
+    assert s.f_alive[stored] and s.f_alive[held] and s.f_holder[held] == a
+    assert not s.f_alive[field[0]] and s.f_alive[field[1:]].all()
+    assert s.counters[k.C_NFIELD] == 4 == _n_field(s) and s.counters[k.C_NFOOD] == 6
+    assert rel_residual(w) < 1e-9
+
+
+def test_store_room_evicts_oldest_unheld():
+    # 들판 아닌 물건이 max_agents개면 store_room이 가장 오래된 "들지 않은" 것(내려놓은 알이나 사체)을 L_LOST로 치우고
+    # C_STORE_EVICTED += 1. 들판 아닌 물건이 모두 든 것이면 False. 사체가 칸을 채운 경우도 사체를 치워 자리를 낸다
+    def world(n_agents):
+        return World(small("ext", carry_enabled=True, max_agents=10, init_agents=n_agents, min_agents=0,
+                           food_inflow=0.0))
+
+    # 든 알(가장 오래됨) 하나 + 내려놓은 알 여덟 + 사체 하나 = 10
+    w = world(1)
+    s = w.s
+    a = int(np.flatnonzero(s.alive)[0])
+    held = _place(w, born=-100)
+    hold(w, a, held)
+    stored = [_place_stored(w, born=b) for b in (-30, -50, -50, -20, -10, -5, -4, -3)]
+    corpse = _place(w, born=-40, kind=k.KIND_CORPSE)
+    field = _place(w, born=-1000)                   # 들판 알은 저장 칸에 세지 않는다
+    assert s.counters[k.C_NFOOD] - s.counters[k.C_NFIELD] == 10
+    lost0 = float(s.ledger[k.L_LOST])
+    assert k.store_room(s, 1)
+    assert not s.f_alive[stored[1]] and s.f_alive[stored[2]]     # 같은 스텝이면 낮은 칸
+    assert s.f_alive[held] and s.f_alive[corpse] and s.f_alive[field]
+    assert s.counters[k.C_STORE_EVICTED] == 1 and s.ledger[k.L_LOST] - lost0 == pytest.approx(1.0)
+    assert k.store_room(s, 1) and s.counters[k.C_STORE_EVICTED] == 1   # 자리가 있으면 치우지 않는다
+    assert rel_residual(w) < 1e-9
+
+    # 들판 아닌 물건이 모두 든 것
+    w = world(10)
+    s = w.s
+    for i in range(10):
+        hold(w, i, _place(w, born=-i))
+    n_food = int(s.counters[k.C_NFOOD])
+    assert not k.store_room(s, 1)
+    assert s.counters[k.C_STORE_EVICTED] == 0 and s.counters[k.C_NFOOD] == n_food
+    assert not k.evict_stored(s, 1)
+
+    # 사체가 칸을 채운 경우
+    w = world(0)
+    s = w.s
+    corpses = [_place(w, born=b, kind=k.KIND_CORPSE) for b in (5, 3, 9, 1, 7, 2, 8, 6, 4, 10)]
+    assert s.counters[k.C_NFIELD] == 0 and s.counters[k.C_NFOOD] == 10
+    assert k.store_room(s, 1)
+    assert not s.f_alive[corpses[3]] and s.counters[k.C_STORE_EVICTED] == 1 and s.counters[k.C_NFOOD] == 9
+    assert rel_residual(w) < 1e-9
+
+
+def test_carry_toggle_recounts_and_releases():
+    # carry 꺼진 ext 세계를 돌린 뒤 set_config로 켬 → C_NFIELD == 들판 알 수(사체 제외)
+    # 손을 몇 개 맞춘 뒤 set_config로 끔 → a_held 모두 -1, f_holder 모두 -1, f_dropped는 그대로
+    w = World(small("ext"))
+    w.run(100)
+    _place(w, kind=k.KIND_CORPSE)
+    assert w.s.counters[k.C_NFIELD] == 0 and w.s.counters[k.C_NFOOD] > 1
+    w.set_config(small("ext", carry_enabled=True))
+    assert w.s.counters[k.C_NFIELD] == _n_field(w.s) == w.s.counters[k.C_NFOOD] - 1
+    _shuffle_hands(w, np.random.default_rng(3))
+    assert (w.s.a_held >= 0).sum() == 10
+    dropped = w.s.f_dropped.copy()
+    assert dropped.any()
+    w.set_config(small("ext"))
+    assert (w.s.a_held == -1).all() and (w.s.f_holder == -1).all()
+    assert np.array_equal(w.s.f_dropped, dropped)
+
+
+def test_carry_ledger_closes():
+    # carry 켠 ext 세계 300스텝(매 50스텝 hold/unhold 도우미로 손을 무작위로 맞추고 푼다) → |residual|/(spawn+inject) < 1e-9
+    w = World(small("ext", carry_enabled=True))
+    rng = np.random.default_rng(11)
+    for t in range(300):
+        if t % 50 == 0:
+            _shuffle_hands(w, rng)
+        w.step()
+    w.check_sane()
+    _check_hands(w.s)
+    assert w.s.counters[k.C_NFIELD] == _n_field(w.s)
+    assert rel_residual(w) < 1e-9
