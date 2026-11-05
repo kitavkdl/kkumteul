@@ -239,8 +239,7 @@ class Runner:
             if not cands:
                 raise FileNotFoundError(f"체크포인트를 못 찾았다: {src} at={at}")
             path = cands[-1][1]
-        world, cmeta = ckpt.load(path)
-        old = world.cfg
+        old = ckpt.read_config(path)
         if (src_run / "scenario.json").exists() and (src_run / "config.json").exists():
             # 부모가 각본을 쓰는 실행이면 체크포인트의 설정은 각본이 바꿔 놓은 값이다.
             # 갈래의 바탕은 부모의 바탕 설정으로 한다. 부모의 각본은 이어받지 않는다.
@@ -254,9 +253,11 @@ class Runner:
             d["seed"] = old.seed + 1000003
         if passive:
             d["passive"] = True
-        cfg = Config.from_dict(d)
-        world.set_config(cfg)
-        edits = []
+        # 크기는 load가 올린다(갈래에서 preset=ext를 주면 기본 크기 체크포인트를 확장 크기로 읽는다)
+        world, cmeta = ckpt.load(path, Config.from_dict(d))
+        cfg = world.cfg
+        d = cfg.to_dict()
+        edits = world.calm_new_outputs(cmeta["enlarged_out"][0])
         if calm_attack or (cfg.conflict_enabled and not old.conflict_enabled):
             world.s.bout[world.s.alive, ACT_ATTACK] = -1.0
             edits.append("bout[ACT_ATTACK]=-1")

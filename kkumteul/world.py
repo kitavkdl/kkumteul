@@ -7,7 +7,7 @@ import numpy as np
 
 from . import kernels as k
 from . import stages as st
-from .config import Config, N_REWARD
+from .config import ACT_CARRY, Config, N_REWARD
 
 # 2~4단계에서 새로 생긴 저장 필드. 옛 체크포인트에는 없어도 된다(그 밖의 필드가 없으면 깨진 것이다)
 NEW_SINCE_STAGE1 = frozenset({"rw", "eta", "alpha", "horm", "mod", "exp_r", "e_prev", "fatigue", "asleep",
@@ -62,6 +62,15 @@ class World:
         self.cfg = cfg
         self.fp, self.ip = k.pack_params(cfg)
         self.fs, self.isp = st.pack_stage_params(cfg)
+
+    def calm_new_outputs(self, old_n_out: int) -> list[str]:
+        """크기를 올려 읽어 새로 생긴 출력 자리(old_n_out부터)의 편향을 새로 만든 개체의 기본값으로 맞춘다.
+        0으로 채운 편향은 대부분 기본값과 같지만, 나르기(ACT_CARRY)는 새 개체가 -1에서 시작한다.
+        손댄 것을 돌려준다(없으면 빈 목록)."""
+        if old_n_out <= ACT_CARRY < self.cfg.n_out:
+            self.s.bout[self.s.alive, ACT_CARRY] = -1.0
+            return ["bout[ACT_CARRY]=-1"]
+        return []
 
     # ---- 사건 버퍼 ----
     def _take_births(self, nb: int) -> None:
