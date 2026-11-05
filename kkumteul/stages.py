@@ -12,7 +12,7 @@ import math
 import numpy as np
 from numba import njit, prange
 
-from .config import (ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT_SLEEP, ACT_THRUST, ACT_TURN,
+from .config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT_SLEEP, ACT_THRUST, ACT_TURN,
                      IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL, N_INTERNAL)
 from .kernels import (C_NFOOD, L_BASAL, L_BRAIN, L_DISCARD, L_LOST, L_MOVE, L_SPAWN, _place_food,
                       _wdiff, _wrap)
@@ -20,6 +20,7 @@ from .rng import S_FERTILE, u01
 
 C_GIFTS = 14            # counters 칸: 건넨 횟수
 C_FERTILE = 15          # counters 칸: 거름 땅에 난 먹이 수
+C_ATTACKS = 16          # counters 칸: 공격이 맞은 횟수
 
 # ---- 실수 설정 칸 ----
 (F_W, F_H, F_INV_CELL, F_E_REPRO, F_BASAL, F_THRUST_COST, F_A_RAD, F_E_FOOD, F_INFLOW,
@@ -28,7 +29,7 @@ C_FERTILE = 15          # counters 칸: 거름 땅에 난 먹이 수
  F_SLEEP_BASAL, F_SLEEP_FORGET, F_SLEEP_KEEP,
  F_HEAR, F_SIG_COST, F_GIVE_RATE, F_GIVE_LOSS, F_GIVE_MIN,
  F_WEAR, F_TRAIL_DECAY, F_TRAIL_SAT, F_PATH_BONUS, F_DEP_RATE, F_DEP_LOSS, F_SOIL_DECAY,
- F_SOIL_REF, F_FERT_FRAC, F_SOIL_USE, F_CELL, N_FS) = range(43)
+ F_SOIL_REF, F_FERT_FRAC, F_SOIL_USE, F_CELL, F_ATK_DMG, F_ATK_GAIN, F_ATK_COST, N_FS) = range(46)
 # ---- 정수 설정 칸 ----
 (I_SEED, I_GW, I_GH, I_SECTORS, I_H_MAX, I_MIND, I_SOCIAL, I_NICHE, I_FOOD_CAP, I_STAGE_IN, N_IS) = range(11)
 
@@ -52,6 +53,7 @@ def pack_stage_params(cfg):
     fs[F_PATH_BONUS], fs[F_DEP_RATE], fs[F_DEP_LOSS] = cfg.path_bonus, cfg.deposit_rate, cfg.deposit_loss
     fs[F_SOIL_DECAY], fs[F_SOIL_REF], fs[F_FERT_FRAC] = cfg.soil_decay, cfg.soil_ref, cfg.fert_frac
     fs[F_SOIL_USE] = cfg.soil_use
+    fs[F_ATK_DMG], fs[F_ATK_GAIN], fs[F_ATK_COST] = cfg.attack_damage, cfg.attack_gain, cfg.attack_cost
     isp[I_SEED], isp[I_GW], isp[I_GH] = cfg.seed, cfg.grid_w, cfg.grid_h
     isp[I_SECTORS], isp[I_H_MAX] = cfg.vision_sectors, cfg.h_max
     isp[I_MIND], isp[I_SOCIAL], isp[I_NICHE] = int(cfg.mind_enabled), int(cfg.social_enabled), int(cfg.niche_enabled)
@@ -477,6 +479,66 @@ def give(s, fs, isp):
         s.energy[best] += got
         s.ledger[L_LOST] += amt - got
         s.counters[C_GIFTS] += 1
+
+
+# =========================== 다툼: 공격 ===========================
+@njit(cache=True)
+def attack(s, fs, isp):
+    """공격 출력이 켜진 개체가 닿아 있는 가장 가까운 이웃의 에너지를 깎고 그 일부를 얻는다.
+    맞은 개체는 닿음 감각이 2가 된다(그냥 닿으면 1). 얻는 양은 깎은 양보다 적어 에너지가 생기지 않는다."""
+    n = s.x.shape[0]
+    gw = isp[I_GW]
+    gh = isp[I_GH]
+    w = fs[F_W]
+    hgt = fs[F_H]
+    inv_cell = fs[F_INV_CELL]
+    reach = 2.0 * fs[F_A_RAD] + 0.5
+    r2 = reach * reach
+    for i in range(n):
+        if not s.alive[i]:
+            continue
+        a = float(s.act[i, ACT_ATTACK])
+        if a <= 0.0 or s.energy[i] <= 0.0:
+            continue
+        cost = fs[F_ATK_COST] * a
+        s.energy[i] -= cost
+        s.ledger[L_MOVE] += cost
+        xi = s.x[i]
+        yi = s.y[i]
+        cx = int(xi * inv_cell)
+        cy = int(yi * inv_cell)
+        if cx >= gw:
+            cx = gw - 1
+        if cy >= gh:
+            cy = gh - 1
+        best = -1
+        bd = r2
+        for oy in range(-1, 2):
+            yy = (cy + oy) % gh
+            for ox in range(-1, 2):
+                xx = (cx + ox) % gw
+                c = yy * gw + xx
+                for p in range(s.a_start[c], s.a_start[c + 1]):
+                    j = s.a_items[p]
+                    if j == i or not s.alive[j] or s.energy[j] <= 0.0:
+                        continue
+                    ddx = _wdiff(s.x[j] - xi, w)
+                    ddy = _wdiff(s.y[j] - yi, hgt)
+                    d2 = ddx * ddx + ddy * ddy
+                    if d2 < bd:
+                        bd = d2
+                        best = j
+        if best < 0:
+            continue
+        dmg = fs[F_ATK_DMG] * a
+        if dmg > s.energy[best]:
+            dmg = s.energy[best]          # 가진 것보다 더 빼앗을 수는 없다
+        got = dmg * fs[F_ATK_GAIN]
+        s.energy[best] -= dmg
+        s.energy[i] += got
+        s.ledger[L_LOST] += dmg - got
+        s.touch[best] = 2.0
+        s.counters[C_ATTACKS] += 1
 
 
 # =========================== 4단계: 땅 ===========================

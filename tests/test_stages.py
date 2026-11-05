@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kkumteul import checkpoint as ckpt  # noqa: E402
 from kkumteul import kernels as k  # noqa: E402
 from kkumteul import stages as st  # noqa: E402
-from kkumteul.config import (ACT_DEPOSIT, ACT_GIVE, IN_HEAR, IN_HORM, IN_KIN, IN_TRAIL, N_INTERNAL,  # noqa: E402
+from kkumteul.config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, IN_HEAR, IN_HORM, IN_KIN, IN_TRAIL, N_INTERNAL,  # noqa: E402
                              Config)
 from kkumteul.run import Runner  # noqa: E402
 from kkumteul.world import World  # noqa: E402
@@ -179,6 +179,7 @@ def test_old_checkpoint_with_fewer_inputs_loads(tmp_path):
     arrays["Wout"] = arrays["Wout"][:, :old_out, :]
     arrays["bout"] = arrays["bout"][:, :old_out]
     arrays["budget"] = arrays["budget"][:1]
+    arrays["counters"] = arrays["counters"][:16]
     for name in ("rw", "eta", "alpha", "trail", "soil", "horm", "Hin", "sig"):
         del arrays[name]
     np.savez(p, **arrays)
@@ -272,3 +273,45 @@ def test_compare_control_and_treatment(tmp_path):
     assert np.isfinite(t["in_treatment_rules"]["mean"]) and np.isfinite(t["in_control_rules"]["mean"])
     assert "A가" not in t["verdict_control_rules"] and "B가" not in t["verdict_treatment_rules"]
     assert res["reading"]
+
+
+def test_attack_takes_energy_without_creating_any():
+    cfg = small("stage3", "conflict", init_agents=2, min_agents=0, food_inflow=0.0)
+    w = World(cfg)
+    s = w.s
+    i, j = np.flatnonzero(s.alive)[:2]
+    s.x[i], s.y[i] = 100.0, 100.0
+    s.x[j], s.y[j] = 101.5, 100.0
+    k.build_grid(s.x, s.y, s.alive, 1.0 / cfg.cell, cfg.grid_w, cfg.grid_h, s.a_start, s.a_items, s.cursor)
+    s.act[:] = 0
+    s.act[i, ACT_ATTACK] = 1.0
+    ei, ej, lost, moved = s.energy[i], s.energy[j], s.ledger[k.L_LOST], s.ledger[k.L_MOVE]
+    st.attack(s, w.fs, w.isp)
+    assert s.energy[j] == pytest.approx(ej - cfg.attack_damage)
+    assert s.energy[i] == pytest.approx(ei - cfg.attack_cost + cfg.attack_damage * cfg.attack_gain)
+    assert s.ledger[k.L_LOST] == pytest.approx(lost + cfg.attack_damage * (1 - cfg.attack_gain))
+    assert s.ledger[k.L_MOVE] == pytest.approx(moved + cfg.attack_cost)
+    assert s.touch[j] == 2.0, "맞은 개체는 닿음 감각이 2가 된다"
+    # 가진 것보다 더 빼앗지 못한다
+    s.energy[j] = 0.05
+    st.attack(s, w.fs, w.isp)
+    assert s.energy[j] == pytest.approx(0.0)
+    # 멀리 있으면 비용만 든다
+    s.x[j] = 150.0
+    s.energy[j] = 1.0
+    k.build_grid(s.x, s.y, s.alive, 1.0 / cfg.cell, cfg.grid_w, cfg.grid_h, s.a_start, s.a_items, s.cursor)
+    ei = s.energy[i]
+    st.attack(s, w.fs, w.isp)
+    assert s.energy[i] == pytest.approx(ei - cfg.attack_cost) and s.energy[j] == 1.0
+
+
+def test_conflict_world_lives_and_conserves_energy():
+    cfg = small("stage3", "conflict")
+    a = World(cfg)
+    a.s.bout[:, ACT_ATTACK] = 0.5      # 처음 개체가 공격하게 해서 장치를 실제로 돌린다
+    a.run(1500)
+    a.check_sane()
+    assert a.summary()["attacks"] > 0 and a.summary()["pop"] > 10
+    assert rel_residual(a) < 1e-9
+    with pytest.raises(ValueError):
+        Config().with_overrides(["attack_gain=1.5"])

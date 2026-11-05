@@ -113,6 +113,8 @@ class World:
         k.eat(s, fp, ip)
         if social:
             st.give(s, fs, isp)
+        if cfg.conflict_enabled:
+            st.attack(s, fs, isp)
         nd = k.process_deaths(t, s, fp, ip)
         self._take_deaths(nd)
         nb = k.process_births(t, s, fp, ip)
@@ -184,7 +186,7 @@ class World:
             elif name in k.LIFETIME_FLEX:
                 dst[...] = 0
             elif (src.ndim == dst.ndim and all(a <= b for a, b in zip(src.shape, dst.shape))
-                  and (name == "budget" or (name in ("Win", "Wout", "bout")
+                  and (name in ("budget", "counters") or (name in ("Win", "Wout", "bout")
                                             and src.shape[0] == dst.shape[0]))):
                 dst[...] = 0
                 dst[tuple(slice(0, n) for n in src.shape)] = src
@@ -269,6 +271,8 @@ class World:
                     "signal_abs_mean": float(np.abs(s.sig[a]).mean()),
                     "gifts": int(c[st.C_GIFTS]),
                 })
+            if cfg.conflict_enabled:
+                out["attacks"] = int(c[st.C_ATTACKS])
             if cfg.niche_enabled:
                 out.update({
                     "trail_mean": float(s.trail.mean()),
