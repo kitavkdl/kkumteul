@@ -26,6 +26,7 @@ import numpy as np
 from . import SOURCE_HASH, STATE_VERSION, __version__
 from . import checkpoint as ckpt
 from .config import Config
+from . import measure
 from .measure import GENOME, extract_genomes
 
 MARK = "kkumteul_pack"    # 이 이름의 배열이 있으면 묶음이다(값은 형식 번호)
@@ -139,6 +140,42 @@ def describe(path: Path) -> dict:
     return out
 
 
+def migrate(src: Path, pack_path: Path, run_dir: Path, n: int = 50, seed: int = 1, tag: int = 1) -> dict:
+    """이주: 실행 src의 가장 최근 체크포인트에서 새 실행을 가르고, 묶음의 생물 n마리를 무작위 자리에 넣는다.
+    넣은 생물과 그 후손은 표지(tag)를 물려받아, 나중에 누가 남았는지 셀 수 있다."""
+    from . import kernels as k
+    from .run import Runner
+    from .world import BIRTH_DTYPE
+    side = load_side(pack_path)
+    runner = Runner.branch(Path(src), Path(run_dir), None, [], False, False)
+    try:
+        world = runner.world
+        measure.check_same_shape(side, {"genomes": measure.extract_genomes(world), "path": str(src),
+                                        "cfg": world.cfg})
+        free = int((~world.s.alive).sum())
+        if n > free:
+            raise ValueError(f"빈 자리가 모자란다(넣을 수 {n}, 빈 자리 {free})")
+        rng = np.random.default_rng(seed)
+        g = side["genomes"]
+        rows = rng.choice(len(g["n_hidden"]), size=n, replace=len(g["n_hidden"]) < n)
+        cfg = world.cfg
+        rec = np.zeros(n, dtype=BIRTH_DTYPE)
+        for q, row in enumerate(rows):
+            aid = int(world.s.counters[k.C_NEXT_ID])
+            measure._inject(world, g, int(row), tag, float(rng.random() * cfg.world_w),
+                            float(rng.random() * cfg.world_h), float(rng.random() * 2 * np.pi), 0)
+            rec[q] = (aid, -1, world.step_no, 0, int(g["n_hidden"][row]), k.BIRTH_INJECT)
+        world.births.append(rec)
+        info = {"pack": Path(pack_path).name, "n": int(n), "seed": int(seed), "tag": int(tag),
+                "pack_label": side.get("label"), "at_step": world.step_no}
+        runner.meta["migrants"] = info
+        ckpt.atomic_write_bytes(runner.dir / "run.json", json.dumps(runner.meta, indent=1).encode())
+        runner.checkpoint()      # 같은 스텝의 체크포인트를 이주가 끝난 상태로 다시 쓴다
+        return info
+    finally:
+        runner.close()
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="생물 묶음: 유전체만 담은 파일을 만들고 본다")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -148,6 +185,12 @@ def main(argv=None) -> int:
     ex.add_argument("--n", type=int, default=400, help="뽑을 개체 수(살아 있는 수가 모자라면 전부)")
     ex.add_argument("--seed", type=int, default=1, help="뽑기 난수 씨앗")
     ex.add_argument("--label", default="", help="묶음에 붙일 이름(없으면 체크포인트 파일 이름)")
+    mg = sub.add_parser("migrate", help="이주: 실행에서 갈라낸 새 실행에 묶음의 생물을 넣는다")
+    mg.add_argument("--from", dest="src", required=True, type=Path, help="받는 쪽 실행 폴더")
+    mg.add_argument("--pack", required=True, type=Path, help="넣을 생물 묶음")
+    mg.add_argument("--run", required=True, type=Path, help="새로 만들 실행 폴더(여기서 이어 돌린다)")
+    mg.add_argument("--n", type=int, default=50, help="넣을 개체 수")
+    mg.add_argument("--seed", type=int, default=1)
     inf = sub.add_parser("info", help="묶음의 내용을 요약해 보여 준다")
     inf.add_argument("pack", type=Path)
     inf.add_argument("--json", action="store_true")
@@ -156,6 +199,11 @@ def main(argv=None) -> int:
         info = export(args.src, args.out, args.n, args.seed, args.label)
         print(f"묶음을 썼다: {args.out} ({args.out.stat().st_size / 1e6:.1f}MB)")
         print(f"이름 {info['label']}, {info['source_step']}스텝에서 살아 있던 {info['source_alive']}마리 가운데 {info['n']}마리")
+        return 0
+    if args.cmd == "migrate":
+        info = migrate(args.src, args.pack, args.run, args.n, args.seed)
+        print(f"이주시켰다: {info['pack']}의 {info['n']}마리를 {info['at_step']}스텝의 세계에 넣었다(표지 {info['tag']}).")
+        print(f"이어 돌리기: python3 -m kkumteul.run resume --run {args.run}")
         return 0
     d = describe(args.pack)
     if args.json:

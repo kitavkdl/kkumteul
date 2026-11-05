@@ -273,6 +273,8 @@ class World:
                 })
             if cfg.conflict_enabled:
                 out["attacks"] = int(c[st.C_ATTACKS])
+            if (s.tag[a] != 0).any():      # 이주해 온 생물과 그 후손의 비율
+                out["migrant_frac"] = float((s.tag[a] != 0).mean())
             if cfg.niche_enabled:
                 out.update({
                     "trail_mean": float(s.trail.mean()),

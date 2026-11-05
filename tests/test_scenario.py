@@ -657,3 +657,33 @@ def test_experiment_reports_extinction_instead_of_an_assay(tmp_path):
     assert card["arms"]["treatment"]["generations_gained"] is None
     md = (tmp_path / "experiments" / "doom" / "card.md").read_text(encoding="utf-8")
     assert "겨루지 않" in md
+
+
+def test_migrate_injects_tagged_agents_into_a_branch(tmp_path):
+    """이주: 받는 세계에서 갈라낸 실행에 묶음의 생물이 표지를 달고 들어가고, 그 실행을 이어 돌릴 수 있다."""
+    from kkumteul import events
+    from kkumteul import kernels as kk
+    from kkumteul import pack
+    from kkumteul.run import Runner
+    a = Runner.new(tmp_path / "a", small())
+    a.loop(600, quiet=True)
+    a.close()
+    b = Runner.new(tmp_path / "b", small(seed=7))
+    b.loop(600, quiet=True)
+    b.close()
+    pack.export(tmp_path / "b", tmp_path / "b.pack.npz", n=30, seed=1, label="섬 B")
+    before = a.world.summary()["pop"]
+    info = pack.migrate(tmp_path / "a", tmp_path / "b.pack.npz", tmp_path / "a2", n=25, seed=3)
+    assert info["n"] == 25 and info["at_step"] == a.world.step_no
+    r = Runner.resume(tmp_path / "a2")
+    w = r.world
+    alive = w.s.alive
+    assert int(alive.sum()) == before + 25 and int((w.s.tag[alive] == 1).sum()) == 25
+    assert w.summary()["migrant_frac"] == pytest.approx(25 / (before + 25))
+    r.loop(400, quiet=True)
+    r.close()
+    bal = w.energy_balance()
+    assert abs(bal["residual"]) / (bal["spawn"] + bal["inject"]) < 1e-9
+    births = events.load(tmp_path / "a2", "births", w.cfg.event_segment_steps)
+    assert int((births["kind"] == kk.BIRTH_INJECT).sum()) == 25
+    assert (np.diff(births["id"]) > 0).all()
