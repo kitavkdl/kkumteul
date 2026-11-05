@@ -255,3 +255,20 @@ def test_stage_config_validation():
                 "n_spare_out=5"):
         with pytest.raises(ValueError):
             Config().with_overrides([bad])
+
+
+def test_compare_control_and_treatment(tmp_path):
+    from kkumteul import compare
+    main = Runner.new(tmp_path / "main", small())
+    main.loop(400, quiet=True)
+    main.close()
+    for name, sets in (("ctrl", []), ("s2", ["preset=stage2"])):
+        r = Runner.branch(tmp_path / "main", tmp_path / name, 400, sets, False, False)
+        r.loop(800, quiet=True)
+        r.close()
+    res = compare.compare(tmp_path / "ctrl", tmp_path / "s2", at=1200, n_each=30, steps=1500, reps=3, seed=1)
+    assert res["flags"]["mind_enabled"] == [False, True] and res["step"] == 1200
+    t = res["treatment_minus_control_r_per_1000"]
+    assert np.isfinite(t["in_treatment_rules"]["mean"]) and np.isfinite(t["in_control_rules"]["mean"])
+    assert "A가" not in t["verdict_control_rules"] and "B가" not in t["verdict_treatment_rules"]
+    assert res["reading"]
