@@ -51,6 +51,14 @@ class World:
             self.s = self.s._replace(**{name: getattr(fresh, name) for name in k.LIFETIME_FLEX})
             self.s.last_proto[:] = 0
             self.s.e_prev[:] = self.s.energy    # 켠 첫 스텝에 엉뚱한 "에너지 변화"가 보상에 들어가지 않게
+        elif (cfg.perturb_sigma > 0.0) != (old.perturb_sigma > 0.0):
+            # 노드 섭동을 켜거나 끄면 연결별 흔적 배열의 크기만 바뀐다. 그때까지 배운 것(Hin, Hrec)은 그대로 둔다
+            fresh = k.alloc_state(cfg)
+            self.s = self.s._replace(**{name: getattr(fresh, name) for name in k.PERTURB_FLEX})
+            # 두 규칙이 epost를 다른 뜻으로 쓴다(활동 흔적 / 이번 스텝에 흔든 양). 바꾸는 순간의 값이 섞이지 않게 비운다
+            self.s.epost[:] = 0.0
+            self.s.epre_in[:] = 0.0
+            self.s.epre_h[:] = 0.0
         self.cfg = cfg
         self.fp, self.ip = k.pack_params(cfg)
         self.fs, self.isp = st.pack_stage_params(cfg)
@@ -100,7 +108,7 @@ class World:
             st.trail_sense(s, fs, isp)
         if mind:
             st.mind_update(s, fs, isp)
-            st.think_plastic(s, fs)
+            st.think_plastic(t, s, fs, isp)
         else:
             k.think(s)
         if mind or social:
@@ -177,6 +185,10 @@ class World:
         for name in k.SAVED_FIELDS:
             dst = getattr(s, name)
             if name not in arrays:
+                if name in k.PERTURB_FLEX:
+                    # 이 배열이 생기기 전의 체크포인트. 0에서 시작하고, 0뿐이면 해시에 넣지 않으므로
+                    # 저장 때의 상태 해시와 그대로 견줄 수 있다(빠진 것으로 치지 않는다)
+                    continue
                 if name not in NEW_SINCE_STAGE1:
                     raise ValueError(f"체크포인트에 {name}이 없다")
                 missing.append(name)
@@ -218,7 +230,10 @@ class World:
         for name, _, _, saved in k.AGENT_FIELDS:
             if saved:
                 # 죽은 칸에 남은 값은 뜻이 없으므로 살아 있는 칸만 본다
-                m.update(np.ascontiguousarray(getattr(s, name)[alive]).tobytes())
+                v = getattr(s, name)[alive]
+                if name in k.PERTURB_FLEX and not v.any():
+                    continue    # 노드 섭동을 안 쓰는 세계의 해시가 이 필드가 생기기 전과 같게
+                m.update(np.ascontiguousarray(v).tobytes())
         fa = s.f_alive
         for name, _, saved in k.FOOD_FIELDS:
             if saved:

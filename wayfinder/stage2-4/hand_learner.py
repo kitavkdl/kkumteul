@@ -6,9 +6,13 @@
 
     PYTHONPATH=. python wayfinder/stage2-4/hand_learner.py solo <체크포인트.npz> <스텝> <출력.json>
     PYTHONPATH=. python wayfinder/stage2-4/hand_learner.py assay <체크포인트.npz> <스텝> <출력.json>
+    PYTHONPATH=. python wayfinder/stage2-4/hand_learner.py grid <체크포인트.npz> <스텝> <출력.json> <설정 묶음>...
 
 solo: 한 무리만 풀고 독 비율(독을 먹은 수 / 먹은 수, 처음 1/4은 버림)을 잰다.
 assay: 학습하는 손 설계 개체(B)를 체크포인트의 진화한 무리(A)와 겨루게 한다(measure.assay_sides).
+       HAND_ASSAY=<변형>으로 손 개체를 고르고(기본 learn), HAND_SET은 두 쪽이 겨루는 세계의 설정에 들어간다.
+grid:  설정 묶음("perturb_sigma=0.1,trace_decay=0.95" 꼴)마다 변형(HAND_VARIANTS)과 씨앗(HAND_SEEDS)을 돌려
+       좋은 종류가 A인 구간과 B인 구간의 독 비율을 따로 적는다(결과는 results.md "다섯 번째 시도").
 """
 import json
 import os
@@ -31,6 +35,9 @@ VARIANTS = {
     "fast_slow": dict(eta=0.2, alpha=10.0, g=2.0, thrust=0.4),   # 빨리 배우고 천천히 다닌다
     "fixed_slow": dict(eta=0.0, alpha=0.0, g=2.0, thrust=0.4),
     "fast_b": dict(eta=0.2, alpha=10.0, g=2.0, rw_bias=0.016),   # + reward_baseline_rate=0 으로 쓴다
+    "blank": dict(eta=0.2, alpha=10.0, g=0.0),    # 타고난 취향 없이 배운 것만으로 쫓는다
+    "blank_slow": dict(eta=0.05, alpha=10.0, g=0.0),
+    "fast_slow_eta": dict(eta=0.05, alpha=10.0, g=2.0),
 }
 
 
@@ -57,14 +64,14 @@ def make_hand(tmpl: dict, n: int, eta: float, alpha: float, g: float, rw_energy:
     return out
 
 
-def _flip(s, alive) -> float:
-    """시야→회전 실효 가중치가 타고난 부호와 같은 쪽인 정도(1 = 그대로 A를 쫓음, -1 = 뒤집혀 B를 쫓음)."""
+def _flip(s, alive, nsec: int = 8) -> float:
+    """시야→회전 실효 가중치가 A를 쫓는 쪽인 정도(1 = 여덟 칸 모두 A를 쫓음, -1 = 모두 B를 쫓음, 0 = 어느 쪽도 아님).
+    A를 쫓는 배선은 왼쪽 칸(높은 번호) +, 오른쪽 칸 − 이다(make_hand)."""
     if not alive.any():
         return 0.0
-    w0 = s.Win[alive, :8, 0]
-    eff = w0 + s.alpha[alive, 0:1] * s.Hin[alive, :8, 0]
-    sg = np.sign(w0)
-    return float(np.mean(np.sign(eff) * sg)) if np.any(sg) else 0.0
+    eff = s.Win[alive, :nsec, 0] + s.alpha[alive, 0:1] * s.Hin[alive, :nsec, 0]
+    sg = np.where(np.arange(nsec) >= nsec // 2, 1.0, -1.0)
+    return float(np.mean(np.sign(eff) * sg))
 
 
 def solo(cfg, genomes: dict, n: int, steps: int, seed: int, every: int = 500) -> dict:
@@ -86,6 +93,7 @@ def solo(cfg, genomes: dict, n: int, steps: int, seed: int, every: int = 500) ->
         e, p = int(c[k.C_EATEN]), int(c[k.C_POISONED])
         alive = world.s.alive
         series.append({"step": world.step_no, "pop": int(alive.sum()), "eaten": e - pe, "poisoned": p - pp,
+                       "good": int(k.good_kind(acfg.seed, world.step_no - 1, acfg.kind_flip_period)),
                        "hin_abs": float(np.abs(world.s.Hin[alive, :8, 0]).mean()) if alive.any() else 0.0,
                        "flip": _flip(world.s, alive),
                        "mod": float(world.s.mod[alive].mean()) if alive.any() else 0.0,
@@ -96,8 +104,24 @@ def solo(cfg, genomes: dict, n: int, steps: int, seed: int, every: int = 500) ->
     keep = [r for r in series if r["step"] > steps / 4] or series
     eat = sum(r["eaten"] for r in keep)
     poi = sum(r["poisoned"] for r in keep)
-    return {"ratio": poi / eat if eat else float("nan"), "eaten": eat, "pop_end": series[-1]["pop"],
-            "pop_mean": float(np.mean([r["pop"] for r in keep])), "series": series}
+    out = {"ratio": poi / eat if eat else float("nan"), "eaten": eat, "pop_end": series[-1]["pop"],
+           "pop_mean": float(np.mean([r["pop"] for r in keep])), "series": series}
+    for name, good in (("a", 0), ("b", 1)):     # 좋은 종류가 A인 구간과 B인 구간을 따로 본다(처음부터 전부)
+        rows = [r for r in series if r["good"] == good]
+        e_, p_ = sum(r["eaten"] for r in rows), sum(r["poisoned"] for r in rows)
+        out[f"ratio_{name}"] = p_ / e_ if e_ else float("nan")
+        out[f"flip_{name}"] = float(np.mean([r["flip"] for r in rows])) if rows else float("nan")
+        out[f"pop_{name}"] = float(np.mean([r["pop"] for r in rows])) if rows else float("nan")
+    return out
+
+
+def with_set(cfg, text: str):
+    """"이름=값,이름=값"을 설정에 덮어쓴다."""
+    d = cfg.to_dict()
+    for kv in filter(None, text.split(",")):
+        key, val = kv.split("=")
+        d[key] = type(d[key])(float(val)) if not isinstance(d[key], bool) else val == "true"
+    return type(cfg).from_dict(d)
 
 
 def main():
@@ -105,11 +129,7 @@ def main():
     side = measure.load_side(ck)
     cfg = side["cfg"]
     if os.environ.get("HAND_SET"):       # 예: HAND_SET=reward_baseline_rate=0
-        d = cfg.to_dict()
-        for kv in os.environ["HAND_SET"].split(","):
-            key, val = kv.split("=")
-            d[key] = type(d[key])(float(val)) if not isinstance(d[key], bool) else val == "true"
-        cfg = type(cfg).from_dict(d)
+        cfg = with_set(cfg, os.environ["HAND_SET"])
         side = dict(side, cfg=cfg)
     n = 400
     res = {"checkpoint": ck.name, "steps": steps, "variants": VARIANTS}
@@ -134,8 +154,31 @@ def main():
                 good = k.good_kind(seed, r["step"] - 1, cfg.kind_flip_period)
                 print(f"  {r['step']:6d} good={good} pop={r['pop']:4d} eat={r['eaten']:5d} "
                       f"poi={r['poisoned']:5d} hin={r['hin_abs']:.3f} flip={r['flip']:+.2f} mod={r['mod']:+.4f}", flush=True)
+    elif mode == "grid":
+        names = os.environ.get("HAND_VARIANTS", "fixed,fast,blank").split(",")
+        seeds = [int(x) for x in os.environ.get("HAND_SEEDS", "104,105").split(",")]
+        res["grid"] = []
+        for sets in sys.argv[5:] or [""]:
+            gcfg = with_set(cfg, sets)
+            for name in names:
+                gnm = make_hand(side["genomes"], n, **VARIANTS[name]) if name in VARIANTS else side["genomes"]
+                for seed in seeds:
+                    x = solo(gcfg, gnm, n, steps, seed, every=250)
+                    row = {"set": sets, "variant": name, "seed": seed,
+                           **{key: x[key] for key in ("ratio", "ratio_a", "ratio_b", "flip_a", "flip_b",
+                                                      "pop_a", "pop_b", "pop_end")},
+                           "goods": "".join("AB"[r["good"]] for r in x["series"][5::6]),
+                           "flips": [round(r["flip"], 2) for r in x["series"][5::6]],
+                           "ratios": [round(r["poisoned"] / r["eaten"], 2) if r["eaten"] else None
+                                      for r in x["series"][5::6]]}
+                    res["grid"].append(row)
+                    print(f"{sets or '-':42s} {name:10s} {seed} 독A={row['ratio_a']:.2f} 독B={row['ratio_b']:.2f} "
+                          f"뒤집힘A={row['flip_a']:+.2f} B={row['flip_b']:+.2f} 개체A={row['pop_a']:.0f} "
+                          f"B={row['pop_b']:.0f} 끝={row['pop_end']}", flush=True)
+                    out.write_text(json.dumps(res, indent=1, ensure_ascii=False, default=float))
     elif mode == "assay":
-        hand = dict(side, path="hand-learn", genomes=make_hand(side["genomes"], 400, **VARIANTS["learn"]))
+        hand = dict(side, path="hand-learn",
+                    genomes=make_hand(side["genomes"], 400, **VARIANTS[os.environ.get("HAND_ASSAY", "learn")]))
         side = dict(side, path=ck.name)
         r = measure.assay_sides(side, hand, 400, 8000, 4, 3000)
         res["assay"] = r
