@@ -804,7 +804,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
     }
   }
   var scratch = { x: 0, y: 0, h: 0, p: -1, ok: false };
-  var SIG_MIN = 0.5;
+  var SIG_MIN = meta.sig_min || 0.5;   // 이 기록에서 가장 센 신호 5%만 고리를 단다(replay.py _sig_min)
 
   // ---------- 상태 ----------
   var SPEEDS = [0.5, 1, 3, 10], STEPS_PER_SEC = 15, WIN = 300, HAND = 12;
@@ -1287,7 +1287,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
     add("태어남", "밝은 고리", function (c) { drawEvent(c, 44, 44, EV.born, 0.3, 6, 2); });
     add("죽음", "흐려지는 ×", function (c) { drawEvent(c, 44, 44, EV.died, 0.1, 9, 2); });
     if (on.social) {
-      add("신호", "세게 내는 생물 둘레의 고리. 빛깔이 신호의 종류입니다", function (c) {
+      add("신호", "이 기록에서 가장 세게 내는 5%(세기 " + SIG_MIN.toFixed(2) + " 넘음)의 둘레에 고리. 빛깔이 신호의 종류입니다", function (c) {
         drawCreature(c, 46, 46, 9, -0.45, demo, 1, 0, false);
         c.strokeStyle = "hsl(190,85%,68%)"; c.lineWidth = 2.6; c.globalAlpha = 0.8; c.beginPath(); c.arc(44, 44, 24, 0, TAU); c.stroke(); c.globalAlpha = 1;
       });
