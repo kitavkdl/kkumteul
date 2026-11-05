@@ -104,18 +104,29 @@ class World:
         cfg = self.cfg
         return cfg.season_enabled and t % cfg.season_period >= cfg.season_period - cfg.winter_len
 
+    def in_autumn(self, t: int) -> bool:
+        """스텝 t가 가을인가: 겨울 바로 앞 autumn_len 스텝. 겨울이 꺼져 있으면 늘 False."""
+        cfg = self.cfg
+        if not cfg.season_enabled:
+            return False
+        u = t % cfg.season_period
+        return cfg.season_period - cfg.winter_len - cfg.autumn_len <= u < cfg.season_period - cfg.winter_len
+
     def season(self, t: int) -> tuple[float, float, float, float]:
         """스텝 t의 계절: (풀 배수, 기초 대사 배수, 해 위상 sin, cos).
-        겨울은 해의 끝 winter_len 스텝이다(갈라 켜는 스텝이 해의 배수면 봄에서 시작한다).
-        겨울 밖의 풀 배수는 해 평균이 1이 되게 잡는다. 꺼져 있으면 (1, 1, 0, 0)."""
+        겨울은 해의 끝 winter_len 스텝, 가을은 그 바로 앞 autumn_len 스텝이다(갈라 켜는 스텝이 해의 배수면 봄에서 시작한다).
+        가을·겨울 밖의 풀 배수는 해 평균이 1이 되게 잡는다. 꺼져 있으면 (1, 1, 0, 0)."""
         cfg = self.cfg
         if not cfg.season_enabled:
             return 1.0, 1.0, 0.0, 0.0
-        P, W = cfg.season_period, cfg.winter_len
+        P, W, A = cfg.season_period, cfg.winter_len, cfg.autumn_len
         ang = 2.0 * math.pi * ((t % P) / P)
         if self.in_winter(t):
             return float(cfg.winter_mult), float(cfg.winter_basal_mult), math.sin(ang), math.cos(ang)
-        return (P - float(cfg.winter_mult) * W) / (P - W), 1.0, math.sin(ang), math.cos(ang)
+        if self.in_autumn(t):
+            return float(cfg.autumn_mult), 1.0, math.sin(ang), math.cos(ang)
+        rest = (P - float(cfg.winter_mult) * W - float(cfg.autumn_mult) * A) / (P - W - A)
+        return rest, 1.0, math.sin(ang), math.cos(ang)
 
     def spoil_mult(self, t: int) -> float:
         """스텝 t의 부패 속도 배수: 겨울이면 spoil_winter_mult, 아니면 1."""
