@@ -209,10 +209,14 @@ def test_signals_gifts_and_hits_are_marked():
     slot = np.array([by_id[int(i)] for i in rep.agents["id"][fr.idx]])
     assert fr.sig is not None and fr.sig.shape == (len(slot), 2)
     assert np.abs(fr.sig - w.s.sig[slot]).max() <= 1.0 / 127 + 1e-6
+    # 고리 문턱: 이 기록에서 가장 센 신호 5%(95번째 백분위수), 그래도 0.5보다 낮지는 않다
+    mg = np.abs(rep.cols["sig"].astype(np.float32).reshape(-1, 2) / 127.0).max(axis=1)
+    assert rep.meta["sig_min"] == pytest.approx(max(replay.SIG_MIN_FLOOR, float(np.percentile(mg, 95))), abs=1e-4)
     # 사회가 꺼진 세계에는 신호 자료가 없다
     plain = replay.Recorder(World(small()), every=2)
     plain.advance(4)
-    assert plain.finish().frame(1).sig is None
+    prep = plain.finish()
+    assert prep.frame(1).sig is None and prep.meta["sig_min"] is None
 
 
 # ---------------------------------------------------------------- 어디서부터, 무엇을 읽는가

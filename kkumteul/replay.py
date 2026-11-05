@@ -51,6 +51,7 @@ NO_CAUSE = 255      # 다시 보기가 끝날 때까지 살아 있었다
 MAX_BYTES = 15_000_000   # 아티팩트 상한(16MB) 아래로 지킨다
 MAX_EVERY = 40           # 장면 간격을 이보다 넓히지는 않는다(움직임을 따라갈 수 없다)
 HISTORY_POINTS = 600
+SIG_MIN_FLOOR = 0.5      # 신호 고리 문턱의 하한. 실제 문턱은 기록마다 가장 센 신호 5%(95번째 백분위수)
 FLIP_LEAD = 300          # --from-flip: 바뀌는 순간보다 이만큼(또는 구간의 1/4) 앞에서 시작한다
 
 AGENT_DTYPE = np.dtype([("id", "<f8"), ("parent", "<i4"), ("gen", "<i4"), ("kind", "u1"), ("n_hidden", "u1"),
@@ -449,6 +450,15 @@ class Recorder:
                     break
         return out
 
+    @staticmethod
+    def _sig_min(cols) -> float | None:
+        """신호 고리 문턱. 쓰이지 않는 신호도 0~1 사이를 떠다녀서 고정 문턱(0.5)이면 절반이 고리를 단다
+        (공격 세계 20만 스텝에서 52%). 그래서 이 기록에서 가장 센 5%만 고리를 달게 한다."""
+        if "sig" not in cols or not len(cols["sig"]):
+            return None
+        mg = np.abs(cols["sig"].astype(np.float32).reshape(-1, 2) / 127.0).max(axis=1)
+        return round(max(SIG_MIN_FLOOR, float(np.percentile(mg, 95))), 4)
+
     def finish(self) -> Replay:
         w = self.w
         s, cfg = w.s, w.cfg
@@ -495,7 +505,7 @@ class Recorder:
                     "food_energy": cfg.food_energy, "eta_max": cfg.eta_max, "h_max": cfg.h_max},
             "intro": intro_sentences(cfg, self.scn), "flips": self.flips, "patches": self.patches,
             "stars": self._stars(agents, end), "scenario": info, "notes": [], "history": None, "orig": [],
-            "seen": dict(self.seen),
+            "seen": dict(self.seen), "sig_min": self._sig_min(cols),
         }
         return Replay(self.start, self.every, off, cols, agents, food, per, dict(self.seen), meta,
                       cfg.world_w, cfg.world_h)
