@@ -14,13 +14,13 @@ from numba import njit, prange
 
 from .config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT_SLEEP, ACT_THRUST, ACT_TURN,
                      IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL, N_INTERNAL)
-from .kernels import (C_NFOOD, L_BASAL, L_BRAIN, L_DISCARD, L_LOST, L_MOVE, L_SPAWN, _place_food,
-                      _wdiff, _wrap, make_room)
-from .rng import S_FERTILE, S_KIND, u01
+from .kernels import (C_ATTACKS, C_FERTILE, C_GIFTS, C_NFOOD, KIND_A, L_BASAL, L_BRAIN, L_DISCARD, L_LOST,
+                      L_MOVE, L_SPAWN, TOUCH_HIT, _place_food, _wdiff, _wrap, make_room, pick_kind)
+from .rng import S_ATTACK_ORDER, S_FERTILE, u01
 
-C_GIFTS = 14            # counters 칸: 건넨 횟수
-C_FERTILE = 15          # counters 칸: 거름 땅에 난 먹이 수
-C_ATTACKS = 16          # counters 칸: 공격이 맞은 횟수
+# 거름 먹이의 종류를 뽑는 난수 번호의 밑. S_KIND 흐름에서 보통 먹이는 (일련번호, 0), 어느 쪽이 독인지는
+# (구간, 1)을 쓴다. 거름 먹이는 (스텝, 이 값 + 그 스텝의 몇 번째인지)를 써서 둘과 겹치지 않게 한다.
+KIND_RNG_FERTILE = 1000003
 
 # ---- 실수 설정 칸 ----
 (F_W, F_H, F_INV_CELL, F_E_REPRO, F_BASAL, F_THRUST_COST, F_A_RAD, F_E_FOOD, F_INFLOW,
@@ -29,7 +29,8 @@ C_ATTACKS = 16          # counters 칸: 공격이 맞은 횟수
  F_SLEEP_BASAL, F_SLEEP_FORGET, F_SLEEP_KEEP,
  F_HEAR, F_SIG_COST, F_GIVE_RATE, F_GIVE_LOSS, F_GIVE_MIN,
  F_WEAR, F_TRAIL_DECAY, F_TRAIL_SAT, F_PATH_BONUS, F_DEP_RATE, F_DEP_LOSS, F_SOIL_DECAY,
- F_SOIL_REF, F_FERT_FRAC, F_SOIL_USE, F_CELL, F_ATK_DMG, F_ATK_GAIN, F_ATK_COST, N_FS) = range(46)
+ F_SOIL_REF, F_FERT_FRAC, F_SOIL_USE, F_CELL, F_ATK_DMG, F_ATK_GAIN, F_ATK_COST, F_KIND_RATIO,
+ N_FS) = range(47)
 # ---- 정수 설정 칸 ----
 (I_SEED, I_GW, I_GH, I_SECTORS, I_H_MAX, I_MIND, I_SOCIAL, I_NICHE, I_FOOD_CAP, I_STAGE_IN, I_KINDS,
  I_CAP_REPLACE, N_IS) = range(13)
@@ -55,6 +56,7 @@ def pack_stage_params(cfg):
     fs[F_SOIL_DECAY], fs[F_SOIL_REF], fs[F_FERT_FRAC] = cfg.soil_decay, cfg.soil_ref, cfg.fert_frac
     fs[F_SOIL_USE] = cfg.soil_use
     fs[F_ATK_DMG], fs[F_ATK_GAIN], fs[F_ATK_COST] = cfg.attack_damage, cfg.attack_gain, cfg.attack_cost
+    fs[F_KIND_RATIO] = cfg.kind_ratio
     isp[I_SEED], isp[I_GW], isp[I_GH] = cfg.seed, cfg.grid_w, cfg.grid_h
     isp[I_SECTORS], isp[I_H_MAX] = cfg.vision_sectors, cfg.h_max
     isp[I_MIND], isp[I_SOCIAL], isp[I_NICHE] = int(cfg.mind_enabled), int(cfg.social_enabled), int(cfg.niche_enabled)
@@ -432,48 +434,63 @@ def after_move(s, fs, isp):
 
 
 # =========================== 3단계: 주기 ===========================
+@njit(cache=True, inline="always")
+def _reach2(fs):
+    """건네기와 공격이 닿는 거리의 제곱. 두 장치가 같은 거리를 쓴다."""
+    reach = 2.0 * fs[F_A_RAD] + 0.5
+    return reach * reach
+
+
 @njit(cache=True)
-def give(s, fs, isp):
-    """주기 출력이 켜진 개체가 닿아 있는 가장 가까운 이웃에게 에너지를 건넨다."""
-    n = s.x.shape[0]
+def _nearest_touching(s, fs, isp, i, need_energy):
+    """i에게 닿아 있는(거리 안의) 가장 가까운 살아 있는 이웃의 칸. 없으면 -1.
+    need_energy면 에너지가 0 이하인 이웃은 건너뛴다(빼앗을 것이 없다)."""
     gw = isp[I_GW]
     gh = isp[I_GH]
     w = fs[F_W]
     hgt = fs[F_H]
     inv_cell = fs[F_INV_CELL]
-    reach = 2.0 * fs[F_A_RAD] + 0.5
-    r2 = reach * reach
+    xi = s.x[i]
+    yi = s.y[i]
+    cx = int(xi * inv_cell)
+    cy = int(yi * inv_cell)
+    if cx >= gw:
+        cx = gw - 1
+    if cy >= gh:
+        cy = gh - 1
+    best = -1
+    bd = _reach2(fs)
+    for oy in range(-1, 2):
+        yy = (cy + oy) % gh
+        for ox in range(-1, 2):
+            xx = (cx + ox) % gw
+            c = yy * gw + xx
+            for p in range(s.a_start[c], s.a_start[c + 1]):
+                j = s.a_items[p]
+                if j == i or not s.alive[j]:
+                    continue
+                if need_energy and s.energy[j] <= 0.0:
+                    continue
+                ddx = _wdiff(s.x[j] - xi, w)
+                ddy = _wdiff(s.y[j] - yi, hgt)
+                d2 = ddx * ddx + ddy * ddy
+                if d2 < bd:
+                    bd = d2
+                    best = j
+    return best
+
+
+@njit(cache=True)
+def give(s, fs, isp):
+    """주기 출력이 켜진 개체가 닿아 있는 가장 가까운 이웃에게 에너지를 건넨다."""
+    n = s.x.shape[0]
     for i in range(n):
         if not s.alive[i]:
             continue
         g = float(s.act[i, ACT_GIVE])
         if g <= 0.0 or s.energy[i] <= fs[F_GIVE_MIN]:
             continue
-        xi = s.x[i]
-        yi = s.y[i]
-        cx = int(xi * inv_cell)
-        cy = int(yi * inv_cell)
-        if cx >= gw:
-            cx = gw - 1
-        if cy >= gh:
-            cy = gh - 1
-        best = -1
-        bd = r2
-        for oy in range(-1, 2):
-            yy = (cy + oy) % gh
-            for ox in range(-1, 2):
-                xx = (cx + ox) % gw
-                c = yy * gw + xx
-                for p in range(s.a_start[c], s.a_start[c + 1]):
-                    j = s.a_items[p]
-                    if j == i or not s.alive[j]:
-                        continue
-                    ddx = _wdiff(s.x[j] - xi, w)
-                    ddy = _wdiff(s.y[j] - yi, hgt)
-                    d2 = ddx * ddx + ddy * ddy
-                    if d2 < bd:
-                        bd = d2
-                        best = j
+        best = _nearest_touching(s, fs, isp, i, False)
         if best < 0:
             continue
         amt = fs[F_GIVE_RATE] * g
@@ -486,18 +503,17 @@ def give(s, fs, isp):
 
 # =========================== 다툼: 공격 ===========================
 @njit(cache=True)
-def attack(s, fs, isp):
+def attack(step, s, fs, isp):
     """공격 출력이 켜진 개체가 닿아 있는 가장 가까운 이웃의 에너지를 깎고 그 일부를 얻는다.
-    맞은 개체는 닿음 감각이 2가 된다(그냥 닿으면 1). 얻는 양은 깎은 양보다 적어 에너지가 생기지 않는다."""
+    맞은 개체는 닿음 감각이 TOUCH_HIT(2)가 된다(그냥 닿으면 1). 얻는 양은 깎은 양보다 적어 에너지가 생기지 않는다.
+    훑는 시작 칸은 스텝마다 바꾼다. 늘 0번 칸부터 훑으면 낮은 칸의 개체가 늘 먼저 쳐서, 맞대결의 승패에
+    칸 번호(나이·세대와 얽혀 있다)가 섞인다."""
     n = s.x.shape[0]
-    gw = isp[I_GW]
-    gh = isp[I_GH]
-    w = fs[F_W]
-    hgt = fs[F_H]
-    inv_cell = fs[F_INV_CELL]
-    reach = 2.0 * fs[F_A_RAD] + 0.5
-    r2 = reach * reach
-    for i in range(n):
+    start = int(u01(isp[I_SEED], S_ATTACK_ORDER, step, 0) * n)
+    for q in range(n):
+        i = start + q
+        if i >= n:
+            i -= n
         if not s.alive[i]:
             continue
         a = float(s.act[i, ACT_ATTACK])
@@ -506,31 +522,7 @@ def attack(s, fs, isp):
         cost = fs[F_ATK_COST] * a
         s.energy[i] -= cost
         s.ledger[L_MOVE] += cost
-        xi = s.x[i]
-        yi = s.y[i]
-        cx = int(xi * inv_cell)
-        cy = int(yi * inv_cell)
-        if cx >= gw:
-            cx = gw - 1
-        if cy >= gh:
-            cy = gh - 1
-        best = -1
-        bd = r2
-        for oy in range(-1, 2):
-            yy = (cy + oy) % gh
-            for ox in range(-1, 2):
-                xx = (cx + ox) % gw
-                c = yy * gw + xx
-                for p in range(s.a_start[c], s.a_start[c + 1]):
-                    j = s.a_items[p]
-                    if j == i or not s.alive[j] or s.energy[j] <= 0.0:
-                        continue
-                    ddx = _wdiff(s.x[j] - xi, w)
-                    ddy = _wdiff(s.y[j] - yi, hgt)
-                    d2 = ddx * ddx + ddy * ddy
-                    if d2 < bd:
-                        bd = d2
-                        best = j
+        best = _nearest_touching(s, fs, isp, i, True)
         if best < 0:
             continue
         dmg = fs[F_ATK_DMG] * a
@@ -540,7 +532,7 @@ def attack(s, fs, isp):
         s.energy[best] -= dmg
         s.energy[i] += got
         s.ledger[L_LOST] += dmg - got
-        s.touch[best] = 2.0
+        s.touch[best] = TOUCH_HIT
         s.counters[C_ATTACKS] += 1
 
 
@@ -603,9 +595,9 @@ def niche_world(step, s, fs, isp):
             break
         px = (pick % gw + u01(isp[I_SEED], S_FERTILE, step, 3 * k + 1)) * cell
         py = (pick // gw + u01(isp[I_SEED], S_FERTILE, step, 3 * k + 2)) * cell
-        kind = 0
-        if isp[I_KINDS] != 0 and u01(isp[I_SEED], S_KIND, step, 1000003 + k) < 0.5:
-            kind = 1
+        kind = KIND_A
+        if isp[I_KINDS] != 0:
+            kind = pick_kind(isp[I_SEED], step, KIND_RNG_FERTILE + k, fs[F_KIND_RATIO])
         # 놓을 자리가 정해진 뒤에 자리를 낸다(먼저 치우면 놓지도 않고 먹이만 없앨 수 있다)
         if (not make_room(s, isp[I_FOOD_CAP], isp[I_CAP_REPLACE])
                 or not _place_food(s, _wrap(px, fs[F_W]), _wrap(py, fs[F_H]), e_food, kind, step)):

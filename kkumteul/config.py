@@ -131,6 +131,7 @@ class Config:
     food_kinds_enabled: bool = False  # 먹이가 두 종류이고 한쪽은 독이다. 어느 쪽이 독인지는 때때로 바뀐다
     kind_flip_period: int = 1500  # 이 스텝마다 어느 종류가 독인지 다시 정한다(무작위라 안 바뀔 때도 있다)
     poison: float = 1.0           # 독인 먹이를 먹으면 잃는 에너지(먹이 자체의 에너지도 사라진다)
+    kind_ratio: float = 0.5       # 새로 나는 먹이 가운데 음수로 보이는 종류(종류 1)의 비율. 보통 먹이와 거름 먹이에 같이 쓴다
 
     # --- 다툼 (기본은 꺼짐. 어느 단계 묶음에도 들어 있지 않다) ---
     conflict_enabled: bool = False  # 공격: 닿은 이웃의 에너지를 깎고 일부를 얻는다(포식·처벌의 수단)
@@ -236,6 +237,8 @@ class Config:
             raise ValueError("attack_gain은 0과 1 사이여야 한다(1을 넘으면 에너지가 생긴다)")
         if self.kind_flip_period < 1:
             raise ValueError("kind_flip_period는 1 이상이어야 한다")
+        if not (0.0 <= self.kind_ratio <= 1.0):
+            raise ValueError("kind_ratio는 0과 1 사이여야 한다")
         for name in ("soil_use", "link_cap", "give_min_energy", "alpha_init", "attack_damage", "attack_cost", "poison"):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name}은 0 이상이어야 한다")

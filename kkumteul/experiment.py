@@ -137,19 +137,14 @@ def _assay(control_dir: Path, treat_dir: Path, base: Config, arms: dict, n_each:
            "r_per_1000": res["r_per_1000"], "neutral_r_per_1000": res.get("neutral_r_per_1000"),
            "final_counts": res["final_counts"], "a_extinct_runs": res["a_extinct_runs"],
            "b_extinct_runs": res["b_extinct_runs"], "both_extinct_runs": res["both_extinct_runs"],
-           "verdict": res["verdict"]}
+           "winner": res["winner"], "verdict": measure.verdict(res, "대조 쪽이", "각본을 겪은 쪽이")}
     return out
 
 
 def _verdict(assay: dict) -> str:
     if "skipped" in assay:
         return "겨루지 않음: " + assay["skipped"]
-    v = assay["verdict"]
-    if v.startswith("B가 이김"):
-        return "각본을 겪은 쪽이 이김" + v[len("B가 이김"):]
-    if v.startswith("A가 이김"):
-        return "대조 쪽이 이김" + v[len("A가 이김"):]
-    return v
+    return assay["verdict"]
 
 
 def run_experiment(src: Path, scenario_path: Path, steps: int, name: str, out_dir: Path = Path("experiments"),

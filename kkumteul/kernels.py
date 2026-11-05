@@ -79,6 +79,12 @@ FOOD_FIELDS = [
     ("f_kind", np.int8, True),       # 먹이 종류 0/1, 2는 늘 먹을 수 있는 것(사체)
     ("f_born", np.int64, True),      # 놓인 스텝(상한에서 가장 오래된 것을 고를 때 쓴다)
 ]
+# ---- 먹이 종류 (f_kind) ----
+KIND_A = 0           # 시야에서 양수로 보이는 종류
+KIND_B = 1           # 시야에서 음수로 보이는 종류
+KIND_CORPSE = 2      # 죽은 개체가 남긴 먹이. 어느 쪽이 독이든 늘 먹을 수 있고 시야에서는 양수로 보인다
+TOUCH_HIT = 2.0      # 이번 스텝에 공격을 맞은 개체의 닿음 감각(그냥 닿으면 1.0)
+
 OTHER_SAVED = ["counters", "ledger", "budget", "trail", "soil"]
 # 크기가 설정에 따라 달라도 되는 평생 상태(체크포인트와 크기가 다르면 0에서 시작한다)
 LIFETIME_FLEX = ("epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link")
@@ -106,9 +112,14 @@ C_NALIVE = 10
 C_DEATH_PASSIVE = 11
 C_STEP = 12
 C_DEATH_DISASTER = 13   # 각본의 재난으로 죽은 수
+C_GIFTS = 14            # 건넨 횟수 (stages.give)
+C_FERTILE = 15          # 거름 땅에 난 먹이 수 (stages.niche_world)
+C_ATTACKS = 16          # 공격이 맞은 횟수 (stages.attack)
 C_POISONED = 17
 C_FOOD_REPLACED = 18    # 상한에서 새 먹이에 자리를 내주고 사라진 먹이 수(food_cap_replace)
-N_COUNTERS = 24
+C_DEATH_KILLED = 19     # 공격을 맞은 스텝에 에너지가 바닥나 죽은 수
+C_MIGRANTS = 20         # 다른 세계에서 옮겨 심은 개체 수(pack.migrate). 0이 아니면 이주가 있었던 세계다
+N_COUNTERS = 24         # 번호는 이 파일에만 둔다. 남는 칸은 다음 장치가 쓴다(늘리지 않아도 되게 비워 둔 것)
 
 # ---- ledger 칸 (에너지 장부) ----
 L_SPAWN = 0      # 먹이로 세계에 들어온 에너지
@@ -132,6 +143,7 @@ DEATH_STARVE = 0
 DEATH_AGE = 1
 DEATH_PASSIVE = 2
 DEATH_DISASTER = 3       # 각본의 재난(운석)
+DEATH_KILLED = 4         # 공격을 맞은 스텝에 에너지가 바닥남
 
 # ---- 실수 설정 칸 ----
 (P_W, P_H, P_INV_CELL, P_INFLOW, P_E_FOOD, P_PATCH_SIGMA, P_UNIFORM, P_A_RAD, P_F_RAD,
@@ -140,7 +152,7 @@ DEATH_DISASTER = 3       # 각본의 재난(운석)
  P_FOV, P_VRANGE, P_VNOISE, P_SMELL_LEN, P_SMELL_GAIN, P_INIT_WIN, P_INIT_WREC, P_INIT_WOUT,
  P_BIAS_THRUST, P_BIAS_REPRO, P_SIGMA_INIT, P_SIGMA_MIN, P_SIGMA_MAX, P_SIGMA_TAU,
  P_P_HIDDEN, P_COLOR_SIGMA, P_SYN, P_BACK_COST, P_ETA_INIT, P_ETA_MAX, P_ALPHA_INIT, P_POISON,
- N_FP) = range(48)
+ P_KIND_RATIO, N_FP) = range(49)
 
 # ---- 정수 설정 칸 ----
 (Q_SEED, Q_GW, Q_GH, Q_FOOD_CAP, Q_N_PATCH, Q_PATCH_LIFE, Q_MAX_AGE, Q_MIN_AGENTS,
@@ -198,6 +210,7 @@ def pack_params(cfg):
     fp[P_ETA_MAX] = cfg.eta_max
     fp[P_ALPHA_INIT] = cfg.alpha_init
     fp[P_POISON] = cfg.poison
+    fp[P_KIND_RATIO] = cfg.kind_ratio
     ip[Q_SEED] = cfg.seed
     ip[Q_GW] = cfg.grid_w
     ip[Q_GH] = cfg.grid_h
@@ -282,6 +295,14 @@ def good_kind(seed, step, period):
     return int(u01(seed, S_KIND, step // period, 1) * 2.0)
 
 
+@njit(cache=True, inline="always")
+def pick_kind(seed, a, b, ratio):
+    """새로 나는 먹이의 종류. ratio는 KIND_B가 나는 비율이다. 난수 번호 (a, b)는 부르는 쪽이 서로 겹치지 않게 준다."""
+    if u01(seed, S_KIND, a, b) < ratio:
+        return KIND_B
+    return KIND_A
+
+
 @njit(cache=True)
 def _place_food(s, px, py, e, kind, step):
     """빈 먹이 칸에 놓는다. 자리가 없으면 False."""
@@ -357,9 +378,9 @@ def spawn_food(step, s, fp, ip):
             cx, cy = patch_center(seed, k, step, n_patches, ip[Q_PATCH_LIFE], w, h)
             px = _wrap(cx + fp[P_PATCH_SIGMA] * normal(seed, S_FOOD, serial, 4), w)
             py = _wrap(cy + fp[P_PATCH_SIGMA] * normal(seed, S_FOOD, serial, 5), h)
-        kind = 0
-        if ip[Q_KINDS] != 0 and u01(seed, S_KIND, serial, 0) < 0.5:
-            kind = 1
+        kind = KIND_A
+        if ip[Q_KINDS] != 0:
+            kind = pick_kind(seed, serial, 0, fp[P_KIND_RATIO])
         if _place_food(s, px, py, e_food, kind, step):
             s.ledger[L_SPAWN] += e_food
             s.budget[0] -= e_food
@@ -494,7 +515,7 @@ def _sense_par(step, fp, ip, alive, x, y, heading, vx, vy, energy, age, touch, a
                         continue
                     smell += 1.0 / (1.0 + d2 / sl2)
                     _see(obs, i, 0, nsec, ddx, ddy, math.sqrt(d2), f_rad, hi, fov, vrange,
-                         np.float32(-1.0) if f_kind[j] == 1 else np.float32(1.0))
+                         np.float32(-1.0) if f_kind[j] == KIND_B else np.float32(1.0))
                 for p in range(a_start[c], a_start[c + 1]):
                     j = a_items[p]
                     if j == i:
@@ -738,7 +759,7 @@ def eat(step, s, fp, ip):
                     s.f_alive[j] = False
                     s.counters[C_NFOOD] -= 1
                     s.counters[C_EATEN] += 1
-                    if kinds and s.f_kind[j] != 2 and s.f_kind[j] != good:
+                    if kinds and s.f_kind[j] != KIND_CORPSE and s.f_kind[j] != good:
                         # 독: 먹이의 에너지는 사라지고 먹은 쪽도 에너지를 잃는다
                         s.energy[i] -= fp[P_POISON]
                         s.ledger[L_LOST] += s.f_energy[j] + fp[P_POISON]
@@ -961,7 +982,7 @@ def _remove(s, i, cause, step, recycle, nd):
     s.alive[i] = False
     s.counters[C_NALIVE] -= 1
     e = s.energy[i]
-    if recycle and e > 0.0 and _place_food(s, s.x[i], s.y[i], e, 2, step):
+    if recycle and e > 0.0 and _place_food(s, s.x[i], s.y[i], e, KIND_CORPSE, step):
         pass
     else:
         s.ledger[L_LOST] += e
@@ -993,8 +1014,14 @@ def process_deaths(step, s, fp, ip):
                 s.ledger[L_INJECT] += add
             continue
         if s.energy[i] <= 0.0:
-            _remove(s, i, DEATH_STARVE, step, False, nd)
-            s.counters[C_DEATH_STARVE] += 1
+            if s.touch[i] == TOUCH_HIT:
+                # 이번 스텝에 공격을 맞았고 에너지가 바닥났다. 굶어 죽음과 따로 센다
+                # (맞은 뒤 제 공격 비용으로 바닥난 드문 경우도 여기에 든다)
+                _remove(s, i, DEATH_KILLED, step, False, nd)
+                s.counters[C_DEATH_KILLED] += 1
+            else:
+                _remove(s, i, DEATH_STARVE, step, False, nd)
+                s.counters[C_DEATH_STARVE] += 1
             nd += 1
         elif s.age[i] >= ip[Q_MAX_AGE]:
             _remove(s, i, DEATH_AGE, step, corpse, nd)

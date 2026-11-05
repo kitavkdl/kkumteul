@@ -319,7 +319,7 @@ class Runner:
             "w_steps": int(steps),
             "w_births": int(dc[k.C_BIRTHS]),
             "w_deaths": int(dc[k.C_DEATH_STARVE] + dc[k.C_DEATH_AGE] + dc[k.C_DEATH_PASSIVE]
-                            + dc[k.C_DEATH_DISASTER]),
+                            + dc[k.C_DEATH_DISASTER] + dc[k.C_DEATH_KILLED]),
             "w_starve": int(dc[k.C_DEATH_STARVE]),
             "w_age": int(dc[k.C_DEATH_AGE]),
             "w_disaster": int(dc[k.C_DEATH_DISASTER]),
@@ -331,6 +331,8 @@ class Runner:
             "e_residual_rel": bal["residual"] / max(bal["spawn"] + bal["inject"], 1.0),
             "e_discard": bal["discard"],
         })
+        if w.cfg.conflict_enabled:
+            row["w_killed"] = int(dc[k.C_DEATH_KILLED])     # 맞아 죽은 수(w_starve에는 들어 있지 않다)
         if self.scenario is not None:
             # 각본이 건드리는 설정의 지금 값
             row["scn"] = {name: getattr(w.cfg, name) for name in self.scenario.touched}

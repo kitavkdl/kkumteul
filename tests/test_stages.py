@@ -139,7 +139,7 @@ def test_niche_trails_soil_and_fertile_food():
     w2.s.soil[cell] = 200.0
     w2.s.ledger[k.L_INJECT] += 200.0     # 시험용으로 넣은 에너지를 장부에 적는다
     w2.run(300)
-    assert w2.s.counters[st.C_FERTILE] > 20
+    assert w2.s.counters[k.C_FERTILE] > 20
     fa = w2.s.f_alive
     cx = (w2.s.fx[fa] // w2.cfg.cell).astype(int)
     cy = (w2.s.fy[fa] // w2.cfg.cell).astype(int)
@@ -237,7 +237,7 @@ def test_assay_keeps_learning_genes_and_fresh_lifetime_state(tmp_path):
     assert {"rw", "eta", "alpha"} <= set(side["genomes"])
     acfg = measure.arena_config(side["cfg"], 3, 10)
     arena = World(acfg, populate=False)
-    measure._inject(arena, side["genomes"], 0, 0, 10.0, 10.0, 0.0, 5)
+    measure.inject_agent(arena, side["genomes"], 0, 0, 10.0, 10.0, 0.0, 5)
     j = int(np.flatnonzero(arena.s.alive)[0])
     assert arena.s.eta[j] > 0 and np.abs(arena.s.rw[j]).sum() > 0 and np.abs(arena.s.alpha[j]).sum() > 0
     assert arena.s.e_prev[j] == acfg.e_start and not arena.s.Hrec[j].any()
@@ -272,6 +272,11 @@ def test_compare_control_and_treatment(tmp_path):
     t = res["treatment_minus_control_r_per_1000"]
     assert np.isfinite(t["in_treatment_rules"]["mean"]) and np.isfinite(t["in_control_rules"]["mean"])
     assert "A가" not in t["verdict_control_rules"] and "B가" not in t["verdict_treatment_rules"]
+    assert t["winner_treatment_rules"] in ("treatment", "control", "")
+    assert t["winner_control_rules"] in ("treatment", "control", "")
+    # 켜고 끄는 장치는 설정에서 모은다. 새 장치도 카드에 빠지지 않는다
+    assert {"food_kinds_enabled", "conflict_enabled", "mind_enabled"} <= set(res["flags"])
+    assert "mutation_enabled" not in res["flags"]
     assert res["reading"]
 
 
@@ -286,7 +291,7 @@ def test_attack_takes_energy_without_creating_any():
     s.act[:] = 0
     s.act[i, ACT_ATTACK] = 1.0
     ei, ej, lost, moved = s.energy[i], s.energy[j], s.ledger[k.L_LOST], s.ledger[k.L_MOVE]
-    st.attack(s, w.fs, w.isp)
+    st.attack(0, s, w.fs, w.isp)
     assert s.energy[j] == pytest.approx(ej - cfg.attack_damage)
     assert s.energy[i] == pytest.approx(ei - cfg.attack_cost + cfg.attack_damage * cfg.attack_gain)
     assert s.ledger[k.L_LOST] == pytest.approx(lost + cfg.attack_damage * (1 - cfg.attack_gain))
@@ -294,14 +299,14 @@ def test_attack_takes_energy_without_creating_any():
     assert s.touch[j] == 2.0, "맞은 개체는 닿음 감각이 2가 된다"
     # 가진 것보다 더 빼앗지 못한다
     s.energy[j] = 0.05
-    st.attack(s, w.fs, w.isp)
+    st.attack(1, s, w.fs, w.isp)
     assert s.energy[j] == pytest.approx(0.0)
     # 멀리 있으면 비용만 든다
     s.x[j] = 150.0
     s.energy[j] = 1.0
     k.build_grid(s.x, s.y, s.alive, 1.0 / cfg.cell, cfg.grid_w, cfg.grid_h, s.a_start, s.a_items, s.cursor)
     ei = s.energy[i]
-    st.attack(s, w.fs, w.isp)
+    st.attack(2, s, w.fs, w.isp)
     assert s.energy[i] == pytest.approx(ei - cfg.attack_cost) and s.energy[j] == 1.0
 
 
@@ -439,9 +444,10 @@ def test_compare_reading_is_not_overconfident():
 
     def card(on_mean, on_v, off_mean, off_v, sem=0.05):
         st_ = lambda m: {"mean": m, "sd": sem * 6 ** 0.5, "sem": sem, "n": 6}  # noqa: E731
+        who = lambda v: "treatment" if v.startswith("켠 쪽이 이김") else ("control" if v.startswith("끈 쪽이 이김") else "")  # noqa: E731
         return {"treatment_minus_control_r_per_1000": {
-            "in_treatment_rules": st_(on_mean), "verdict_treatment_rules": on_v,
-            "in_control_rules": st_(off_mean), "verdict_control_rules": off_v}}
+            "in_treatment_rules": st_(on_mean), "verdict_treatment_rules": on_v, "winner_treatment_rules": who(on_v),
+            "in_control_rules": st_(off_mean), "verdict_control_rules": off_v, "winner_control_rules": who(off_v)}}
 
     near = compare._reading(card(0.20, "켠 쪽이 이김", 0.10, "가를 수 없음"))
     assert "말할 수 없다" in near and "한 쌍뿐" in near
@@ -471,3 +477,98 @@ def test_branch_turning_conflict_on_calms_attack_bias(tmp_path):
     ctrl = Runner.branch(tmp_path / "main", tmp_path / "ctrl", 400, [], False, False, calm_attack=True)
     assert (ctrl.world.s.bout[ctrl.world.s.alive, ACT_ATTACK] == -1.0).all()
     ctrl.close()
+
+
+def test_compare_reading_follows_the_winner_field_not_the_sentence():
+    """읽기는 승자 필드로 가른다. 판정 문장의 낱말이 바뀌어도 읽기가 '가를 수 없다'로 떨어지지 않는다."""
+    from kkumteul import compare, measure
+    st_ = {"mean": 0.6, "sd": 0.1, "sem": 0.05, "n": 6}
+    res = {"reps": 6, "a_extinct_runs": 0, "b_extinct_runs": 0, "both_extinct_runs": 0, "r_per_1000": st_}
+    assert measure.winner(res) == "b" and measure.verdict(res, "끈 쪽이", "켠 쪽이") == "켠 쪽이 이김"
+    assert measure.winner({**res, "r_per_1000": {**st_, "mean": -0.6}}) == "a"
+    assert measure.winner({**res, "r_per_1000": {**st_, "mean": 0.01}}) == ""
+    assert measure.winner({**res, "a_extinct_runs": 6, "r_per_1000": {**st_, "mean": -0.6}}) == "b"
+    card = {"treatment_minus_control_r_per_1000": {
+        "in_treatment_rules": st_, "verdict_treatment_rules": "문구가 달라져도", "winner_treatment_rules": "treatment",
+        "in_control_rules": {**st_, "mean": -0.6}, "verdict_control_rules": "상관없다", "winner_control_rules": "control"}}
+    assert "자기 규칙에 적응" in compare._reading(card)
+
+
+def test_kind_ratio_sets_the_share_of_the_negative_kind():
+    """먹이 종류의 비율은 설정(kind_ratio)이다. 0이면 전부 종류 0, 1이면 전부 종류 1이 난다."""
+    for ratio, want in ((0.0, k.KIND_A), (1.0, k.KIND_B)):
+        w = World(small("kinds", kind_ratio=ratio, init_agents=2, min_agents=0))
+        w.run(150)
+        kinds = w.s.f_kind[w.s.f_alive & (w.s.f_kind != k.KIND_CORPSE)]
+        assert len(kinds) > 50 and (kinds == want).all()
+    w = World(small("kinds", init_agents=2, min_agents=0))
+    w.run(150)
+    kinds = w.s.f_kind[w.s.f_alive & (w.s.f_kind != k.KIND_CORPSE)]
+    assert 0.35 < (kinds == k.KIND_B).mean() < 0.65
+    with pytest.raises(ValueError):
+        small("kinds", kind_ratio=1.5).validate()
+    # 거름 땅에 나는 먹이도 같은 비율을 쓴다
+    w4 = World(small("stage4", "kinds", kind_ratio=1.0, init_agents=2, min_agents=0))
+    w4.s.soil[:] = 5.0
+    w4.s.ledger[k.L_SPAWN] += float(w4.s.soil.sum())
+    w4.run(150)
+    assert w4.s.counters[k.C_FERTILE] > 5
+    kinds = w4.s.f_kind[w4.s.f_alive & (w4.s.f_kind != k.KIND_CORPSE)]
+    assert (kinds == k.KIND_B).all()
+
+
+def _two_facing(cfg):
+    """모든 칸이 살아 있는 작은 세계에서 0번과 가운데 칸의 개체를 맞붙여 놓는다. 나머지는 멀리 둔다."""
+    w = World(cfg)
+    s = w.s
+    n = cfg.max_agents
+    assert int(s.alive.sum()) == n
+    i, j = 0, n // 2
+    for q in range(n):
+        s.x[q], s.y[q] = 20.0 + 25.0 * q, 200.0
+    s.x[i], s.y[i] = 100.0, 100.0
+    s.x[j], s.y[j] = 101.5, 100.0
+    k.build_grid(s.x, s.y, s.alive, 1.0 / cfg.cell, cfg.grid_w, cfg.grid_h, s.a_start, s.a_items, s.cursor)
+    s.act[:] = 0
+    s.touch[:] = 0
+    return w, i, j
+
+
+def test_death_by_attack_is_counted_apart_from_starving():
+    cfg = small("stage3", "conflict", max_agents=8, init_agents=8, min_agents=0, food_inflow=0.0)
+    w, i, j = _two_facing(cfg)
+    s = w.s
+    s.act[i, ACT_ATTACK] = 1.0
+    s.energy[j] = 0.05                  # 한 대 맞으면 바닥난다
+    s.energy[3] = -0.1                  # 맞지 않고 굶은 개체
+    st.attack(0, s, w.fs, w.isp)
+    assert s.energy[j] == 0.0 and s.touch[j] == k.TOUCH_HIT
+    nd = k.process_deaths(0, s, w.fp, w.ip)
+    w._take_deaths(nd)
+    _, d = w.drain_events()
+    cause = {int(r["id"]): int(r["cause"]) for r in d}
+    assert cause == {int(s.ids[j]): k.DEATH_KILLED, int(s.ids[3]): k.DEATH_STARVE}
+    assert s.counters[k.C_DEATH_KILLED] == 1 and s.counters[k.C_DEATH_STARVE] == 1
+    assert w.summary()["deaths_killed"] == 1
+
+
+def test_attack_order_does_not_always_favor_the_low_slot():
+    """서로 한 대면 쓰러지는 둘이 맞붙으면 먼저 치는 쪽이 산다. 훑는 시작 칸을 스텝마다 돌리므로 양쪽 다 이길 때가 있다."""
+    cfg = small("stage3", "conflict", max_agents=8, init_agents=8, min_agents=0, food_inflow=0.0)
+    w, i, j = _two_facing(cfg)
+    s = w.s
+    s.act[i, ACT_ATTACK] = s.act[j, ACT_ATTACK] = 1.0
+    wins = {i: 0, j: 0}
+    for t in range(60):
+        s.energy[i] = s.energy[j] = 0.1
+        st.attack(t, s, w.fs, w.isp)
+        assert (s.energy[i] > 0) != (s.energy[j] > 0), "먼저 맞은 쪽은 반격하지 못한다"
+        wins[i if s.energy[i] > 0 else j] += 1
+    assert wins[i] > 5 and wins[j] > 5, wins
+    # 같은 스텝이면 같은 순서다(재현성)
+    s.energy[i] = s.energy[j] = 0.1
+    st.attack(7, s, w.fs, w.isp)
+    first = s.energy[i] > 0
+    s.energy[i] = s.energy[j] = 0.1
+    st.attack(7, s, w.fs, w.isp)
+    assert (s.energy[i] > 0) == first
