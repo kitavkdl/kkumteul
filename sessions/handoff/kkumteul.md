@@ -5,6 +5,8 @@
 ## ★ 먼저 할 것
 - **모델 확인**: Opus 5.5·high여야 한다(메모리 `kkumteul-session-model-and-tools`). 아니면 첫 답에서 알린다.
 - **사용자 지시(14:4x ET): 큰 순서 뭉칠 이유(혹독한 세계) → 몸짓 → 기록 → 도구로 쭉 진행. 막히거나 사용자 창의력이 필요한 곳은 AskUserQuestion과 폰 알림(PushNotification)으로 묻는다.** 사용자 그림: 혹독해서 뭉쳐야 유리(매머드·위험한 동물), 먹이 운반·저장·부패, 약탈자. 벽·지형은 소통에 큰 영향이 없어 뒤로. 성공 장면은 손짓·발짓 소통이 발전하고, 그림 같은 기록, 도구 만들기.
+- **사용자 지시(16:0x ET): 암수를 나눠 유전적으로 우월한 자손을 남기는 쪽으로 진화하게.** 설계 초안 `docs/superpowers/specs/2026-11-05-sex-design.md`(혹독한 세계 다음, 몸짓 앞, 따로 켜고 끔).
+- 폰 알림: 앱 PushNotification이 "not sent"면 `(레포 밖 폰 알림 스크립트) -t "<제목>" - <<'MSG' ... MSG`로 보낸다(앞 세션 확인, RC가 꺼진 세션에서는 앱 알림이 안 갔다).
 - 앞 지시(03:38 ET) 남은 작업 → 시각화 → `/develop`은 첫 바퀴까지 끝(develop 기록 `sessions/develop/kkumteul-communication.md`). 지시(03:05): superpowers 스킬은 웬만하면(구현은 TDD), 서브에이전트는 언제든, ultracode는 필요할 때.
 - "오전 8시까지 사용량 다 써도 됨"은 끝났다. 평소 기준으로 쓴다(사용자 12:3x ET).
 - 작업 폴더 `.claude/worktrees/night-1105c`, 가지 `worktree-night-1105c`(main push가 막혀 있다). `main` 합치기는 사용자가 정하신다(tasks.md).
