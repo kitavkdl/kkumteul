@@ -1,0 +1,97 @@
+<!--HEAD-->
+<title>꿈틀 다시 보기</title>
+<style>
+:root { --bg: #f7f5ef; --ink: #1f2428; --dim: #6b7280; --line: #d9d5c8; --food: #3f9a52; --poison: #8a4fc7; --corpse: #9aa0a6; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #14171a; --ink: #e8e6df; --dim: #9aa0a6; --line: #2c3238; --food: #6fcf7f; --poison: #b98cf0; --corpse: #6b7280; } }
+:root[data-theme="dark"] { --bg: #14171a; --ink: #e8e6df; --dim: #9aa0a6; --line: #2c3238; --food: #6fcf7f; --poison: #b98cf0; --corpse: #6b7280; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, sans-serif; }
+#rp { max-width: 720px; margin: 0 auto; padding: 16px; }
+#rp h1 { font-size: 18px; margin: 0 0 4px; }
+#rp p { margin: 0 0 8px; color: var(--dim); }
+#rp canvas { width: 100%; aspect-ratio: 1; border: 1px solid var(--line); border-radius: 8px; display: block; touch-action: none; }
+#rp .bar { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+#rp .bar input { flex: 1; min-width: 0; }
+#rp button { font: inherit; padding: 4px 12px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; }
+</style>
+<!--/HEAD-->
+<div id="rp">
+  <h1 id="rp-title">꿈틀 다시 보기</h1>
+  <p id="rp-intro"></p>
+  <p id="rp-state"></p>
+  <canvas id="rp-map" width="720" height="720"></canvas>
+  <div class="bar"><button id="rp-play" type="button">멈춤</button><input id="rp-time" type="range" min="0" value="0"><span id="rp-step"></span></div>
+</div>
+<!--__REPLAY_DATA__-->
+<script>
+(function () {
+  "use strict";
+  // 임시 화면: 자료를 읽어 점으로만 그린다. 설계(docs/visualization.md)의 화면은 이 자리를 바꿔 짓는다.
+  var meta = JSON.parse(document.getElementById("replay-meta").textContent);
+  var raw = atob(document.getElementById("replay-bin").textContent.trim());
+  var buf = new Uint8Array(raw.length);
+  for (var i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
+  var TYPES = { u1: Uint8Array, i1: Int8Array, u2: Uint16Array, u4: Uint32Array, i4: Int32Array, f4: Float32Array, f8: Float64Array };
+  var A = {};
+  Object.keys(meta.arrays).forEach(function (name) {
+    var d = meta.arrays[name];
+    A[name] = new TYPES[d[0]](buf.buffer, d[1], d[2]);
+  });
+  var $ = function (id) { return document.getElementById(id); };
+  $("rp-title").textContent = "꿈틀 다시 보기 · " + meta.title;
+  $("rp-intro").textContent = meta.intro.join(" ");
+  var cv = $("rp-map"), g = cv.getContext("2d"), slider = $("rp-time");
+  slider.max = meta.n_frames - 1;
+  var css = getComputedStyle(document.documentElement);
+  var color = function (name) { return css.getPropertyValue(name).trim(); };
+  var frame = 0, playing = true, last = 0;
+
+  function drawScene(f) {
+    var W = cv.width, H = cv.height, k = W / 65536;
+    g.clearRect(0, 0, W, H);
+    var good = A.f_good[f], kinds = meta.on.kinds;
+    for (var j = 0; j < A.fd_in.length && A.fd_in[j] <= f; j++) {
+      if (A.fd_out[j] <= f) continue;
+      var kind = A.fd_kind[j];
+      g.fillStyle = kind === 2 ? color("--corpse") : (kinds && kind !== good ? color("--poison") : color("--food"));
+      g.fillRect(A.fd_x[j] * k - 1, A.fd_y[j] * k - 1, 2.5, 2.5);
+    }
+    for (var p = A.fr_off[f]; p < A.fr_off[f + 1]; p++) {
+      var n = A.fr_idx[p], x = A.fr_x[p] * k, y = A.fr_y[p] * k, fl = A.fr_flags[p];
+      g.globalAlpha = fl & 16 ? 0.4 : 1;
+      g.fillStyle = "rgb(" + A.ag_color[3 * n] + "," + A.ag_color[3 * n + 1] + "," + A.ag_color[3 * n + 2] + ")";
+      g.beginPath();
+      g.arc(x, y, 2 + A.fr_energy[p] / 80, 0, 6.2832);
+      g.fill();
+      g.globalAlpha = 1;
+      if (fl & 15) {
+        g.strokeStyle = fl & 12 ? "#d64545" : color("--food");
+        g.lineWidth = 2;
+        g.beginPath();
+        g.arc(x, y, 8, 0, 6.2832);
+        g.stroke();
+      }
+    }
+    var pop = A.fr_off[f + 1] - A.fr_off[f];
+    $("rp-step").textContent = (meta.start + f * meta.every).toLocaleString() + "스텝";
+    $("rp-state").textContent = pop + "마리 · 먹이 " + A.f_food[f] + "알" +
+      (kinds ? " · 지금 독은 " + (good === 0 ? "마름모(B)" : "원(A)") : "");
+    slider.value = f;
+  }
+
+  function tick(now) {
+    if (playing && now - last > 66) {
+      last = now;
+      frame = (frame + 1) % meta.n_frames;
+      drawScene(frame);
+    }
+    requestAnimationFrame(tick);
+  }
+  slider.addEventListener("input", function () { frame = +slider.value; drawScene(frame); });
+  $("rp-play").addEventListener("click", function () {
+    playing = !playing;
+    $("rp-play").textContent = playing ? "멈춤" : "재생";
+  });
+  drawScene(0);
+  requestAnimationFrame(tick);
+})();
+</script>

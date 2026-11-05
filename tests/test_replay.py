@@ -1,0 +1,361 @@
+"""다시 보기(replay) 시험: 체크포인트에서 다시 돌린 장면이 세계와 맞는지, 내보낸 파일이 혼자 열리는지.
+
+    python3 -m pytest -q tests/test_replay.py
+"""
+import json
+import re
+import shutil
+import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from kkumteul import checkpoint as ckpt  # noqa: E402
+from kkumteul import kernels as k  # noqa: E402
+from kkumteul import replay  # noqa: E402
+from kkumteul.config import ACT_ATTACK, ACT_GIVE, Config  # noqa: E402
+from kkumteul.run import Runner  # noqa: E402
+from kkumteul.scenario import Scenario  # noqa: E402
+from kkumteul.world import World  # noqa: E402
+
+
+def small(*presets, **kw) -> Config:
+    base = dict(world_w=256.0, world_h=256.0, max_agents=600, init_agents=150, food_cap=500,
+                food_inflow=2.2, n_patches=4, stats_every=200, frame_every=50, clip_every=300,
+                clip_len=20, ckpt_every=400, keyframe_every=200, min_agents=20, event_segment_steps=700)
+    base.update(kw)
+    cfg = Config.from_dict({**Config().to_dict(), **base})
+    return cfg.with_overrides([f"preset={p}" for p in presets])
+
+
+def ckpt_of(run_dir: Path, step: int) -> Path:
+    return run_dir / "checkpoints" / f"ckpt_{step:012d}.npz"
+
+
+def listing(run_dir: Path) -> list:
+    return sorted((str(p.relative_to(run_dir)), p.stat().st_size, p.stat().st_mtime_ns)
+                  for p in run_dir.rglob("*") if p.is_file() and p.name != ".lock")
+
+
+@pytest.fixture(scope="module")
+def kinds_run(tmp_path_factory) -> Path:
+    """먹이 종류를 켠 작은 세계를 400스텝 돌린 실행 폴더."""
+    d = tmp_path_factory.mktemp("replay") / "kinds-world"
+    r = Runner.new(d, small("stage2", "kinds", poison=0.3, kind_flip_period=150, max_age=300, repro_min_age=50))
+    r.loop(400, quiet=True)
+    r.close()
+    return d
+
+
+# ---------------------------------------------------------------- 장면이 세계와 맞는가
+def test_frames_follow_the_world_step_by_step(kinds_run):
+    path = ckpt_of(kinds_run, 400)
+    rep = replay.record(path, steps=120, every=2)
+    w, _ = ckpt.load(path)
+    assert rep.start == 400 and rep.every == 2 and rep.n_frames == 61
+    assert list(rep.steps[:3]) == [400, 402, 404] and rep.steps[-1] == 520
+    for f in range(rep.n_frames):
+        fr = rep.frame(f)
+        a = np.flatnonzero(w.s.alive)
+        ids = rep.agents["id"][fr.idx]
+        assert len(ids) == len(a) == rep.pop[f]
+        assert sorted(ids) == sorted(w.s.ids[a]), "장면의 개체는 그 스텝에 살아 있는 개체와 같다"
+        by_id = dict(zip(w.s.ids[a].tolist(), a.tolist()))
+        slot = np.array([by_id[int(i)] for i in ids])
+        assert np.abs(fr.x - w.s.x[slot]).max() <= 256.0 / 65536 + 1e-9
+        assert np.abs(fr.y - w.s.y[slot]).max() <= 256.0 / 65536 + 1e-9
+        assert ((fr.flags & replay.F_ASLEEP) > 0).tolist() == (w.s.asleep[slot] > 0).tolist()
+        fa = w.s.f_alive
+        on = rep.food[(rep.food["f_in"] <= f) & (f < rep.food["f_out"])]
+        assert len(on) == int(fa.sum()) == rep.n_food[f], "먹이 표에서 이 장면에 있는 먹이 수 = 세계의 먹이 수"
+        assert sorted(on["kind"].tolist()) == sorted(w.s.f_kind[fa].tolist())
+        if f < rep.n_frames - 1:
+            w.run(2)
+    # 다시 돌리는 동안 나고 죽은 개체는 장면 사이에 있었더라도 모두 표에 있다
+    births, deaths = w.drain_events()
+    row = {int(i): n for n, i in enumerate(rep.agents["id"])}
+    assert len(row) == len(rep.agents), "개체 번호는 겹치지 않는다"
+    assert len(births) > 0 and len(deaths) > 0
+    for b in births:
+        r = rep.agents[row[int(b["id"])]]
+        assert r["born"] == b["step"] and r["kind"] == b["kind"] and r["gen"] == b["gen"]
+        if b["parent"] >= 0:
+            assert r["parent"] >= 0 and rep.agents["id"][r["parent"]] == b["parent"], "부모도 표에 있다"
+    for d in deaths:
+        r = rep.agents[row[int(d["id"])]]
+        assert r["died"] == d["step"] and r["cause"] == d["cause"]
+    alive_end = rep.agents["died"] < 0
+    assert int(alive_end.sum()) == rep.pop[-1]
+
+
+def test_eating_is_read_from_the_food_side_and_matches_counters(kinds_run):
+    path = ckpt_of(kinds_run, 400)
+    rep = replay.record(path, steps=300, every=2)
+    w, _ = ckpt.load(path)
+    c0 = w.s.counters.copy()
+    w.run(300)
+    dc = w.s.counters - c0
+    eaten, poisoned = int(dc[k.C_EATEN]), int(dc[k.C_POISONED])
+    assert eaten > 50 and poisoned > 5      # 시험이 뜻이 있으려면 먹은 것과 독이 넉넉해야 한다
+    # 화면의 숫자(먹은 수, 독 수)는 세계의 계수기에서 온다
+    assert int(rep.c_eaten.sum()) == eaten and int(rep.c_poisoned.sum()) == poisoned
+    # 누가 무엇을 먹었는지는 사라진 먹이에서 가린다. 같은 스텝에 났다가 먹힌 먹이만 빠진다
+    seen = rep.seen
+    found = seen["good"] + seen["poison"] + seen["unknown"]
+    print(f"먹은 수 {eaten}(독 {poisoned}) / 먹이 쪽에서 가린 것 좋음 {seen['good']} 독 {seen['poison']} "
+          f"모름 {seen['unknown']} / 빠진 것 {eaten - found}")
+    assert 0 <= eaten - found <= 0.02 * eaten
+    assert abs(seen["poison"] - poisoned) <= 0.02 * eaten
+    assert seen["unknown"] <= 0.02 * eaten
+    assert int(rep.agents["ate_good"].sum()) == seen["good"]
+    assert int(rep.agents["ate_poison"].sum()) == seen["poison"]
+    why = rep.food["why"]
+    assert int((why == replay.WHY_GOOD).sum()) + int((why == replay.WHY_POISON).sum()) <= found
+    # 지금 좋은 종류는 먹기 커널이 그 스텝에 쓴 값이다(장면의 스텝 - 1)
+    cfg = w.cfg
+    for f in (1, 30, 75, 76, 150):
+        assert rep.good_kind[f] == k.good_kind(cfg.seed, int(rep.steps[f]) - 1, cfg.kind_flip_period)
+    # 눈 감고 먹었을 때의 독 비율: 그때 세계에 놓인 먹이 가운데 독인 것
+    fa = w.s.f_alive
+    good = k.good_kind(cfg.seed, w.step_no - 1, cfg.kind_flip_period)
+    bad = int(((w.s.f_kind[fa] != k.KIND_CORPSE) & (w.s.f_kind[fa] != good)).sum())
+    assert rep.blind[-1] == pytest.approx(bad / max(int(fa.sum()), 1), abs=1e-6)
+
+
+def test_one_poison_and_one_good_food_are_told_apart():
+    cfg = small("kinds", init_agents=1, min_agents=0, food_inflow=0.0, poison=0.3)
+    w = World(cfg)
+    s = w.s
+    i = int(np.flatnonzero(s.alive)[0])
+    good = k.good_kind(cfg.seed, 0, cfg.kind_flip_period)
+    s.x[i], s.y[i], s.heading[i] = 100.0, 100.0, 0.0
+    s.vx[:] = s.vy[:] = 0.0
+    for j, (dx, kind) in enumerate(((0.4, 1 - good), (-0.4, good))):
+        s.fx[j], s.fy[j], s.f_energy[j], s.f_kind[j], s.f_alive[j] = 100.0 + dx, 100.0, 1.0, kind, True
+    s.counters[k.C_NFOOD] = 2
+    s.ledger[k.L_SPAWN] += 2.0
+    rec = replay.Recorder(w, every=1)
+    rec.advance(1)
+    rep = rec.finish()
+    me = rep.agents[rep.agents["id"] == s.ids[i]][0]
+    assert me["ate_good"] == 1 and me["ate_poison"] == 1
+    fr = rep.frame(1)
+    assert len(fr.flags) == 1 and fr.flags[0] & 3 == 1 and (fr.flags[0] >> 2) & 3 == 1
+    food = rep.food
+    assert len(food) == 2 and (food["f_in"] == 0).all() and (food["f_out"] == 1).all()
+    by_kind = {int(r["kind"]): int(r["why"]) for r in food}
+    assert by_kind[good] == replay.WHY_GOOD and by_kind[1 - good] == replay.WHY_POISON
+    assert rep.seen == {"good": 1, "poison": 1, "unknown": 0, "evicted": 0, "burnt": 0, "gave": 0}
+    assert int(rep.c_eaten[1]) == 2 and int(rep.c_poisoned[1]) == 1
+
+
+def test_agent_that_lives_one_step_between_frames_is_still_in_the_table():
+    w = World(small("stage2", "kinds", max_age=300, repro_min_age=50))
+    w.run(300)
+    rec = replay.Recorder(w, every=3)
+    victim = None
+    for _ in range(600):
+        rec.advance(1)
+        if (w.step_no - rec.start) % 3 == 1:
+            born = np.flatnonzero(w.s.alive & (w.s.birth_step == w.step_no - 1))
+            if len(born):
+                victim = int(w.s.ids[born[0]])
+                w.s.energy[born[0]] = -1.0     # 다음 스텝에 굶어 죽는다(장면과 장면 사이에만 산다)
+                break
+    assert victim is not None, "600스텝 안에 맞는 때의 출생이 없었다"
+    rec.advance(5)
+    rep = rec.finish()
+    r = rep.agents[rep.agents["id"] == victim]
+    assert len(r) == 1
+    assert r["died"][0] - r["born"][0] == 1 and r["cause"][0] == k.DEATH_STARVE
+    assert r["parent"][0] >= 0
+    for f in range(rep.n_frames):
+        assert victim not in rep.agents["id"][rep.frame(f).idx]
+
+
+def test_signals_gifts_and_hits_are_marked():
+    # 건네기: 공격이 없는 세계에서는 표시한 수가 세계의 계수기와 거의 같다
+    # (공격이 섞이면 건넨 뒤 맞아 죽거나 에너지가 깎인 개체를 놓쳐 더 벌어진다. 화면 표시용 어림이다)
+    w = World(small("stage3"))
+    w.s.bout[w.s.alive, ACT_GIVE] = 1.0
+    c0 = w.s.counters.copy()
+    rec = replay.Recorder(w, every=2)
+    rec.advance(200)
+    rep = rec.finish()
+    gifts = int((w.s.counters - c0)[k.C_GIFTS])
+    assert gifts > 50 and int(rep.gifts.sum()) == gifts
+    print(f"건넨 횟수 {gifts}, 화면에 표시한 주는 개체 {rep.seen['gave']}")
+    assert abs(rep.seen["gave"] - gifts) <= 0.05 * gifts
+    flags = np.concatenate([rep.frame(f).flags for f in range(rep.n_frames)])
+    assert (flags & replay.F_GAVE).any() and not (flags & replay.F_HIT).any()
+    # 공격: 맞은 개체에 표시가 선다
+    w = World(small("stage3", "conflict"))
+    w.s.bout[w.s.alive, ACT_ATTACK] = 1.0
+    c0 = w.s.counters.copy()
+    rec = replay.Recorder(w, every=2)
+    rec.advance(200)
+    rep = rec.finish()
+    attacks = int((w.s.counters - c0)[k.C_ATTACKS])
+    assert attacks > 0 and int(rep.attacks.sum()) == attacks
+    flags = np.concatenate([rep.frame(f).flags for f in range(rep.n_frames)])
+    assert (flags & replay.F_HIT).any()
+    fr = rep.frame(rep.n_frames - 1)
+    al = np.flatnonzero(w.s.alive)
+    by_id = dict(zip(w.s.ids[al].tolist(), al.tolist()))
+    slot = np.array([by_id[int(i)] for i in rep.agents["id"][fr.idx]])
+    assert fr.sig is not None and fr.sig.shape == (len(slot), 2)
+    assert np.abs(fr.sig - w.s.sig[slot]).max() <= 1.0 / 127 + 1e-6
+    # 사회가 꺼진 세계에는 신호 자료가 없다
+    plain = replay.Recorder(World(small()), every=2)
+    plain.advance(4)
+    assert plain.finish().frame(1).sig is None
+
+
+# ---------------------------------------------------------------- 어디서부터, 무엇을 읽는가
+def test_from_flip_starts_a_little_before_the_next_switch(kinds_run):
+    path = ckpt_of(kinds_run, 400)
+    w, _ = ckpt.load(path)
+    cfg = w.cfg
+    period = cfg.kind_flip_period
+    b = (400 // period + 1) * period
+    while k.good_kind(cfg.seed, b, period) == k.good_kind(cfg.seed, b - 1, period):
+        b += period
+    start = max(400, b - min(300, period // 4))
+    rep = replay.record(path, steps=200, every=2, from_flip=True)
+    assert rep.start == start and rep.meta["ckpt_step"] == 400
+    w.run(start - 400)
+    assert rep.pop[0] == int(w.s.alive.sum())
+    change = [int(rep.steps[f]) for f in range(1, rep.n_frames) if rep.good_kind[f] != rep.good_kind[f - 1]]
+    assert change and b + 1 <= change[0] <= b + 2, "바뀐 뒤의 첫 장면"
+    flips = rep.meta["flips"]
+    assert flips and flips[0]["step"] == b and flips[0]["good"] == k.good_kind(cfg.seed, b, period)
+
+
+def test_passive_control_checkpoint_is_refused(tmp_path):
+    w = World(small(passive=True))
+    path = ckpt.save(w, tmp_path / "checkpoints")
+    with pytest.raises(ValueError, match="대조 실행"):
+        replay.record(path, steps=10)
+
+
+def test_scenario_run_is_replayed_with_its_scenario(tmp_path):
+    scn = Scenario.from_dict({"name": "시험 가뭄", "description": "먹이가 줄고 운석이 떨어진다", "events": [
+        {"at": 420, "for": 40, "scale": {"food_inflow": 0.5}},
+        {"at": 411, "strike": {"radius": 70, "kill": 1.0, "burn_food": True, "x": 128, "y": 128}}]})
+    run_dir = tmp_path / "scn"
+    r = Runner.new(run_dir, small(), scenario=scn)
+    r.loop(400, quiet=True)
+    r.close()
+    rep = replay.record(ckpt_of(run_dir, 400), steps=100, every=2)
+    info = rep.meta["scenario"]
+    assert info["name"] == "시험 가뭄" and info["description"] == "먹이가 줄고 운석이 떨어진다"
+    assert len(info["strikes"]) == 1
+    st = info["strikes"][0]
+    assert st["step"] == 411 and st["frame"] == 6 and st["killed"] > 0 and st["radius"] == 70
+    assert (st["x"], st["y"]) == (128, 128)
+    assert [(c["step"], c["values"]) for c in info["changes"]] == [
+        (420, {"food_inflow": pytest.approx(1.1)}), (460, {"food_inflow": pytest.approx(2.2)})]
+    assert rep.seen["burnt"] > 0
+    assert int((rep.agents["cause"] == k.DEATH_DISASTER).sum()) == st["killed"]
+    # 실행기가 같은 체크포인트에서 이어 돌린 것과 같은 세계다
+    r = Runner.resume(run_dir)
+    r.loop(100, quiet=True)
+    w = r.world
+    last = rep.frame(rep.n_frames - 1)
+    assert sorted(rep.agents["id"][last.idx]) == sorted(w.s.ids[w.s.alive])
+    assert rep.n_food[-1] == int(w.s.f_alive.sum())
+    r.close()
+    # 각본 파일을 읽을 수 없으면 그렇다고 적는다
+    (run_dir / "scenario.json").unlink()
+    rep2 = replay.record(ckpt_of(run_dir, 400), steps=10, every=2)
+    assert rep2.meta["scenario"] is None and any("각본 적용 안 함" in n for n in rep2.meta["notes"])
+
+
+def test_history_reads_only_whole_rows_up_to_the_checkpoint(kinds_run, tmp_path):
+    run_dir = tmp_path / "copy"
+    shutil.copytree(kinds_run, run_dir, ignore=shutil.ignore_patterns(".lock"))
+    with open(run_dir / "stats.jsonl", "ab") as f:
+        f.write(json.dumps({"step": 600, "pop": 123, "eaten": 9, "poisoned": 1, "hidden_mean": 2.0}).encode() + b"\n")
+        f.write(json.dumps({"step": 9000, "pop": 7}).encode() + b"\n")
+        f.write(b'{"step": 9200, "pop": 1')          # 쓰다 만 마지막 줄
+    rep = replay.record(ckpt_of(run_dir, 400), steps=300, every=2)
+    hist = rep.meta["history"]
+    assert hist["step"] == [200, 400] and len(hist["pop"]) == 2 and len(hist["hidden"]) == 2
+    assert hist["poison"][0] is not None and 0.0 <= hist["poison"][1] <= 1.0
+    assert rep.meta["orig"] == [[600, 123]], "다시 돌린 구간에 있는 원래 기록은 따로 적는다"
+    # 기록이 없으면 긴 흐름을 뺀다
+    (run_dir / "stats.jsonl").unlink()
+    rep = replay.record(ckpt_of(run_dir, 400), steps=10, every=2)
+    assert rep.meta["history"] is None and rep.meta["orig"] == []
+
+
+def test_intro_and_title_come_from_the_config_and_folder(kinds_run):
+    rep = replay.record(ckpt_of(kinds_run, 400), steps=10, every=2)
+    intro = " ".join(rep.meta["intro"])
+    assert "독" in intro and "가르치지 않" in intro
+    assert rep.meta["title"] == "kinds-world"
+    assert replay.record(ckpt_of(kinds_run, 400), steps=10, title="내 세계").meta["title"] == "내 세계"
+    plain = replay.Recorder(World(small()), every=2)
+    plain.advance(4)
+    assert "독" not in " ".join(plain.finish().meta["intro"])
+    stars = rep.meta["stars"]
+    assert 1 <= len(stars) <= 4 and all(0 <= s["agent"] < len(rep.agents) and s["why"] for s in stars)
+
+
+# ---------------------------------------------------------------- 내보낸 파일
+def test_export_is_one_self_contained_file_and_touches_nothing(kinds_run, tmp_path):
+    path = ckpt_of(kinds_run, 400)
+    sha, before = ckpt.file_sha256(path), listing(kinds_run)
+    out = tmp_path / "out.html"
+    rep = replay.write(path, out, steps=100, every=2)
+    assert ckpt.file_sha256(path) == sha, "체크포인트는 읽기만 한다"
+    assert listing(kinds_run) == before, "실행 폴더에 아무것도 쓰지 않는다"
+    html = out.read_text(encoding="utf-8")
+    assert html.lstrip().lower().startswith("<!doctype html>")
+    for pat in (r"\bsrc\s*=", r"\bhref\s*=", r"url\(", r"fetch\(", r"XMLHttpRequest", r"@import",
+                r"\bimport\s*\(", r"https?://(?!www\.w3\.org/)"):
+        assert not re.search(pat, html), f"바깥에서 불러오는 것이 있다: {pat}"
+    assert str(tmp_path) not in html and str(kinds_run.parent) not in html and "/home/" not in html
+    assert "kinds-world" in html
+    assert "__REPLAY_DATA__" not in html
+    # 파일에 든 자료를 다시 꺼내면 적은 것과 같다
+    meta, arrays = replay.read_embedded(html)
+    assert meta["n_frames"] == rep.n_frames == 51 and meta["every"] == 2 and meta["start"] == 400
+    fr = [rep.frame(f) for f in range(rep.n_frames)]
+    assert arrays["fr_off"].tolist() == np.concatenate([[0], np.cumsum([len(x.idx) for x in fr])]).tolist()
+    assert arrays["fr_idx"].tolist() == np.concatenate([x.idx for x in fr]).tolist()
+    assert arrays["fr_flags"].tolist() == np.concatenate([x.flags for x in fr]).tolist()
+    assert arrays["ag_id"].tolist() == rep.agents["id"].tolist()
+    assert arrays["fd_in"].tolist() == rep.food["f_in"].tolist()
+    assert arrays["f_good"].tolist() == rep.good_kind.tolist()
+    # 아티팩트용은 뼈대 없이 내용만
+    art = tmp_path / "art.html"
+    replay.write(path, art, steps=20, every=2, standalone=False)
+    body = art.read_text(encoding="utf-8").lower()
+    assert "<!doctype" not in body and "<html" not in body and "<body" not in body and "<head" not in body
+    assert "<title>" in body and "<canvas" in body
+
+
+def test_export_widens_the_frame_gap_to_stay_under_the_size_limit(kinds_run, tmp_path):
+    path = ckpt_of(kinds_run, 400)
+    out = tmp_path / "a.html"
+    rep = replay.write(path, out, steps=200, every=2)
+    full = out.stat().st_size
+    assert rep.every == 2
+    limit = int(full * 0.8)
+    rep = replay.write(path, out, steps=200, every=2, max_bytes=limit)
+    assert rep.every > 2 and out.stat().st_size <= limit
+    with pytest.raises(ValueError, match="크기"):
+        replay.write(path, tmp_path / "b.html", steps=200, every=2, max_bytes=2000)
+    assert not (tmp_path / "b.html").exists()
+
+
+def test_command_line_writes_under_runs_by_default(kinds_run, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert replay.main(["--ckpt", str(ckpt_of(kinds_run, 400)), "--steps", "40"]) == 0
+    out = tmp_path / "runs" / "replay-kinds-world.html"
+    assert out.exists() and out.stat().st_size > 10000
+    assert "replay-kinds-world.html" in capsys.readouterr().out
