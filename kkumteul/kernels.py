@@ -93,6 +93,9 @@ OTHER_SAVED = ["counters", "ledger", "budget", "trail", "soil"]
 LIFETIME_FLEX = ("epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link", "elig_in", "elig_rec")
 # 노드 섭동을 켰을 때만 크게 잡는 배열
 PERTURB_FLEX = ("elig_in", "elig_rec")
+# 나중에 생긴 저장 필드의 기본값. 값이 모두 기본값이면 상태 해시에 넣지 않고(그 필드가 생기기 전 해시와 같게),
+# 이 필드가 없는 옛 체크포인트를 읽으면 기본값으로 둔다. 새 저장 필드는 여기에 더한다.
+HASH_DEFAULTS = {"elig_in": 0, "elig_rec": 0}
 OTHER_SCRATCH = ["a_start", "a_items", "f_start", "f_items", "cursor", "bbuf", "dbuf", "dbuf_f"]
 
 State = namedtuple(
@@ -125,7 +128,27 @@ C_FOOD_REPLACED = 18    # 상한에서 새 먹이에 자리를 내주고 사라�
 C_DEATH_KILLED = 19     # 공격을 맞은 스텝에 에너지가 바닥나 죽은 수
 C_MIGRANTS = 20         # 다른 세계에서 옮겨 심은 개체 수(pack.migrate). 0이 아니면 이주가 있었던 세계다
 C_SPOILED = 21          # 썩어서 사라진 먹이 수(spoil_food)
-N_COUNTERS = 24         # 번호는 이 파일에만 둔다. 남는 칸은 다음 장치가 쓴다(늘리지 않아도 되게 비워 둔 것)
+C_NFIELD = 22           # 들기 장치용 번호(아직 쓰는 곳 없음)
+C_CARRIES = 23
+# 아래 칸은 확장 크기 세계에만 있다. 꼬리가 모두 0이면 상태 해시에 넣지 않는다.
+C_STORE_EVICTED = 24    # 저장소 자리가 차서 밀려난 먹이 수
+C_DEATH_PREDATED = 25   # 포식자에게 죽은 수
+C_SCAVENGED = 26        # 시체를 먹은 수
+C_PREY_KILLED = 27      # 사냥감이 잡혀 죽은 수
+C_ANIMAL_REPELLED = 28  # 동물이 쫓겨난 수
+C_CHASES = 29           # 쫓은 횟수
+C_MATINGS = 30          # 짝짓기 수
+C_DEATH_CONTEST = 31    # 겨루다 죽은 수
+C_INFECTIONS = 32       # 감염 수
+C_DEATH_INFECTED = 33   # 감염으로 죽은 수
+# 34·35: 암수용 예비
+C_RESCUES = 36          # 구해 준 횟수
+# 37~39: 예비
+N_COUNTERS_BASE = 24    # 번호는 이 파일에만 둔다. 기본 크기 세계의 계수기 길이
+N_COUNTERS_EXT = 40     # 확장 크기 세계(Config.ext_size)의 계수기 길이
+N_COUNTERS = N_COUNTERS_BASE    # 바깥 코드 호환용 이름
+N_BUDGET_BASE = 2       # [0] 보통 먹이, [1] 거름 땅에 날 먹이
+N_BUDGET_EXT = 3        # 확장 크기 세계는 한 칸이 더 있다
 
 # ---- ledger 칸 (에너지 장부) ----
 L_SPAWN = 0      # 먹이로 세계에 들어온 에너지
@@ -258,9 +281,10 @@ def alloc_state(cfg) -> State:
     for name, dt, _ in FOOD_FIELDS:
         d[name] = np.zeros(nf, dtype=dt)
     ncell = cfg.grid_w * cfg.grid_h
-    d["counters"] = np.zeros(N_COUNTERS, dtype=np.int64)
+    ext = cfg.ext_size
+    d["counters"] = np.zeros(N_COUNTERS_EXT if ext else N_COUNTERS_BASE, dtype=np.int64)
     d["ledger"] = np.zeros(N_LEDGER, dtype=np.float64)
-    d["budget"] = np.zeros(2, dtype=np.float64)   # [0] 보통 먹이, [1] 거름 땅에 날 먹이
+    d["budget"] = np.zeros(N_BUDGET_EXT if ext else N_BUDGET_BASE, dtype=np.float64)
     d["trail"] = np.zeros(ncell, dtype=np.float64)
     d["soil"] = np.zeros(ncell, dtype=np.float64)
     d["a_start"] = np.zeros(ncell + 1, dtype=np.int32)
