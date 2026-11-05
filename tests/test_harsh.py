@@ -14,7 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_stages import rel_residual, small  # noqa: E402
 from kkumteul import checkpoint as ckpt  # noqa: E402
 from kkumteul import replay  # noqa: E402
-from kkumteul.config import ACT_CARRY, N_EXT_IN, N_EXT_OUT, N_INTERNAL, N_STAGE_IN, N_STAGE_OUT  # noqa: E402
+from kkumteul import kernels as k  # noqa: E402
+from kkumteul.config import ACT_CARRY, EXT_SEASON, N_EXT_IN, N_EXT_OUT, N_INTERNAL, N_STAGE_IN, N_STAGE_OUT  # noqa: E402
 from kkumteul.run import Runner  # noqa: E402
 from kkumteul.world import World  # noqa: E402
 
@@ -87,3 +88,57 @@ def test_replay_record_with_ext_override(tmp_path):
     _main(tmp_path)
     rep = replay.record(_ckpt_at(tmp_path / "main", 400), steps=50, overrides=["preset=ext"])
     assert rep is not None
+
+
+# ---- 과제 3: 겨울 ----
+def test_season_schedule_keeps_yearly_mean():
+    w = World(small("ext", season_enabled=True))
+    P, W = w.cfg.season_period, w.cfg.winter_len
+    g = [w.season(t)[0] for t in range(P)]
+    assert abs(np.mean(g) - 1.0) < 1e-12
+    assert w.season(0)[0] > 1.0
+    assert w.season(P - 1)[:2] == (pytest.approx(0.3), 1.5)      # 해의 마지막 스텝은 겨울
+    assert w.season(P - W - 1)[1] == 1.0 and w.season(P - W)[:2] == (pytest.approx(0.3), 1.5)
+    assert w.season(P)[0] == w.season(0)[0]                        # 해가 되풀이된다
+
+
+def test_season_off_is_neutral():
+    assert World(small("ext")).season(3999) == (1.0, 1.0, 0.0, 0.0)
+
+
+def test_season_config_validated():
+    for bad in (dict(winter_len=0), dict(winter_len=4000), dict(winter_mult=1.5), dict(winter_basal_mult=0.9)):
+        with pytest.raises(ValueError):
+            small("ext", season_enabled=True, **bad)
+
+
+def test_winter_cuts_grass_and_raises_basal():
+    on = World(small("ext", season_enabled=True, season_period=400, winter_len=200))
+    off = World(small("ext"))
+    for w in (on, off):
+        w.run(400)
+    assert on.s.ledger[k.L_BASAL] > off.s.ledger[k.L_BASAL]
+    assert rel_residual(on) < 1e-9
+    # 겨울만 도는 구간(200~400)에서는 들어오는 풀도 준다
+    cold = World(small("ext", season_enabled=True, season_period=400, winter_len=200))
+    base = World(small("ext"))
+    for w in (cold, base):
+        w.step_no = 200
+        w.run(200)
+    assert cold.s.ledger[k.L_SPAWN] < 0.5 * base.s.ledger[k.L_SPAWN]
+
+
+def test_season_input_is_written():
+    w = World(small("ext", season_enabled=True))
+    w.run(5)
+    a = w.s.alive
+    c = w.cfg.ext_in0 + EXT_SEASON
+    _, _, sn, cs = w.season(w.step_no - 1)
+    assert np.allclose(w.s.obs[a, c], sn) and np.allclose(w.s.obs[a, c + 1], cs)
+
+
+def test_winter_with_niche_conserves_energy():
+    w = World(small("stage4", "ext", season_enabled=True, season_period=400, winter_len=200))
+    w.run(1200)
+    w.check_sane()
+    assert rel_residual(w) < 1e-9

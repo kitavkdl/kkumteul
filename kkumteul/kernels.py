@@ -363,13 +363,13 @@ def make_room(s, cap, replace):
 
 # ---- 먹이 ----
 @njit(cache=True)
-def spawn_food(step, s, fp, ip):
+def spawn_food(step, s, fp, ip, mult=1.0):
     seed = ip[Q_SEED]
     w = fp[P_W]
     h = fp[P_H]
     e_food = fp[P_E_FOOD]
     n_patches = ip[Q_N_PATCH]
-    s.budget[0] += fp[P_INFLOW]
+    s.budget[0] += fp[P_INFLOW] * mult
     while s.budget[0] >= e_food:
         if not make_room(s, ip[Q_FOOD_CAP], ip[Q_CAP_REPLACE]):
             s.ledger[L_DISCARD] += s.budget[0]
@@ -589,13 +589,22 @@ def _think_par(alive, n_hidden, obs, h, hnew, act, Win, Wrec, bh, Wout, bout):
 
 
 @njit(cache=True)
+def write_ext2(alive, obs, col, a, b):
+    """살아 있는 개체의 입력 두 칸(col, col+1)에 같은 값 a, b를 쓴다(계절 sin·cos 같은 세계 공통 감각)."""
+    for i in range(alive.shape[0]):
+        if alive[i]:
+            obs[i, col] = a
+            obs[i, col + 1] = b
+
+
+@njit(cache=True)
 def think(s):
     _think_par(s.alive, s.n_hidden, s.obs, s.h, s.hnew, s.act, s.Win, s.Wrec, s.bh, s.Wout, s.bout)
 
 
 # ---- 움직임과 대사 ----
 @njit(cache=True)
-def move(s, fp, ip):
+def move(s, fp, ip, basal_mult=1.0):
     n = s.x.shape[0]
     w = fp[P_W]
     hgt = fp[P_H]
@@ -636,8 +645,9 @@ def move(s, fp, ip):
             for k in range(nh):
                 a += abs(s.h[i, k])
             c_brain += fp[P_BRAIN_ACT] * a / h_max
-        s.energy[i] -= fp[P_BASAL] + c_brain + c_move
-        s.ledger[L_BASAL] += fp[P_BASAL]
+        basal = fp[P_BASAL] * basal_mult
+        s.energy[i] -= basal + c_brain + c_move
+        s.ledger[L_BASAL] += basal
         s.ledger[L_BRAIN] += c_brain
         s.ledger[L_MOVE] += c_move
         s.age[i] += 1
