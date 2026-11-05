@@ -206,12 +206,39 @@ svg .todo .rb { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; } 
 .climb-aside ul { margin: 0; padding-left: 1.1em; display: grid; gap: 10px; color: var(--dim); font-size: 0.95rem; }
 .pending { border: 1px dashed var(--dawn); border-radius: 10px; background: var(--surface); padding: 12px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; color: var(--dim); max-width: 28em; }
 
+/* 새 방향 */
+.road { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.stepn { display: grid; grid-template-columns: 2.6rem minmax(0, 1fr); gap: 12px; align-items: start; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-left: calc(var(--i) * 4%); min-width: 0; }
+.stepn.ins { border-style: dashed; border-color: var(--dawn); }
+.stepn .n { font-family: var(--f-mono); font-size: var(--step-1); color: var(--accent); text-align: center; line-height: 1.5; }
+.stepn b { font-weight: 600; margin-right: 6px; }
+.stepn p { color: var(--dim); font-size: 0.92rem; }
+.pill.off { color: var(--faint); }
+.duo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start; }
+.fh { margin: 0; font-size: 1rem; font-weight: 600; }
+.bars { display: grid; gap: 8px; }
+.bar { display: grid; grid-template-columns: 2.4rem minmax(0, 1fr) 3rem; gap: 10px; align-items: center; font-size: 0.92rem; }
+.bar .track { display: block; height: 14px; background: var(--wash); border-radius: 3px; }
+.bar .fill { display: block; height: 100%; border-radius: 3px; background: var(--accent); width: calc(var(--v) / 4 * 100%); }
+.bar .num { text-align: right; }
+.duo svg { display: block; width: 100%; max-width: 360px; height: auto; }
+.duo .r-hear { fill: none; stroke: var(--dawn); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.duo .r-see { fill: var(--wash); stroke: var(--accent); stroke-width: 1.5; }
+.duo .ag.see circle { fill: var(--accent); }
+.duo .ag.hear circle { fill: var(--surface); stroke: var(--accent); stroke-width: 2; }
+.duo .ag.far circle { fill: var(--faint); }
+.duo .prey { fill: var(--ink); }
+.duo .lb { font-size: 12px; fill: var(--ink); }
+.duo .lb2 { font-size: 11px; fill: var(--dim); }
+.plain { margin: 0; padding-left: 1.1em; display: grid; gap: 8px; color: var(--dim); font-size: 0.95rem; max-width: 40em; }
+
 @media (max-width: 860px) {
   .chap { grid-template-columns: minmax(0, 1fr); gap: 22px; padding-block: 48px; }
   .chap-head { position: static; grid-auto-flow: column; justify-content: start; align-items: baseline; gap: 12px; }
   .trio { grid-template-columns: minmax(0, 1fr); }
   .live { grid-template-columns: minmax(0, 1fr); }
   .climb-grid { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .duo { grid-template-columns: minmax(0, 1fr); }
   .climb-fig { max-width: 440px; }
 }
 @media (max-width: 560px) {
@@ -222,6 +249,7 @@ svg .todo .rb { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; } 
   .shift { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .shift .arr { text-align: left; }
   .rung:nth-child(n) { margin-left: 0; }
+  .stepn { margin-left: 0; }
   .chap-head { grid-auto-flow: row; }
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
@@ -254,7 +282,7 @@ svg .todo .rb { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; } 
   <!-- 1 동기 -->
   <section class="chap" id="motive">
     <header class="chap-head">
-      <span class="chap-no">1 / 6</span>
+      <span class="chap-no">1 / 7</span>
       <h2>동기</h2>
       <p class="chap-when">10월 28일</p>
     </header>
@@ -301,7 +329,7 @@ svg .todo .rb { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; } 
   <!-- 2 구상 -->
   <section class="chap" id="design">
     <header class="chap-head">
-      <span class="chap-no">2 / 6</span>
+      <span class="chap-no">2 / 7</span>
       <h2>구상</h2>
       <p class="chap-when">10월 28일 ~ 11월 4일</p>
     </header>
@@ -374,7 +402,7 @@ svg .todo .rb { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; } 
   <!-- 3 우여곡절 -->
   <section class="chap" id="detours">
     <header class="chap-head">
-      <span class="chap-no">3 / 6</span>
+      <span class="chap-no">3 / 7</span>
       <h2>우여곡절</h2>
       <p class="chap-when">11월 4일 ~ 5일 아침</p>
     </header>
@@ -507,7 +535,7 @@ svg .todo .rb { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; } 
   <!-- 4 조절 -->
   <section class="chap" id="adjust">
     <header class="chap-head">
-      <span class="chap-no">4 / 6</span>
+      <span class="chap-no">4 / 7</span>
       <h2>조절</h2>
       <p class="chap-when">부딪힐 때마다</p>
     </header>
@@ -534,7 +562,7 @@ svg .todo .rb { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; } 
   <!-- 5 어디까지 왔나 -->
   <section class="chap" id="where">
     <header class="chap-head">
-      <span class="chap-no">5 / 6</span>
+      <span class="chap-no">5 / 7</span>
       <h2>어디까지 왔나</h2>
       <p class="chap-when">11월 5일 오후</p>
     </header>
@@ -626,7 +654,7 @@ svg .todo .rb { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; } 
               <li>아래에서 위로 오른다. 윗칸은 아랫칸이 있어야 선다고 본다(추정).</li>
               <li>왼쪽 괄호: 아래 다섯 칸은 지금의 1~4단계 세계 안에서 씨앗까지는 기대할 수 있다. 위 두 칸은 말이 필요해서 5단계 제안으로 넘어간다.</li>
               <li>막힌 칸은 학습이다. 문화와 규범이 학습 위에 서므로, 아래 "사용자가 정하실 것"의 ① 가려 먹기의 다음 길이 이 칸을 다시 여는 길이다(추정).</li>
-              <li>소통 칸은 감각 막기 겨루기로 쟀다. 듣기를 막은 쪽과 겨뤄 가를 수 없어 "못 넘음"이다. 다시 열려면 혼자 못 하는 일(협력 먹이)처럼 알릴 까닭이 있는 세계가 필요하다(추정).</li>
+              <li>소통 칸은 감각 막기 겨루기로 쟀다. 듣기를 막은 쪽과 겨뤄 가를 수 없어 "못 넘음"이다. 다시 열려면 혼자 못 하는 일(협력 먹이)처럼 알릴 까닭이 있는 세계가 필요하다(추정). 그 길이 다음 장의 새 방향이다.</li>
             </ul>
             <p class="sub">칸마다 적은 사실은 한 번, 한 씨앗으로 잰 것이 대부분이다.</p>
           </aside>
@@ -635,10 +663,165 @@ svg .todo .rb { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; } 
     </div>
   </section>
 
-  <!-- 6 지금 상태 -->
+  <!-- 6 새 방향 -->
+  <section class="chap" id="direction">
+    <header class="chap-head">
+      <span class="chap-no">6 / 7</span>
+      <h2>새 방향</h2>
+      <p class="chap-when">11월 5일 오후</p>
+    </header>
+    <div class="chap-body">
+      <div class="block">
+        <p class="thesis">알릴 일이 없는 세계라 신호가 값을 하지 않았다. 그래서 <em>뭉쳐야 사는</em> 세계를 먼저 만든다.</p>
+        <p class="sub">develop 1바퀴(소통을 알아챌 수 있는가)의 결론과 사용자 방향. 설계 문서는 <code>docs/superpowers/specs/</code>에 있다.</p>
+      </div>
+
+      <div class="block">
+        <h3>왜 바꾸나: 못 듣게 해도 차이가 없었다</h3>
+        <p>같은 생물 두 벌을 겨루게 하고 한쪽만 신호를 못 듣게 했다. 시야를 막은 쪽은 6판 모두 전멸해서 도구는 제대로 막는다는 것이 확인됐다. 듣기를 막은 쪽은 사회 세계와 공격 세계 모두 가를 수 없었다. 설계 문서는 까닭을 이렇게 적었다. 모두가 같은 것을 보고, 남이 먹는 것을 보는 것이 이미 공짜 단서라서 신호가 값을 할 까닭이 없다.</p>
+        <div class="note dawn"><p>사용자 방향(오후): 환경이 혹독해서 뭉쳐 살아야 압도적으로 유리한 세계. 큰 사냥감, 위험한 동물, 먹이 운반과 저장, 부패, 약탈자를 넣고 벽과 지형은 뒤로 미룬다. 설계 문서에 적힌 사용자 말씀: "누구는 알고 누구는 모르는 상황도 중요하다".</p></div>
+        <p class="sub">보고 싶은 장면은 손짓·발짓 소통과 그 발전, 그림 같은 기록, 도구 만들기다.</p>
+      </div>
+
+      <div class="block">
+        <h3>큰 순서</h3>
+        <p>아래 칸이 위 칸의 바탕이다. 각각 따로 켜고 끄고, 따로 설계하고 검토하고 구현한다. 그래야 무엇이 효과를 냈는지 가를 수 있다.</p>
+        <ol class="road" aria-label="새 방향의 큰 순서">
+          <li class="stepn" style="--i:0"><span class="n">1</span><div><b>뭉칠 이유</b> <span class="pill in">설계 셋째 판 완료</span>
+            <p>혼자보다 무리가 크게 유리하고, 먼저 본 개체만 아는 일이 있는 세계. 이 장치가 있어야 신호의 내용이 값을 할 수 있다.</p></div></li>
+          <li class="stepn ins" style="--i:1"><span class="n">1.5</span><div><b>암수와 짝짓기</b> <span class="pill wait">둘째 판 대기</span>
+            <p>사용자 지시로 중간에 끼웠다. 짝을 고르려면 상대를 보고 판단해야 하므로 구애 신호라는 소통의 까닭이 하나 더 생긴다.</p></div></li>
+          <li class="stepn" style="--i:2"><span class="n">2</span><div><b>몸짓</b> <span class="pill off">이번 설계 밖</span>
+            <p>손짓·발짓 소통과 그 발전.</p></div></li>
+          <li class="stepn" style="--i:3"><span class="n">3</span><div><b>기록</b> <span class="pill off">이번 설계 밖</span>
+            <p>그림 같은 기록.</p></div></li>
+          <li class="stepn" style="--i:4"><span class="n">4</span><div><b>도구</b> <span class="pill off">이번 설계 밖</span>
+            <p>도구 만들기. 1의 "들기"가 만드는 물건 칸을 그대로 쓰게 해 둔다.</p></div></li>
+        </ol>
+      </div>
+
+      <div class="block">
+        <h3>1 뭉칠 이유: 다섯 장치</h3>
+        <p>모두 설정으로 끄고 켜며 기본은 꺼짐이다. 숫자는 전부 Claude가 정한 <b>임시 결정</b>이고, 세계가 무너지면 진짜 체크포인트로 재서 고친다.</p>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>장치</th><th>하는 일</th><th>임시 숫자</th></tr></thead>
+            <tbody>
+              <tr><td>① 겨울</td><td>해마다 풀만 줄어든다. 사냥감 몫은 그대로라 겨울엔 사냥이 주식이 된다.</td><td class="num">4,000스텝 주기, 겨울 1,200스텝, 풀 0.3배, 기초 대사 2배</td></tr>
+              <tr><td>② 부패</td><td>둔 먹이와 고기가 상한다. 오래 쌓아 둘 수 없다.</td><td class="num">400스텝 뒤부터, 반감기 약 600</td></tr>
+              <tr><td>③ 들기</td><td>먹이를 들고 옮기고 내려놓는다. 든 동안은 이동 비용이 더 든다. 저장의 바탕이다.</td><td class="num">이동 비용 1.3배</td></tr>
+              <tr><td>④ 큰 사냥감</td><td>드물고 오래 머무는 큰 동물. 맞은 상처가 쌓이고 반격은 공격자 수로 나뉜다. 쓰러지면 고기 24알.</td><td class="num">4마리, 체력 10, 1,500스텝 머묾</td></tr>
+              <tr><td>⑤ 포식자와 약탈자</td><td>포식자는 가장 가까운 개체를 쫓아 죽인다. 약탈자는 내려놓은 알만 노린다.</td><td class="num">포식자 3마리, 약탈자 4마리</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="duo">
+          <div class="figure">
+            <h4 class="fh">함께할수록 싸지는 사냥</h4>
+            <div class="bars" role="img" aria-label="사냥감 하나를 쓰러뜨릴 때 공격자 한 마리가 치르는 비용. 혼자 4, 둘이면 각자 1.25, 셋이면 각자 0.67.">
+              <div class="bar" style="--v:4"><span>혼자</span><span class="track"><span class="fill"></span></span><span class="num">4</span></div>
+              <div class="bar" style="--v:1.25"><span>둘</span><span class="track"><span class="fill"></span></span><span class="num">1.25</span></div>
+              <div class="bar" style="--v:0.67"><span>셋</span><span class="track"><span class="fill"></span></span><span class="num">0.67</span></div>
+            </div>
+            <p class="sub">공격자 한 마리가 치르는 비용(반격으로 잃는 몫과 공격 비용). 공격 출력 1일 때 설계 문서의 어림셈이고, 혼자는 약 50스텝이 걸린다. 얻는 것은 혼자일 때 "본전 근처"라고 적혀 있다. 함께해야 하는 문턱을 손으로 박지 않고 이 기울기로 만든다.</p>
+          </div>
+          <div class="figure">
+            <h4 class="fh">누구는 알고 누구는 모른다</h4>
+            <svg viewBox="0 0 320 250" role="img" aria-label="사냥감 둘레. 반지름 16 안의 개체는 사냥감을 보고, 16에서 24 사이의 띠에서는 듣기만 닿고, 그 밖의 개체는 모른다.">
+              <circle class="r-hear" cx="160" cy="125" r="120"/>
+              <circle class="r-see" cx="160" cy="125" r="80"/>
+              <g class="ag see"><circle cx="135" cy="100" r="5"/><circle cx="190" cy="140" r="5"/><circle cx="150" cy="175" r="5"/></g>
+              <g class="ag hear"><circle cx="70" cy="75" r="5"/><circle cx="255" cy="85" r="5"/><circle cx="215" cy="205" r="5"/></g>
+              <g class="ag far"><circle cx="22" cy="28" r="5"/><circle cx="300" cy="225" r="5"/></g>
+              <rect class="prey" x="152" y="117" width="16" height="16" transform="rotate(45 160 125)"/>
+              <text class="lb" x="160" y="156" text-anchor="middle">사냥감</text>
+              <text class="lb2" x="160" y="62" text-anchor="middle">시야 16</text>
+              <text class="lb2" x="160" y="24" text-anchor="middle">듣기 24</text>
+            </svg>
+            <p class="sub">굵은 점은 사냥감을 본 개체, 속이 빈 점은 소리만 닿는 개체, 흐린 점은 모르는 개체. 설계 문서의 시야 16과 듣기 24를 사냥감 둘레에 그린 설명용 그림이다.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="block">
+        <h3>판정: 신호의 내용이 값을 하는가</h3>
+        <p>본래 질문이다. 혹독한 세계에 적응한 무리로 6판씩 겨룬다. 듣기 막기에 더해 <b>섞기 대조</b>를 둔다. 들리는 양은 그대로 두고 남의 신호 값만 무작위로 섞는 것이다.</p>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>듣기 막기</th><th>섞기</th><th>읽기</th></tr></thead>
+            <tbody>
+              <tr><td>가른다</td><td>가르지 못한다</td><td>신호가 <b>밀도 감지</b>로 쓰였다(곁에 몇이 있나)</td></tr>
+              <tr><td>가른다</td><td>가른다</td><td>신호의 <b>내용</b>이 쓰였다</td></tr>
+              <tr><td>가르지 못한다</td><td>-</td><td>"가를 수 없음". 이것이 실패 기준이다</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="sub">가름 기준은 결과 보기 전에 적는다. 평균 차이가 표준오차의 2배를 넘고 크기가 1,000스텝당 0.06 이상이어야 한다(임시 결정). 그 밖에 사냥감을 쓰러뜨릴 때 붙어 있던 개체 가운데 붙기 전에 그 사냥감을 보지 못한 "듣고 온 개체"의 비율, 신호가 상황(포식자를 봄, 들고 있음, 겨울)에 따라 다른지도 잰다.</p>
+        <div class="note"><p>설계는 맥락 없는 검토를 두 번(각 두 갈래) 거쳐 셋째 판까지 왔다. 기본 입출력 뒤에 늘 같은 자리의 확장 칸을 두어 장치를 끈 세계의 상태 해시가 바뀌지 않게 하고, 켜기 전과 후를 같은 체크포인트에서 갈라 비교한다.</p></div>
+      </div>
+
+      <div class="block" id="sex">
+        <h3>1.5 암수와 짝짓기</h3>
+        <p>사용자 지시: "암수를 나눠 줘. 유전적으로 우월한 자손을 남기는 쪽으로 진화하게." 주신 글의 요지는 섞는 까닭(병원체와의 군비경쟁, 해로운 돌연변이 청소), 암수를 나누는 까닭(분업, 근친교배 방지), "작고 많이"와 "크고 적게"가 암수의 뿌리라는 것이다. 지금 세계는 무성생식이라 혼자 낳는다.</p>
+        <div class="live">
+          <article>
+            <h4>암컷: 크고 적게</h4>
+            <dl>
+              <dt>낳는 조건</dt><dd>에너지 문턱, 번식 출력 &gt; 0, 곁에 받아들일 수컷</dd>
+              <dt>치르는 것</dt><dd>새끼 에너지와 낳는 비용</dd>
+              <dt>고르기</dt><dd>자기 뇌가 정한다</dd>
+            </dl>
+          </article>
+          <article>
+            <h4>수컷: 작고 많이</h4>
+            <dl>
+              <dt>낳는 조건</dt><dd>에너지 1.0 이상</dd>
+              <dt>치르는 것</dt><dd>한 번에 0.1</dd>
+              <dt>한도</dt><dd>한 스텝에 한 번</dd>
+            </dl>
+          </article>
+        </div>
+        <p class="sub">초안의 임시 숫자다. 섞기는 뉴런 하나씩 엄마·아빠 가운데 한쪽에서 통째로 가져오고, 그 뒤에 지금의 변이를 건다. "우월"은 손으로 점수를 매기지 않는다. 어떤 단서가 좋은 짝을 뜻하는지는 진화가 정한다.</p>
+        <div class="note dawn">
+          <p><b>설계가 스스로 예측한 것.</b> 이 세계에는 병원체가 없고 유전체가 한 벌이라 섞기의 이득이 작아, 무성이 이길 가능성이 크다. 그래서 병원체를 다음 장치 후보로 올려 두었다. 이번 설계에서 하지 않는 것은 두 벌 염색체(그래서 근친교배의 해도 아직 생기지 않는다)와 병원체, 자웅동체와 성전환이다.</p>
+        </div>
+        <h4 class="fh">맥락 없는 검토 두 갈래에서 나온 것</h4>
+        <ul class="plain">
+          <li>고를 단서가 곁 수컷의 에너지 하나뿐이고 그것은 운에 좌우되어, "우월한 자손 쪽으로 진화"할 길이 열려 있지 않았다. 물려받는 <b>장식</b>(만드는 데 비용이 드는 무늬·크기)을 단서로 더하고, 범위 안 수컷들 가운데 암컷 뇌가 매긴 값이 가장 높은 쪽을 고르게 둘째 판에서 고친다.</li>
+          <li>짝을 찾는 범위가 좁으면 짝을 못 만나 무너질 수 있다. 범위를 넓히는 대신 짝짓기까지 곁에 머물러야 하게 고친다.</li>
+          <li>확장 크기로 갈라 켜는 길이 막혀 있었고, 출생 기록 꼴을 바꾸면 옛 기록이 깨진다. 아빠 정보는 별도 기록으로 뺀다.</li>
+        </ul>
+        <h4 class="fh">사용자에게 여쭌 세 가지</h4>
+        <p>사용자 답: "가능한 실제 지구 세계와 유사하게, 레퍼런스를 최대한 찾아보고 그대로 진행해도 된다." 아래는 그 말씀을 지구 기준으로 풀어 Claude가 정한 것이고, 숫자는 참고 조사 뒤 암수 설계 둘째 판에서 맞춘다.</p>
+        <div class="choices">
+          <div class="choice"><span class="n">①</span><div><b>무성과 섞어 겨루게 둘까, 전원 암수로 고정할까</b> <span class="pill in">전원 암수로 정함</span>
+            <p>잘 돌아다니는 동물은 거의 유성이라는 점에서. 무성과의 겨루기는 실험으로만 한다.</p></div></div>
+          <div class="choice"><span class="n">②</span><div><b>섞기의 이득 원천으로 병원체(붉은 여왕)를 넣을까</b> <span class="pill in">다음 장치 후보로 정함</span>
+            <p>이번 설계에는 넣지 않는다.</p></div></div>
+          <div class="choice"><span class="n">③</span><div><b>암컷이 무엇을 보고 고를까</b> <span class="pill in">장식과 수컷끼리 겨루기 둘 다로 정함</span>
+            <p>세 갈래는 장식 / 수컷끼리 겨루기(공격·밀치기) / 둘 다였다.</p></div></div>
+        </div>
+      </div>
+
+      <div class="block">
+        <h3>다음</h3>
+        <p>사용자 지시에 따라 숫자와 구조를 실제 지구의 생태·행동 연구에 맞춰 다시 정한다. 참고 연구는 최대한 찾아 출처를 문서에 단다.</p>
+        <div class="flow" role="list" aria-label="다음 순서">
+          <div class="st" role="listitem"><b>지구 참고 조사</b><span>협동 사냥, 포식 비율, 겨울, 저장·도둑질, 경보음, 짝 고르기</span></div><span class="ar" aria-hidden="true">→</span>
+          <div class="st" role="listitem"><b>두 설계에 근거 달기</b><span>임시값 옆에 출처</span></div><span class="ar" aria-hidden="true">→</span>
+          <div class="st" role="listitem"><b>암수 둘째 판</b><span>검토 반영</span></div><span class="ar" aria-hidden="true">→</span>
+          <div class="st" role="listitem"><b>구현 계획</b><span>이어서 시험을 먼저 쓰며 구현</span></div>
+        </div>
+        <p class="sub">구현 순서는 확장 칸과 갈라 켜기 경로, ① 겨울과 ② 부패, ③ 들기, ④ 큰 사냥감, ⑤ 포식자와 약탈자다. 단계마다 에너지 장부 시험과 숫자 재기를 한다.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 지금 상태 -->
   <section class="chap" id="now">
     <header class="chap-head">
-      <span class="chap-no">6 / 6</span>
+      <span class="chap-no">7 / 7</span>
       <h2>지금 상태</h2>
       <p class="chap-when">11월 5일 13:44 ET</p>
     </header>
@@ -755,15 +938,15 @@ svg .todo .rb { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; } 
           <div class="choice"><span class="n">④</span><div><b>5단계(말하는 존재)를 할지, 어느 길로</b>
             <p>길 A는 1~4단계 세계를 훨씬 크게 오래 돌리는 것(스스로 만든 것이지만 아무것도 안 나올 수 있다). 길 B는 몇몇 개체의 뇌를 언어 모델로 바꾸는 것(법·철학 칸에 닿을 수 있지만 말과 개념은 사람 글에서 빌려온 것이라 "스스로 만든 것"으로 부를 수 없다). 길 B면 어떤 모델을 쓸지, 한 달 비용 상한, 말하는 개체 수도 정하셔야 한다.</p></div></div>
         </div>
-        <p class="sub">그 밖에: 라이선스(MIT를 임시로 넣음), 서버 서비스 등록, 독 0.3의 기본값 반영, "하루 10세대"의 뜻. 목록은 <code>sessions/tasks.md</code>.</p>
+        <p class="sub">그 밖에: 라이선스(MIT를 임시로 넣음), 서버 서비스 등록, 독 0.3의 기본값 반영, "하루 10세대"의 뜻. 목록은 <code>sessions/tasks.md</code>. 암수에 관한 세 질문은 6장에 있다.</p>
       </div>
     </div>
   </section>
 
   <footer>
-    <p>재료: 설계 노트 <code>docs/design-notes-2026-10-28.md</code>, 1단계 지도 <code>wayfinder/stage1/map.md</code>, 첫 실행 <code>wayfinder/stage1/research/first-run-mac.md</code>, 2~4단계 결과 <code>wayfinder/stage2-4/results.md</code>, git 기록, 인수인계와 보관 파일.</p>
+    <p>재료: 설계 노트 <code>docs/design-notes-2026-10-28.md</code>, 1단계 지도 <code>wayfinder/stage1/map.md</code>, 첫 실행 <code>wayfinder/stage1/research/first-run-mac.md</code>, 2~4단계 결과 <code>wayfinder/stage2-4/results.md</code>, 소통 측정 <code>sessions/develop/kkumteul-communication.md</code>, 새 방향 설계 <code>docs/superpowers/specs/2026-11-05-harsh-world-design.md</code>·<code>-sex-design.md</code>·<code>-sex-review.md</code>, git 기록, 인수인계와 보관 파일.</p>
     <p>모든 숫자는 한 번, 한 씨앗으로 잰 것이 대부분이다. 시각은 뉴욕 시간(ET).</p>
-    <p>마지막 갱신: 2026-11-05 14:20 ET</p>
+    <p>마지막 갱신: 2026-11-05 15:40 ET (6장 새 방향 추가. 나머지는 14:20 ET 그대로)</p>
   </footer>
 </div>
 
