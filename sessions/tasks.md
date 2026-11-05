@@ -55,8 +55,8 @@
 - [ ] **`main`에 합치기** — 02:50 ET부터의 커밋은 가지 `worktree-night-1105c`에 있다(실행 환경이 이 세션의 main push·합치기를 막는다). 합치려면 서버 터미널에서 레포 폴더로 가서 `git merge --ff-only origin/worktree-night-1105c && git push && echo 합침`. 그 전까지 다음 세션은 작업 폴더 `.claude/worktrees/night-1105c`에서 이어 간다(인수인계 맨 위)
 - [ ] "하루 10세대"의 뜻 — 지금 값으로는 하루 약 11만 세대(맥)가 쌓인다. 10세대를 하한으로 읽었다. `wayfinder/stage1/T09-death-reproduction-generation.md`
 - [ ] 관찰 화면을 직접 보고 더 보여야 할 것 — `wayfinder/stage1/T07-observation-screen.md`
-- [ ] 라이선스 확인 — MIT를 임시로 넣었다. `LICENSE`
-- [ ] 서버 서비스 등록 — `deploy/kkumteul.user.service`의 머리말대로. 지금은 일회성 유닛이라 재부팅하면 안 뜬다(등록 명령은 자동 승인에서 거절됨)
+- [x] 라이선스 — MIT로 확정(사용자 15:4x ET)
+- [ ] 서버 서비스 등록 — **이번 주말에 하기로(사용자 15:4x ET)**. `deploy/kkumteul.user.service`의 머리말대로. 지금은 일회성 유닛이라 재부팅하면 안 뜬다(등록 명령은 자동 승인에서 거절됨)
 - [ ] 독 0.3 — 먹이 종류 세계의 독을 1.0에서 0.3으로 낮춰 실험 중이다(임시 결정, 근거는 `wayfinder/stage2-4/results.md`의 두 번째 시도). 기본값(`config.py`)은 아직 1.0 그대로다
-- [ ] 서버 `/tmp`(메모리 디스크) 정리 — 78% 찼다. 이 레포 시험이 남긴 임시 폴더가 약 1GB(`/tmp`의 pytest 폴더)다. 지워도 되는지. 새 시험은 `/tmp`를 쓰지 않는다
+- [x] 서버 `/tmp` 정리 — 사용자가 지워도 된다고 하심(15:4x ET). 확인해 보니 재부팅으로 이미 비어 있었다(1%). 옛 메모: 78% 찼다. 이 레포 시험이 남긴 임시 폴더가 약 1GB(`/tmp`의 pytest 폴더)다. 지워도 되는지. 새 시험은 `/tmp`를 쓰지 않는다
 - [ ] 5단계(말하는 존재)를 할지, 어느 길로 — `docs/stage5-proposal.md`
