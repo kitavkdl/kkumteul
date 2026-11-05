@@ -11,6 +11,7 @@
   측정 자체가 한쪽으로 기운 것이다.
 
     python -m kkumteul.measure assay  --a runs/main/checkpoints/ckpt_X.npz --b .../ckpt_Y.npz
+    python -m kkumteul.measure assay  --a mine.pack.npz --b yours.pack.npz     (생물 묶음끼리, `pack.py`)
     python -m kkumteul.measure ladder --run runs/main --count 5
 
 한계(독립 검토 2026-11-04): 같은 무리끼리도 r의 표준편차가 1,000스텝당 0.08쯤 된다.
@@ -52,13 +53,31 @@ def extract_genomes(world: World) -> dict:
 
 
 def load_side(path: Path) -> dict:
-    """체크포인트 하나에서 겨루기에 필요한 것만 읽어 둔다(나중에 파일이 지워져도 되게)."""
+    """체크포인트나 생물 묶음(pack) 하나에서 겨루기에 필요한 것만 읽어 둔다(나중에 파일이 지워져도 되게)."""
+    from . import pack   # pack이 이 모듈을 쓰므로 여기서 불러온다
+    if pack.is_pack(path):
+        return pack.load_side(path)
     world, meta = ckpt.load(Path(path))
     g = extract_genomes(world)
     if not len(g["n_hidden"]):
         raise ValueError(f"살아 있는 개체가 없는 체크포인트다: {path}")
     return {"path": str(path), "step": meta["step"], "genomes": g, "cfg": world.cfg,
             "gen_mean": float(g["gen"].mean())}
+
+
+def check_same_shape(a: dict, b: dict) -> None:
+    """두 쪽의 유전체 배열 모양(개체 수 빼고)이 같은지 본다. 다르면 같은 세계에 넣을 수 없다."""
+    for name in GENOME:
+        sa, sb = a["genomes"][name].shape[1:], b["genomes"][name].shape[1:]
+        if sa != sb:
+            raise ValueError(f"두 쪽의 유전체 모양이 달라 겨룰 수 없다: {name}이 A는 {sa}, B는 {sb}다. "
+                             "감각 칸 수와 뇌 최대 크기 설정(vision_sectors, n_spare_in, n_spare_out, h_max)이 "
+                             "같은 세계에서 나온 생물끼리만 겨룰 수 있다")
+    cfg = b["cfg"]
+    want = (cfg.n_in, cfg.h_max)
+    if b["genomes"]["Win"].shape[1:] != want:
+        raise ValueError(f"겨룰 세계의 설정과 유전체 모양이 안 맞는다: Win이 {b['genomes']['Win'].shape[1:]}, "
+                         f"설정은 {want}다")
 
 
 def arena_config(cfg: Config, seed: int, n_total: int) -> Config:
@@ -154,6 +173,7 @@ def _stats(vals: list[float]) -> dict:
 
 def assay_sides(a: dict, b: dict, n_each: int = 400, steps: int = 8000, reps: int = 6,
                 seed: int = 1000, neutral: bool = True) -> dict:
+    check_same_shape(a, b)
     cfg = b["cfg"]
     runs = [compete(cfg, a["genomes"], b["genomes"], n_each, steps, seed + i) for i in range(reps)]
     out = {
@@ -262,8 +282,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="성장 측정")
     sub = ap.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("assay")
-    a.add_argument("--a", required=True, type=Path, help="옛 체크포인트(또는 처음 보는 상대)")
-    a.add_argument("--b", required=True, type=Path, help="지금 체크포인트")
+    a.add_argument("--a", required=True, type=Path, help="옛 체크포인트(또는 처음 보는 상대). 생물 묶음(pack)도 된다")
+    a.add_argument("--b", required=True, type=Path, help="지금 체크포인트. 생물 묶음(pack)도 된다. 겨루는 세계는 B의 설정을 쓴다")
     la = sub.add_parser("ladder")
     la.add_argument("--run", required=True, type=Path)
     la.add_argument("--count", type=int, default=5)

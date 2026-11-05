@@ -96,6 +96,21 @@ class World:
         for _ in range(n):
             self.step()
 
+    # ---- 재난 (각본) ----
+    def strike(self, x: float, y: float, radius: float, kill: float = 1.0, burn_food: bool = True,
+               key: int = 0) -> int:
+        """운석. (x, y) 둘레 반지름 radius 안의 개체를 kill 확률로 죽이고 burn_food면 먹이도 없앤다.
+
+        스텝과 스텝 사이에 부른다. 사망 기록의 스텝은 이제 돌 스텝(step_no)이다.
+        key는 누가 죽는지 정하는 난수 번호다(같은 스텝에 여러 번 떨어뜨릴 때 서로 다르게 준다).
+        죽은 수를 돌려준다.
+        """
+        cfg = self.cfg
+        nd = k.strike(self.step_no, self.s, self.fp, self.ip, float(x) % cfg.world_w, float(y) % cfg.world_h,
+                      float(radius), float(kill), bool(burn_food), int(key), 0)
+        self._take_deaths(nd)
+        return int(nd)
+
     @staticmethod
     def _passive_count(table, t: int) -> int:
         if table is None:
@@ -160,6 +175,7 @@ class World:
             "deaths_starve": int(c[k.C_DEATH_STARVE]),
             "deaths_age": int(c[k.C_DEATH_AGE]),
             "deaths_passive": int(c[k.C_DEATH_PASSIVE]),
+            "deaths_disaster": int(c[k.C_DEATH_DISASTER]),
             "reseeds": int(c[k.C_RESEED]),
             "blocked": int(c[k.C_BLOCKED]),
             "eaten": int(c[k.C_EATEN]),
