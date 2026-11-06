@@ -16,6 +16,14 @@ grid:  설정 묶음("perturb_sigma=0.1,trace_decay=0.95" 꼴)마다 변형(HAND
 curve: 학습 규칙만 재는 세계(LAB: 대사 비용 0, 번식 끔, 늙어 죽지 않음 → 같은 개체가 끝까지 산다)에서
        구간마다 독 비율이 처음 1/3에서 마지막 1/3로 어떻게 바뀌는지와 배선이 옳은 쪽으로 기운 정도를 적는다.
        HAND_N으로 마릿수를 바꾼다(적을수록 한 마리가 많이 먹는다). 결과는 results.md "여섯 번째 시도".
+taste: 맛 기억을 읽는 손 개체(변형 taste: 물든 시야 왼쪽 네 칸 +0.4, 오른쪽 네 칸 −0.4, 회전 1, 원래 시야 0,
+       학습 없음)가 독이 바뀐 뒤 독을 피하는지 본다. 체크포인트를 preset=taste 크기로 읽고, 세계 둘(LAB과
+       체크포인트 설정 그대로) × 맛 켬/끔(taste_enabled=false, 같은 크기) × 씨앗(HAND_SEEDS)을 돌린다.
+       실제 바뀜마다 바뀐 뒤 300스텝(first)과 그 뒤 다음 바뀜까지(rest)의 독 비율, 놓인 먹이 수와 그 가운데 독을 적는다.
+       예측: 맛 켬은 바뀐 뒤 몇 백 스텝 안에 독 비율 0.35 아래로, 맛 끔(물든 시야 0 → 아무 데로나)은 0.5.
+       판정 0 통과 = 맛 켬의 rest 평균 < 0.35이고 맛 끔의 rest 평균이 0.5 ± 0.05.
+
+    PYTHONPATH=. python wayfinder/stage2-4/hand_learner.py taste <체크포인트.npz> <스텝> <출력.json>
 """
 import json
 import os
@@ -25,10 +33,11 @@ from pathlib import Path
 
 import numpy as np
 
+from kkumteul import checkpoint as ckpt
 from kkumteul import kernels as k
 from kkumteul import measure
 from kkumteul.config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT_SIG1,
-                             ACT_SLEEP, ACT_THRUST, ACT_TURN)
+                             ACT_SLEEP, ACT_THRUST, ACT_TURN, TASTE_VIS)
 from kkumteul.world import World
 
 VARIANTS = {
@@ -47,7 +56,12 @@ VARIANTS = {
     "blank1": dict(eta=0.2, alpha=10.0, g=0.0, turn=1.0),       # 타고난 취향 없이 학습만
     "blank1_slow": dict(eta=0.05, alpha=10.0, g=0.0, turn=1.0),
     "blank1_fixed": dict(eta=0.0, alpha=0.0, g=0.0, turn=1.0),  # 아무것도 안 쫓고 안 배운다(바닥)
+    # 맛 기억을 읽는다: 물든 시야(기억이 좋다고 한 모양은 +, 독이라고 한 모양은 −) → 회전. 원래 시야는 0.
+    # 맛 블록 번호(taste_in0)를 넘겨야 만들 수 있다(make_hand)
+    "taste": dict(eta=0.0, alpha=0.0, g=0.0, turn=1.0, taste_g=0.4),
 }
+TASTE_PASS = 0.35       # 판정 0: 맛 켬의 바뀐 뒤 독 비율이 이것보다 낮아야 한다
+TASTE_CTRL = (0.5, 0.05)    # 판정 0: 맛 끔은 0.5 ± 0.05(아무 데로나 먹는다)
 
 # 학습 규칙만 재는 세계: 굶어 죽지도 늙어 죽지도 않는다. 보상은 먹은 순간의 에너지 변화뿐이다.
 LAB = ("basal_cost=0,thrust_cost=0,turn_cost=0,brain_cost=0,synapse_cost=0,plast_cost=0,"
@@ -56,12 +70,16 @@ LAB = ("basal_cost=0,thrust_cost=0,turn_cost=0,brain_cost=0,synapse_cost=0,plast
 
 def make_hand(tmpl: dict, n: int, eta: float, alpha: float, g: float, rw_energy: float = 1.0,
               rw_ate: float = 0.0, nsec: int = 8, thrust: float = 1.0, rw_bias: float = 0.0,
-              turn: float = 3.0) -> dict:
+              turn: float = 3.0, taste_g: float = 0.0, taste_in0: int = -1) -> dict:
+    if taste_g != 0 and taste_in0 < 0:
+        raise ValueError("맛 블록을 읽는 배선은 맛 블록 번호가 필요하다: make_hand(..., taste_in0=cfg.taste_in0)")
     out = {name: np.repeat(v[:1], n, axis=0).copy() for name, v in tmpl.items()}
     for name in ("Win", "Wrec", "bh", "Wout", "bout", "alpha", "rw"):
         out[name][...] = 0
     for s in range(nsec):
         out["Win"][:, s, 0] = g if s >= nsec // 2 else -g     # 높은 번호 칸 = 왼쪽(반시계) → 회전 +
+        if taste_g != 0:
+            out["Win"][:, taste_in0 + TASTE_VIS + s, 0] = taste_g if s >= nsec // 2 else -taste_g
     out["Wout"][:, ACT_TURN, 0] = turn
     out["bout"][:, ACT_THRUST] = thrust
     out["bout"][:, ACT_REPRO] = 1.0
@@ -100,12 +118,27 @@ def _pref(s, alive, nsec: int = 8) -> tuple[float, float]:
     return float(np.mean(np.where(tot > 1e-9, proj / np.maximum(tot, 1e-9), 0.0))), float(np.mean(tot) / nsec)
 
 
-def curve(cfg, genomes: dict, n: int, steps: int, seed: int, every: int = 250) -> dict:
-    """LAB 세계에서 같은 개체들이 구간을 넘기며 배우는지 본다. 번식은 끈다(유전체의 번식 편향을 −5로)."""
+def _ratio(rows) -> float:
+    """독을 먹은 수 / 먹은 수. 먹은 것이 없으면 nan."""
+    e, p = sum(r["eaten"] for r in rows), sum(r["poisoned"] for r in rows)
+    return p / e if e else float("nan")
+
+
+def _placed(s, good: int) -> tuple[int, float]:
+    """들판에 놓인 먹이(살아 있고 아무도 들지 않은 종류 A·B) 수와 그 가운데 지금 독인 종류의 비율."""
+    on = s.f_alive & (s.f_holder < 0) & ((s.f_kind == k.KIND_A) | (s.f_kind == k.KIND_B))
+    n = int(on.sum())
+    return n, float((s.f_kind[on] != good).mean()) if n else float("nan")
+
+
+def curve(cfg, genomes: dict, n: int, steps: int, seed: int, every: int = 250, lab: bool = True) -> dict:
+    """같은 개체들이 구간을 넘기며 배우는지 본다. lab이면 LAB 세계에서 번식을 끈다(유전체의 번식 편향을 −5로).
+    lab이 아니면 받은 설정 그대로 돌리고 번식도 그대로 둔다."""
     rng = np.random.default_rng(seed)
-    acfg = measure.arena_config(with_set(cfg, LAB), seed, n)
+    acfg = measure.arena_config(with_set(cfg, LAB) if lab else cfg, seed, n)
     genomes = {name: v.copy() for name, v in genomes.items()}
-    genomes["bout"][:, ACT_REPRO] = -5.0
+    if lab:
+        genomes["bout"][:, ACT_REPRO] = -5.0
     world = World(acfg, populate=False)
     for _ in range(int(0.5 * acfg.food_cap * acfg.food_energy / max(acfg.food_inflow, 1e-9))):
         k.spawn_food(0, world.s, world.fp, world.ip)
@@ -123,8 +156,10 @@ def curve(cfg, genomes: dict, n: int, steps: int, seed: int, every: int = 250) -
         alive = world.s.alive
         good = int(k.good_kind(acfg.seed, world.step_no - 1, period))
         idx, size = _pref(world.s, alive)
+        placed, placed_poison = _placed(world.s, good)
         series.append({"step": world.step_no, "pop": int(alive.sum()), "eaten": e - pe, "poisoned": p - pp,
-                       "good": good, "right": idx if good == 0 else -idx, "size": size})
+                       "good": good, "right": idx if good == 0 else -idx, "size": size,
+                       "placed": placed, "placed_poison": placed_poison})
         pe, pp = e, p
     spans = []
     for a in range(0, steps, period):
@@ -132,18 +167,35 @@ def curve(cfg, genomes: dict, n: int, steps: int, seed: int, every: int = 250) -
         if not rows_:
             continue
         third = max(1, len(rows_) // 3)
-
-        def ratio(part):
-            e_, p_ = sum(r["eaten"] for r in part), sum(r["poisoned"] for r in part)
-            return p_ / e_ if e_ else float("nan")
-
-        spans.append({"good": "AB"[rows_[0]["good"]], "first": ratio(rows_[:third]), "last": ratio(rows_[-third:]),
-                      "all": ratio(rows_), "right_end": rows_[-1]["right"], "size_end": rows_[-1]["size"],
+        spans.append({"good": "AB"[rows_[0]["good"]], "first": _ratio(rows_[:third]), "last": _ratio(rows_[-third:]),
+                      "all": _ratio(rows_), "right_end": rows_[-1]["right"], "size_end": rows_[-1]["size"],
                       "meals": sum(r["eaten"] for r in rows_) / max(1, rows_[-1]["pop"]), "pop": rows_[-1]["pop"]})
     later = spans[1:] or spans      # 첫 구간은 배우기 전이라 뺀다
     return {"spans": spans, "series": series,
             "last_mean": float(np.nanmean([x["last"] for x in later])),
             "right_mean": float(np.nanmean([x["right_end"] for x in later]))}
+
+
+def after_flips(series: list, period: int, seed: int, win: int = 300) -> list[dict]:
+    """실제 바뀜(good이 앞 줄과 달라진 줄)마다 바뀐 뒤의 독 비율을 낸다(curve의 series를 받는다).
+    줄 하나는 앞 줄 스텝부터 그 줄 스텝 직전까지 먹은 것이다. 바뀐 스텝(flip)은 그 사이 구간 경계 가운데
+    좋은 종류가 실제로 달라진 곳이다(다시 정해졌지만 그대로인 경계는 바뀜이 아니다). 씨앗으로 보아 그런 경계가
+    없으면 씨앗이나 주기를 잘못 넘긴 것이라 멈춘다.
+    first = flip부터 win스텝 안에서 시작한 줄들의 독 비율, rest = 그 뒤 다음 바뀜 줄 전까지(없으면 끝까지)."""
+    at = [i for i in range(1, len(series)) if series[i]["good"] != series[i - 1]["good"]]
+    out = []
+    for m, i in enumerate(at):
+        lo, hi = series[i - 1]["step"], series[i]["step"]
+        real = [b for b in range(-(-lo // period) * period, hi, period)
+                if b > 0 and k.good_kind(seed, b, period) != k.good_kind(seed, b - 1, period)]
+        if not real:
+            raise ValueError(f"스텝 {lo}~{hi} 사이에 실제 바뀜이 없다: 씨앗({seed})이나 주기({period})가 이 줄들과 다르다")
+        flip = real[-1]
+        seg = range(i, at[m + 1] if m + 1 < len(at) else len(series))
+        out.append({"flip": flip,
+                    "first": _ratio([series[j] for j in seg if series[j - 1]["step"] < flip + win]),
+                    "rest": _ratio([series[j] for j in seg if series[j - 1]["step"] >= flip + win])})
+    return out
 
 
 def solo(cfg, genomes: dict, n: int, steps: int, seed: int, every: int = 500) -> dict:
@@ -199,26 +251,32 @@ def with_set(cfg, text: str):
 
 def main():
     mode, ck, steps, out = sys.argv[1], Path(sys.argv[2]), int(sys.argv[3]), Path(sys.argv[4])
-    side = measure.load_side(ck)
+    if mode == "taste":     # 저장 설정에 맛 블록 크기와 장치를 덧붙여 읽는다(늘어난 입력 칸은 0)
+        world, _ = ckpt.load(ck, ckpt.read_config(ck).with_overrides(["preset=taste"]))
+        side = measure.side_from_world(world, str(ck))
+    else:
+        side = measure.load_side(ck)
     cfg = side["cfg"]
     if os.environ.get("HAND_SET"):       # 예: HAND_SET=reward_baseline_rate=0
         cfg = with_set(cfg, os.environ["HAND_SET"])
         side = dict(side, cfg=cfg)
     n = 400
     res = {"checkpoint": ck.name, "steps": steps, "variants": VARIANTS}
+    plain = [name for name, kw in VARIANTS.items() if not kw.get("taste_g")]    # 맛 블록 번호 없이 만드는 변형
     if mode == "solo":
-        for name, kw in VARIANTS.items():
+        for name in plain:
+            kw = VARIANTS[name]
             gnm = make_hand(side["genomes"], n, **kw)
             res[name] = [solo(cfg, gnm, n, steps, 100 + r) for r in range(2)]
         res["evolved"] = [solo(cfg, side["genomes"], n, steps, 100 + r) for r in range(2)]
-        for name in list(VARIANTS) + ["evolved"]:
+        for name in plain + ["evolved"]:
             print(name, [(round(x["ratio"], 3), x["eaten"], round(x["pop_mean"]), x["pop_end"])
                          for x in res[name]], flush=True)
             for x in res[name]:
                 x["series"] = x["series"][-6:]
     elif mode == "diag":
         # 구간마다 좋은 종류와 함께 본다(좋은 종류가 0=A면 독 = B를 먹은 것)
-        for name in sys.argv[5:] or list(VARIANTS):
+        for name in sys.argv[5:] or plain:
             gnm = make_hand(side["genomes"], n, **VARIANTS[name]) if name in VARIANTS else side["genomes"]
             seed = int(os.environ.get("HAND_SEED", "100"))
             x = solo(cfg, gnm, n, steps, seed, every=250)
@@ -268,6 +326,36 @@ def main():
                     print(f"{sets or '-':58s} {name:12s} {seed} n={n} | {spans} | 끝 1/3 평균 {x['last_mean']:.3f} "
                           f"옳은 쪽 {x['right_mean']:+.2f} 끼니 {x['spans'][-1]['meals']:.0f}", flush=True)
                     out.write_text(json.dumps(res, indent=1, ensure_ascii=False, default=float))
+    elif mode == "taste":
+        seeds = [int(x) for x in os.environ.get("HAND_SEEDS", "102,100").split(",")]
+        n = int(os.environ.get("HAND_N", "400"))
+        gnm = make_hand(side["genomes"], n, taste_in0=cfg.taste_in0, **VARIANTS["taste"])
+        res.update(n=n, lab=LAB, taste=[])
+        rest = {}
+        for lab in (True, False):
+            for on in (True, False):
+                tcfg = cfg if on else with_set(cfg, "taste_enabled=false")
+                for seed in seeds:
+                    x = curve(tcfg, gnm, n, steps, seed, every=100, lab=lab)
+                    flips = after_flips(x["series"], tcfg.kind_flip_period, seed)
+                    row = {"lab": lab, "taste": on, "seed": seed, "flips": flips,
+                           "first_mean": float(np.nanmean([f["first"] for f in flips])) if flips else float("nan"),
+                           "rest_mean": float(np.nanmean([f["rest"] for f in flips])) if flips else float("nan"),
+                           "placed_mean": float(np.mean([r["placed"] for r in x["series"]])),
+                           "placed_poison_mean": float(np.nanmean([r["placed_poison"] for r in x["series"]])),
+                           "series": x["series"]}
+                    res["taste"].append(row)
+                    rest.setdefault(on, []).extend(f["rest"] for f in flips)
+                    text = "  ".join(f"{f['flip']} {f['first']:.2f}→{f['rest']:.2f}" for f in flips)
+                    print(f"{'LAB' if lab else '그대로':6s} {'맛 켬' if on else '맛 끔':5s} {seed} n={n} | {text} | "
+                          f"first 평균 {row['first_mean']:.3f} rest 평균 {row['rest_mean']:.3f} | "
+                          f"놓인 먹이 {row['placed_mean']:.0f} 그 가운데 독 {row['placed_poison_mean']:.2f}", flush=True)
+                    out.write_text(json.dumps(res, indent=1, ensure_ascii=False, default=float))
+        on_rest, off_rest = (float(np.nanmean(rest[v])) if rest.get(v) else float("nan") for v in (True, False))
+        ok = bool(on_rest < TASTE_PASS and abs(off_rest - TASTE_CTRL[0]) <= TASTE_CTRL[1])
+        res["verdict0"] = {"pass": ok, "on_rest": on_rest, "off_rest": off_rest}
+        print(f"판정 0: {'통과' if ok else '실패'} | 맛 켬 rest 평균 {on_rest:.3f} (< {TASTE_PASS}) "
+              f"맛 끔 {off_rest:.3f} ({TASTE_CTRL[0]} ± {TASTE_CTRL[1]})", flush=True)
     elif mode == "assay":
         hand = dict(side, path="hand-learn",
                     genomes=make_hand(side["genomes"], 400, **VARIANTS[os.environ.get("HAND_ASSAY", "learn")]))
