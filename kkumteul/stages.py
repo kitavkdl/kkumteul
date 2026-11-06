@@ -13,7 +13,8 @@ import numpy as np
 from numba import njit, prange
 
 from .config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT_SLEEP, ACT_THRUST, ACT_TURN,
-                     IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL, N_INTERNAL)
+                     IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL, N_INTERNAL, N_TASTE_IN, N_TASTE_VIS,
+                     TASTE_VIS)
 from .kernels import (C_ATTACKS, C_FERTILE, C_GIFTS, C_NFIELD, C_NFOOD, KIND_A, L_BASAL, L_BRAIN, L_DISCARD, L_LOST,
                       L_MOVE, L_SPAWN, TOUCH_HIT, _place_food, _wdiff, _wrap, make_room, pick_kind)
 from .rng import S_ATTACK_ORDER, S_FERTILE, S_PERTURB, normal, u01
@@ -33,7 +34,7 @@ KIND_RNG_FERTILE = 1000003
  F_PERTURB, N_FS) = range(48)
 # ---- 정수 설정 칸 ----
 (I_SEED, I_GW, I_GH, I_SECTORS, I_H_MAX, I_MIND, I_SOCIAL, I_NICHE, I_FOOD_CAP, I_STAGE_IN, I_KINDS,
- I_CAP_REPLACE, I_FIELD_CAP, N_IS) = range(14)
+ I_CAP_REPLACE, I_FIELD_CAP, I_TASTE_VIS0, N_IS) = range(15)
 
 
 def pack_stage_params(cfg):
@@ -66,6 +67,9 @@ def pack_stage_params(cfg):
     isp[I_CAP_REPLACE] = int(cfg.food_cap_replace)
     isp[I_FIELD_CAP] = int(cfg.field_cap)
     isp[I_STAGE_IN] = 2 * cfg.vision_sectors + N_INTERNAL
+    # 물든 시야 칸의 첫 절대 번호(자는 개체의 시야와 함께 지운다). 맛 장치가 꺼져 있으면 -1
+    taste_on = cfg.taste_enabled and cfg.n_in >= cfg.taste_in0 + N_TASTE_IN
+    isp[I_TASTE_VIS0] = cfg.taste_in0 + TASTE_VIS if taste_on else -1
     return fs, isp
 
 
@@ -206,6 +210,7 @@ def _mind_par(fs, isp, alive, obs, energy, e_prev, ate, touch, horm, mod, exp_r,
     n_proto = proto.shape[1]
     lr = fs[F_PROTO_LR]
     cap = fs[F_LINK_CAP]
+    tv0 = isp[I_TASTE_VIS0]
     for i in prange(n):
         if not alive[i]:
             continue
@@ -215,6 +220,10 @@ def _mind_par(fs, isp, alive, obs, energy, e_prev, ate, touch, horm, mod, exp_r,
             fatigue[i] -= fs[F_RECOVER]
             for k in range(nv):
                 obs[i, k] = 0.0
+            if tv0 >= 0:
+                # 물든 시야는 시야에서 나온 것이라 같이 지운다. 기억 값 칸은 시야가 아니라 둔다
+                for k in range(N_TASTE_VIS):
+                    obs[i, tv0 + k] = 0.0
             for a in range(n_proto):
                 for b in range(n_proto):
                     link[i, a, b] *= 0.999
