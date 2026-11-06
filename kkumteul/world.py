@@ -88,6 +88,8 @@ class World:
             self.s.counters[k.C_NFIELD] = 0     # 꺼진 동안은 맞추지 않으니 남은 값이 낡지 않게 비운다
         if old.huddle_enabled and not cfg.huddle_enabled:
             self.s.huddle_cut[:] = 0.0          # 꺼진 동안 move가 지난 겨울의 절감을 쓰지 않게 비운다
+        if old.taste_enabled and not cfg.taste_enabled:
+            self.s.taste_m[:] = 0.0             # 꺼진 세계에 낡은 기억이 남아 해시·물려주기에 섞이지 않게 지운다
 
     # ---- 들기: 물건 칸 ----
     def recount_field(self) -> None:

@@ -120,8 +120,9 @@ def inject_agent(world: World, genomes: dict, row: int, tag: int, x: float, y: f
     s.mod[j] = s.exp_r[j] = s.fatigue[j] = s.asleep[j] = 0.0
     s.last_proto[j] = 0
     s.a_held[j] = -1
+    s.n_meal[j] = s.n_poison[j] = s.n_poison10[j] = 0
     for name in ("horm", "sig", "epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link",
-                 "elig_in", "elig_rec"):
+                 "elig_in", "elig_rec", "taste_m"):
         getattr(s, name)[j] = 0.0
     for name in GENOME:
         getattr(s, name)[j] = genomes[name][row]
