@@ -58,7 +58,7 @@ def test_prey_config_validated():
                dict(prey_inflow_frac=1.0), dict(prey_inflow_frac=-0.1), dict(prey_life=0), dict(prey_stay=0),
                dict(prey_graze_speed=0.0), dict(prey_graze_speed=1.5), dict(prey_travel_speed=0.0),
                dict(prey_travel_speed=1.5), dict(prey_radius=0.0), dict(prey_graze_r=0.0),
-               dict(prey_wander_turn=-0.1), dict(prey_wander_turn=4.0)):
+               dict(prey_wander_turn=-0.1), dict(prey_wander_turn=math.pi / 2), dict(prey_wander_turn=4.0)):
         with pytest.raises(ValueError):
             small("ext", prey_enabled=True, **kw)
     small("ext", prey_enabled=True, n_prey=64, prey_inflow_frac=0.0)
@@ -467,8 +467,9 @@ def test_counter_strike_can_kill_as_killed():
     i = _ring(w, 1, 100.0, 100.0)[0]
     _fix_out(w, i, carry=-5.0)
     s.bout[i, ACT_ATTACK] = 3.0                             # 마음이 꺼져 있으면 출력 = tanh(편향)
-    s.ledger[k.L_INJECT] += 0.01 - s.energy[i]
-    s.energy[i] = 0.01
+    # 한 스텝의 기초 대사·뇌·공격 비용(약 0.025)은 버티고, 반격 0.12까지 더하면 못 버티는 에너지
+    s.ledger[k.L_INJECT] += 0.08 - s.energy[i]
+    s.energy[i] = 0.08
     w.step()
     assert not s.alive[i]
     assert s.an_hp[a] < w.cfg.prey_hp                       # 친 뒤 반격을 맞고 죽었다
@@ -660,6 +661,57 @@ def test_branch_into_harsh2_calms_attack(tmp_path):
     ctrl = Runner.branch(tmp_path / "main", tmp_path / "ctrl", 400, ["preset=ext"], False, False, calm_attack=True)
     assert (ctrl.world.s.bout[ctrl.world.s.alive, ACT_ATTACK] == -1.0).all()
     ctrl.close()
+
+
+# 사냥감·뭉쳐 자기가 생기기 전의 체크포인트에는 없던 설정 키
+_ANIMAL_ERA_KEYS = ("meat_spoil_mult", "prey_enabled", "max_animals", "n_prey", "prey_hp", "prey_regen", "prey_rest",
+                    "prey_strike", "prey_sat_n", "prey_meat", "prey_inflow_frac", "prey_life", "prey_stay",
+                    "prey_graze_speed", "prey_travel_speed", "prey_radius", "prey_graze_r", "prey_wander_turn",
+                    "huddle_enabled", "huddle_cap", "huddle_exp")
+
+
+def _strip_animal_era(run_dir: Path):
+    """실행 폴더의 체크포인트를 동물이 생기기 전 꼴로 되돌린다: 동물 필드와 새 설정 키를 빼고 저장 해시를 다시 적는다."""
+    for _, path in ckpt.list_checkpoints(run_dir / "checkpoints"):
+        with np.load(path) as z:
+            arrays = {n: z[n] for n in z.files}
+        for name in k.ANIMAL_SAVED:
+            arrays.pop(name, None)
+        np.savez(path, **arrays)
+        meta_path = path.with_suffix(".json")
+        meta = json.loads(meta_path.read_text())
+        for key in _ANIMAL_ERA_KEYS:
+            meta["config"].pop(key, None)
+        meta["npz_sha256"] = ckpt.file_sha256(path)
+        meta_path.write_text(json.dumps(meta))
+    cfg_path = run_dir / "config.json"
+    if cfg_path.exists():
+        d = json.loads(cfg_path.read_text())
+        for key in _ANIMAL_ERA_KEYS:
+            d.pop(key, None)
+        cfg_path.write_text(json.dumps(d))
+
+
+def test_old_checkpoint_branch_into_harsh2_calms_attack(tmp_path):
+    # 동물 필드도 사냥감 설정 키도 없는 옛 체크포인트에서 harsh2로 갈라도 공격 편향이 −1로 맞춰진다
+    r = Runner.new(tmp_path / "old", small("harsh"))
+    r.world.s.bout[:, ACT_ATTACK] = 0.7
+    r.loop(400, quiet=True)
+    r.close()
+    _strip_animal_era(tmp_path / "old")
+    old = ckpt.latest(tmp_path / "old" / "checkpoints")
+    assert "prey_enabled" not in json.loads(old.with_suffix(".json").read_text())["config"]
+    with np.load(old) as z:
+        assert not set(k.ANIMAL_SAVED) & set(z.files)
+    b = Runner.branch(tmp_path / "old", tmp_path / "h2", 400, ["preset=harsh2"], False, False)
+    s = b.world.s
+    assert b.world.cfg.prey_enabled
+    assert (s.bout[s.alive, ACT_ATTACK] == -1.0).all() and "bout[ACT_ATTACK]=-1" in b.meta["genome_edits"]
+    run_meta = json.loads((tmp_path / "h2" / "run.json").read_text())
+    assert "bout[ACT_ATTACK]=-1" in run_meta["genome_edits"]
+    b.loop(200, quiet=True)
+    b.close()
+    assert rel_residual(b.world) < 1e-9
 
 
 def test_replay_record_calms_attack_for_animal_override(tmp_path, monkeypatch):

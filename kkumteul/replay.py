@@ -82,11 +82,21 @@ def _ceil_div(a: int, b: int) -> int:
 
 
 def intro_sentences(cfg: Config, scn: Scenario | None = None) -> list[str]:
-    """이 세계가 무엇을 하는 세계인지 두세 문장. 꺼진 장치는 말하지 않는다."""
+    """이 세계가 무엇을 하는 세계인지 몇 문장. 꺼진 장치는 말하지 않는다."""
     out = ["작은 생물들이 먹이를 찾아 먹고, 새끼를 낳고, 죽습니다. 어떻게 살지는 아무도 가르치지 않습니다."]
     if cfg.food_kinds_enabled:
         out.append(f"이 세계에는 먹이가 두 가지이고 한쪽은 독입니다. 어느 쪽이 독인지는 "
                    f"{cfg.kind_flip_period:,}스텝마다 다시 정해집니다.")
+    if cfg.season_enabled:
+        season = (f"한 해는 {cfg.season_period:,}스텝이고, 끝의 {cfg.winter_len:,}스텝은 풀이 줄고 "
+                  f"몸이 에너지를 더 쓰는 겨울입니다.")
+        if cfg.autumn_len > 0:
+            season += f" 겨울 바로 앞 {cfg.autumn_len:,}스텝은 풀이 몰리는 가을입니다."
+        if cfg.huddle_enabled:
+            season += " 겨울에 서로 붙어 있으면 몸이 쓰는 에너지가 줄어듭니다."
+        out.append(season)
+    if cfg.prey_enabled:
+        out.append("큰 짐승이 먹이 자리를 떠돕니다. 치면 반격하고, 여럿이 함께 쳐서 쓰러뜨리면 고기가 남습니다.")
     has = []
     if cfg.mind_enabled:
         has.append("살면서 배우는 장치와 잠")
@@ -96,6 +106,8 @@ def intro_sentences(cfg: Config, scn: Scenario | None = None) -> list[str]:
         has.append("공격")
     if cfg.niche_enabled:
         has.append("다닌 자리에 생기는 길과 거름 쌓기")
+    if cfg.carry_enabled:
+        has.append("먹이 한 알을 들고 다니기")
     if has:
         out.append("이 세계의 생물에게는 " + ", ".join(has) + "가 주어져 있습니다. 쓸지 말지는 진화가 정합니다.")
     if scn is not None:
