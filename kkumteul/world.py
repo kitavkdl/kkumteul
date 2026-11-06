@@ -461,6 +461,9 @@ class World:
             out["prey_alive"] = int((s.an_alive & (s.an_kind == an.ANIMAL_PREY)).sum())
             out["prey_killed"] = int(c[k.C_PREY_KILLED])
             out["prey_hunters"] = int(c[k.C_HUNTERS])     # 쓰러뜨린 사냥감마다 붙어 있던 공격자 수의 합
+            out["prey_hits"] = int(c[k.C_PREY_HITS])      # 사냥감을 친 개체-스텝 수
+            pm = s.an_alive & (s.an_kind == an.ANIMAL_PREY)
+            out["prey_body_mean"] = float(s.an_energy[pm].mean()) if pm.any() else 0.0   # 산 사냥감 몸 평균(뜯기면 준다)
             out["deaths_killed"] = int(c[k.C_DEATH_KILLED])
         return out
 

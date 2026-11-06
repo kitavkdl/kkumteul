@@ -779,6 +779,8 @@ def test_summary_reports_prey():
 PREY_HASH_CFG = dict(season_period=200, winter_len=60, autumn_len=40, autumn_mult=2.0,
                      carry_enabled=True, prey_enabled=True, huddle_enabled=True)
 PINNED_PREY_HASH_300 = "7547f8c3959541e0061604453f66f452bb1b018b464cc480cdd45072f2a1f6d3"
+# 친 횟수 계수기(C_PREY_HITS)를 넣기 전의 같은 값. 계수기 칸을 0으로 두면 이것과 같아야 한다
+PINNED_PREY_HASH_300_BEFORE_HITS = "7547f8c3959541e0061604453f66f452bb1b018b464cc480cdd45072f2a1f6d3"
 
 
 def test_prey_world_keeps_pinned_hash():
@@ -786,3 +788,140 @@ def test_prey_world_keeps_pinned_hash():
     w.run(300)
     assert int(w.s.an_alive.sum()) > 0                     # 사냥감이 해시에 들어간다. 300스텝 안에 겨울(140~199)도 있다
     assert w.state_hash() == PINNED_PREY_HASH_300
+
+
+# ---- 물어뜯기(prey_bite)와 친 횟수 계수기 (설계 일곱째 판) ----
+def _bite_arena(n, energy=2.0, **kw) -> World:
+    """_hunt_arena와 같되 개체 에너지를 e_max 아래(energy)로 둔다(뜯은 몫이 상한에 막히지 않게)."""
+    w = _hunt_arena(n, **kw)
+    s = w.s
+    a = s.alive
+    s.ledger[k.L_INJECT] += float((energy - s.energy[a]).sum())
+    s.energy[a] = energy
+    return w
+
+
+def test_bite_goes_to_each_hitter_by_damage_share():
+    b = 0.5
+    w = _bite_arena(2, prey_bite=b)
+    s, cfg = w.s, w.cfg
+    j = _put_prey(w, 100.0, 100.0)
+    idx = _ring(w, 2, 100.0, 100.0)
+    s.act[idx[1], ACT_ATTACK] = 0.5
+    e0 = s.energy[idx].copy()
+    per_hp = _meat_e(cfg) / cfg.prey_hp
+    an.attack_animals(w.step_no, s, w.fa, w.ia)
+    bite = b * per_hp * cfg.attack_damage * np.array([1.0, 0.5])
+    strike = cfg.prey_strike / 2
+    cost = cfg.attack_cost * np.array([1.0, 0.5])
+    assert s.energy[idx] - e0 == pytest.approx(bite - strike - cost, rel=1e-12)
+    assert s.an_energy[j] == pytest.approx(_meat_e(cfg) - bite.sum(), rel=1e-12)
+    assert s.an_hp[j] == pytest.approx(cfg.prey_hp - 0.3, rel=1e-12)
+    assert s.counters[k.C_PREY_HITS] == 2
+    assert rel_residual(w) < 1e-9
+
+
+def test_bite_uses_saturated_damage():
+    b = 1.0
+    w = _bite_arena(6, prey_bite=b)
+    s, cfg = w.s, w.cfg
+    j = _put_prey(w, 100.0, 100.0)
+    idx = _ring(w, 6, 100.0, 100.0)
+    e0 = s.energy[idx].copy()
+    an.attack_animals(w.step_no, s, w.fa, w.ia)
+    d_each = cfg.prey_sat_n * cfg.attack_damage / 6        # 포화된 피해를 피해 몫대로 나눈다
+    gain = b * _meat_e(cfg) / cfg.prey_hp * d_each
+    assert s.energy[idx] - e0 == pytest.approx(gain - cfg.prey_strike / 6 - cfg.attack_cost, rel=1e-12)
+    assert s.an_energy[j] == pytest.approx(_meat_e(cfg) - 6 * gain, rel=1e-12)
+    assert rel_residual(w) < 1e-9
+
+
+def test_bite_stops_at_e_max_and_at_empty_body():
+    w = _bite_arena(2, prey_bite=1.0)
+    s, cfg = w.s, w.cfg
+    j = _put_prey(w, 100.0, 100.0)
+    idx = _ring(w, 2, 100.0, 100.0)
+    s.ledger[k.L_INJECT] += cfg.e_max - 0.01 - s.energy[idx[0]]
+    s.energy[idx[0]] = cfg.e_max - 0.01                    # 첫째는 비용을 치른 뒤 0.01 + 비용만 더 담을 수 있다
+    s.ledger[k.L_SPAWN] -= s.an_energy[j] - 0.05
+    s.an_energy[j] = 0.05                                  # 몸에 0.05만 남았다
+    e0 = s.energy[idx].copy()
+    an.attack_animals(w.step_no, s, w.fa, w.ia)
+    got = s.energy[idx] - e0 + cfg.prey_strike / 2 + cfg.attack_cost
+    room0 = 0.01 + cfg.attack_cost                         # 공격 비용을 먼저 치른 뒤의 빈자리
+    assert got[0] == pytest.approx(room0, abs=1e-12)       # 상한에 막힘
+    assert got[1] == pytest.approx(0.05 - room0, abs=1e-12)   # 남은 몸만큼
+    assert s.an_energy[j] == pytest.approx(0.0, abs=1e-12)
+    assert rel_residual(w) < 1e-9
+
+
+def test_bitten_body_refills_from_prey_share_while_healing():
+    b = 1.0
+    w = _bite_arena(1, prey_bite=b)
+    s, cfg = w.s, w.cfg
+    j = _put_prey(w, 100.0, 100.0)
+    idx = _ring(w, 1, 100.0, 100.0)
+    for t in range(10):
+        an.attack_animals(w.step_no + t, s, w.fa, w.ia)
+    body0, hp0 = float(s.an_energy[j]), float(s.an_hp[j])
+    assert body0 < _meat_e(cfg)
+    s.act[idx, ACT_ATTACK] = 0.0
+    s.budget[2] = 1.0
+    for t in range(cfg.prey_rest + 4):                      # 쉬고 나서 5스텝 아문다(rest째 스텝부터)
+        an.attack_animals(w.step_no + 10 + t, s, w.fa, w.ia)
+    dhp = float(s.an_hp[j]) - hp0
+    assert dhp == pytest.approx(5 * cfg.prey_regen, rel=1e-9)
+    refill = b * dhp * _meat_e(cfg) / cfg.prey_hp
+    assert s.an_energy[j] - body0 == pytest.approx(refill, rel=1e-9)
+    assert s.budget[2] == pytest.approx(1.0 - refill, rel=1e-9)
+    assert rel_residual(w) < 1e-9
+    s.budget[2] = 0.0                                       # 몫이 없으면 체력만 아문다
+    body1 = float(s.an_energy[j])
+    an.attack_animals(w.step_no + 200, s, w.fa, w.ia)
+    assert s.an_energy[j] == body1 and s.an_hp[j] > hp0 + dhp
+    assert rel_residual(w) < 1e-9
+
+
+def test_kill_with_empty_body_places_no_meat():
+    w = _bite_arena(4, prey_bite=1.0)
+    s, cfg = w.s, w.cfg
+    j = _put_prey(w, 100.0, 100.0, hp=0.5)
+    s.ledger[k.L_SPAWN] -= s.an_energy[j]
+    s.an_energy[j] = 0.0
+    _ring(w, 4, 100.0, 100.0)
+    an.attack_animals(w.step_no, s, w.fa, w.ia)
+    assert not s.an_alive[j] and s.counters[k.C_PREY_KILLED] == 1
+    assert not (s.f_alive & (s.f_kind == k.KIND_MEAT)).any()
+    assert rel_residual(w) < 1e-9
+
+
+def test_bite_world_ledger_closes():
+    w = World(small("harsh", "stage4", "ext", prey_enabled=True, prey_bite=1.0))
+    w.run(300)
+    s = w.s
+    s.bout[s.alive, ACT_ATTACK] = 3.0                      # 다 치게 해서 뜯기·쓰러뜨림·채우기를 다 지나게 한다
+    w.run(1200)
+    w.check_sane()
+    assert s.counters[k.C_PREY_HITS] > 0
+    assert rel_residual(w) < 1e-9
+    out = w.summary()
+    assert out["prey_hits"] == int(s.counters[k.C_PREY_HITS]) and "prey_body_mean" in out
+
+
+def test_prey_bite_is_checked():
+    for bad in (-0.1, 1.1):
+        with pytest.raises(ValueError):
+            small("ext", prey_enabled=True, prey_bite=bad)
+
+
+def test_hit_counter_does_not_change_motion():
+    """38번 칸(친 횟수)을 0으로 두고 낸 해시가 계수기를 넣기 전에 박은 값과 같다 = 움직임은 그대로다."""
+    w = World(small("harsh", **PREY_HASH_CFG))
+    w.run(300)
+    c = w.s.counters
+    hits = int(c[k.C_PREY_HITS])
+    c[k.C_PREY_HITS] = 0
+    try:
+        assert w.state_hash() == PINNED_PREY_HASH_300_BEFORE_HITS
+    finally:
+        c[k.C_PREY_HITS] = hits
