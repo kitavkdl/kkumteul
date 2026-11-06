@@ -117,17 +117,17 @@ def test_shuffle_mode_of_a_sense_that_is_off_changes_nothing():
     assert w1.state_hash() == w2.state_hash()
 
 
-def test_shuffle_mode_does_not_touch_world_rng():
-    """섞기는 지역 난수만 쓴다: 막은 칸이 행동에 안 닿는 세계에서 해시가 같아야 한다(듣기 가중치 0)."""
+def test_shuffle_mode_has_no_side_effect_beyond_the_swap():
+    """섞을 짝이 없으면(A가 한 마리) 섞기 블록은 세계를 하나도 바꾸지 않는다 — 지역 난수만 쓰고 다른 부작용이 없다."""
     cfg = small("stage3", init_agents=40)
     w1, w2 = World(cfg), World(cfg)
     for w in (w1, w2):
-        hear = ko.columns(cfg, "hear")
-        w.s.Win[:, hear, :] = 0.0
-        w.s.tag[:] = 0
+        w.s.tag[:] = 1
+        w.s.tag[np.flatnonzero(w.s.alive)[0]] = 0
     w1.run(15)
-    with ko.knockout(cfg, "hear", tag=0, mode="shuffle", seed=0):
+    with ko.knockout(cfg, "hear", tag=0, mode="shuffle", seed=0) as cols:
         w2.run(15)
+    assert cols.stats["calls"] == 15 and cols.stats["changed"] == 0
     assert w1.state_hash() == w2.state_hash()
 
 
@@ -135,3 +135,101 @@ def test_unknown_mode_rejected():
     with pytest.raises(ValueError):
         with ko.knockout(small("stage3"), "hear", tag=0, mode="blur"):
             pass
+
+
+def test_shuffle_frac_and_stats():
+    cfg = small("stage3", init_agents=40)
+    w = World(cfg)
+    s = w.s
+    live = np.flatnonzero(s.alive)
+    s.tag[live] = 0
+    hear = np.asarray(ko.columns(cfg, "hear"))
+    s.obs[np.ix_(live, hear)] = np.random.default_rng(0).normal(size=(len(live), len(hear)))
+    before = s.obs.copy()
+    stats = {"calls": 0, "rows": 0, "changed": 0}
+    ko._shuffle_rows(s, hear, 0, np.random.default_rng(1), frac=0.5, stats=stats)
+    moved = np.flatnonzero(np.any(s.obs[:, hear] != before[:, hear], axis=1))
+    assert stats["calls"] == 1 and stats["rows"] == len(live) // 2
+    assert stats["changed"] == len(moved) <= len(live) // 2
+    assert len(moved) >= 2
+
+
+def test_shuffle_runs_once_per_step_after_writer_only():
+    """섞기는 칸을 쓰는 감각 함수 뒤에서만 한 번 돈다(듣기 → social_sense)."""
+    cfg = small("stage3", init_agents=40)
+    w = World(cfg)
+    w.s.tag[:] = 0
+    with ko.knockout(cfg, "hear", tag=0, mode="shuffle", seed=0) as cols:
+        w.run(5)
+    assert cols.stats["calls"] == 5
+    with ko.knockout(cfg, "vision", tag=0, mode="shuffle", seed=0) as cols:
+        w.run(3)
+    assert cols.stats["calls"] == 3
+    # zero 모드는 지금처럼 칸 번호처럼 쓰인다
+    with ko.knockout(cfg, "hear", tag=0) as cols:
+        assert list(cols) == ko.columns(cfg, "hear")
+
+
+def test_describe_context_columns_are_internal_senses():
+    """에너지·방금 먹음·냄새는 내부 감각(2 * vision_sectors부터)이다. 단계 입력(호르몬·듣기)이 아니다."""
+    cfg = small("stage4")
+    iv = 2 * cfg.vision_sectors
+    assert ko.context_columns(cfg)[:3] == [iv + 0, iv + 5, iv + 6]
+    b = iv + 8
+    assert ko.context_columns(cfg)[3:] == list(range(b + 0, b + 4))
+
+
+def test_forward_matches_actual_thought_with_pre_step_plastic_weights():
+    cfg = small("stage4", init_agents=40)
+    w = World(cfg)
+    w.run(30)
+    s = w.s
+    h_prev = s.h.copy()
+    Hin, Hrec = s.Hin.copy(), s.Hrec.copy()
+    ids, alive = s.ids.copy(), s.alive.copy()
+    w.run(1)
+    rows = np.flatnonzero(s.alive & alive & (s.ids == ids) & (s.asleep <= 0.0))
+    out = ko._forward(s, rows, s.obs[rows].astype(np.float64), h_prev[rows].astype(np.float64),
+                      cfg.mind_enabled, Hin=Hin, Hrec=Hrec)
+    n_out = s.act.shape[1]
+    assert np.abs(out[:, :n_out] - s.act[rows]).max() < 1e-4
+
+
+def _wired_speaker_world():
+    """sig0가 에너지만 따르게 손으로 배선한 무리(듣기 가중치 0)."""
+    from kkumteul.config import ACT_SIG0
+    cfg = small("stage4", init_agents=120, max_agents=300)
+    w = World(cfg)
+    s = w.s
+    e = ko.context_columns(cfg)[0]
+    hear = ko.columns(cfg, "hear")
+    s.alpha[:] = 0.0
+    s.Win[:, :, 0] = 0.0
+    s.Win[:, e, 0] = 2.0
+    s.Wrec[:, :, 0] = 0.0
+    s.bh[:, 0] = 0.0
+    s.Wout[:, ACT_SIG0, :] = 0.0
+    s.Wout[:, ACT_SIG0, 0] = 2.0
+    s.bout[:, ACT_SIG0] = 0.0
+    s.Win[:, hear, :] = 0.0
+    return w
+
+
+def test_info_wired_speaker_positive_deaf_listener_null():
+    w = _wired_speaker_world()
+    r = ko.info_world(w, steps=300, stride=5, folds=10, n_null=3, seed=0)   # 짝 28개 Holm에는 겹 10개가 필요(최소 p 1/1024)
+    sp = r["speaker"]["pairs"]["sig0|energy"]
+    assert sp["above_zero"], sp
+    assert r["speaker"]["verdict_pass"]
+    lis = r["listener"]["move"]
+    assert not lis["response"]["above_zero"], lis
+    assert r["samples"] > 1000 and r["individuals"] >= 50
+
+
+def test_info_reseed_changes_trajectory():
+    cfg = small("stage3", init_agents=40)
+    w1, w2 = World(cfg), World(cfg)
+    ko.reseed(w2, 999)
+    w1.run(20)
+    w2.run(20)
+    assert w1.state_hash() != w2.state_hash()

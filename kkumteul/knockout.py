@@ -39,7 +39,7 @@ from . import checkpoint as ckpt
 from . import kernels as k
 from . import measure
 from . import stages as st
-from .config import (ACT_SIG0, ACT_THRUST, ACT_TURN, IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL,
+from .config import (ACT_ATTACK, ACT_SIG0, ACT_THRUST, ACT_TURN, IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL,
                      N_INTERNAL, N_TASTE_IN, N_TASTE_VIS, TASTE_VAL, TASTE_VIS, Config)
 
 CHANNELS = ("hear", "kin", "saweat", "social", "trail", "vision", "taste", "taste_vis", "taste_val")
@@ -77,30 +77,81 @@ def columns(cfg: Config, channel: str) -> list[int]:
     return table[channel]
 
 
+MODES = ("zero", "shuffle")
+# 그 칸을 쓰는 감각 함수(섞기는 그 함수 뒤에서만 한 번 돈다)
+WRITER = {"hear": "social", "kin": "social", "saweat": "social", "social": "social", "trail": "trail",
+          "vision": "sense", "taste": "sense", "taste_vis": "sense", "taste_val": "sense"}
+
+
+class KnockoutCols(np.ndarray):
+    """막은 칸 번호 배열. `.stats`에 섞은 호출 수(calls), 고른 행 수(rows), 실제로 값이 바뀐 행 수(changed)."""
+    stats: dict
+
+
+def _shuffle_rows(s, cols: np.ndarray, tag: int, rng: np.random.Generator, frac: float = 1.0,
+                  stats: dict | None = None) -> None:
+    """tag가 같은 산 개체들 사이에서 cols 묶음을 행째로 바꿔 끼운다(한 번에 한 순열, 묶음 안 칸은 같이 움직임).
+    frac < 1이면 그 몫만 무작위로 골라 그들끼리 바꾼다(나머지는 제 것을 듣는다)."""
+    rows = np.flatnonzero(s.alive & (s.tag == tag))
+    if frac < 1.0 and len(rows):
+        rows = np.sort(rng.choice(rows, size=int(round(frac * len(rows))), replace=False))
+    if stats is not None:
+        stats["calls"] += 1
+        stats["rows"] += int(len(rows))
+    if len(rows) < 2:
+        return
+    block = s.obs[np.ix_(rows, cols)]
+    new = block[rng.permutation(len(rows))]
+    if stats is not None:
+        stats["changed"] += int(np.any(new != block, axis=1).sum())
+    s.obs[np.ix_(rows, cols)] = new
+
+
 @contextlib.contextmanager
-def knockout(cfg: Config, channel: str, tag: int = 0):
-    """이 블록 안에서는 세계의 감각 함수가 끝날 때마다 tag가 같은 개체의 그 입력 칸을 0으로 지운다.
+def knockout(cfg: Config, channel: str, tag: int = 0, mode: str = "zero", seed: int = 0, frac: float = 1.0):
+    """이 블록 안에서는 tag가 같은 개체의 그 입력 칸을 막는다. 블록을 나가면 원래 함수로 돌려 놓는다.
+    - zero: 세계의 감각 함수가 끝날 때마다 0으로 지운다(감각 함수 셋 뒤 모두 — 옛 결과와 같은 동작).
+    - shuffle: 그 칸을 쓰는 감각 함수 뒤에서만, 스텝마다 한 번, 같은 tag의 산 개체끼리 행째로 바꿔 끼운다.
+      입력의 크기·분포는 그대로이고 듣는 개체의 처지와의 짝만 깨진다. 난수는 지역 생성기(seed) —
+      세계 난수 흐름은 그대로다.
     감각 함수(kernels.sense, stages.social_sense, stages.trail_sense)는 World.step만 부르고,
-    셋 다 생각(think) 전에 돈다. 블록을 나가면 원래 함수로 돌려 놓는다. 한 프로세스 안에서만 쓴다."""
+    셋 다 생각(think) 전에 돈다. 한 프로세스 안에서만 쓴다."""
+    if mode not in MODES:
+        raise ValueError(f"모르는 막기 방식: {mode} (가능: {', '.join(MODES)})")
     cols = np.asarray(columns(cfg, channel), dtype=np.int64)
+    out = cols.view(KnockoutCols)
+    out.stats = {"calls": 0, "rows": 0, "changed": 0}
     orig = (k.sense, st.social_sense, st.trail_sense)
+    rng = np.random.default_rng(seed)
 
     def wipe(s):
         rows = np.flatnonzero(s.alive & (s.tag == tag))
         if len(rows):
             s.obs[np.ix_(rows, cols)] = 0.0
 
-    def wrap(f, state_pos):
+    def shuf(s):
+        _shuffle_rows(s, cols, tag, rng, frac, out.stats)
+
+    def wrap(f, state_pos, act):
         def g(*args):
             f(*args)
-            wipe(args[state_pos])
+            act(args[state_pos])
         return g
 
-    k.sense = wrap(orig[0], 1)            # sense(step, s, fp, ip)
-    st.social_sense = wrap(orig[1], 0)    # social_sense(s, fs, isp)
-    st.trail_sense = wrap(orig[2], 0)
+    if mode == "zero":
+        k.sense = wrap(orig[0], 1, wipe)            # sense(step, s, fp, ip)
+        st.social_sense = wrap(orig[1], 0, wipe)    # social_sense(s, fs, isp)
+        st.trail_sense = wrap(orig[2], 0, wipe)
+    else:
+        w = WRITER[channel]
+        if w == "sense":
+            k.sense = wrap(orig[0], 1, shuf)
+        elif w == "social":
+            st.social_sense = wrap(orig[1], 0, shuf)
+        else:
+            st.trail_sense = wrap(orig[2], 0, shuf)
     try:
-        yield cols
+        yield out
     finally:
         k.sense, st.social_sense, st.trail_sense = orig
 
@@ -116,13 +167,17 @@ def _neutral(side: dict, cfg: Config, n: int, steps: int, reps: int, seed: int) 
 
 
 def split(path: Path, channel: str, n: int = 400, steps: int = 8000, reps: int = 6, seed: int = 4000,
-          rules: list[str] | None = None, log=None, base_overrides: list[str] | None = None) -> dict:
+          rules: list[str] | None = None, log=None, base_overrides: list[str] | None = None,
+          mode: str = "zero", frac: float = 1.0) -> dict:
     """같은 생물 두 벌, A(tag 0)만 channel을 막고 겨룬다. 체크포인트 규칙과 대조 규칙에서.
-    base_overrides를 주면 체크포인트 규칙을 그것으로 덮어쓴 설정을 체크포인트 규칙으로 쓴다(대조 규칙도 그 위에 얹는다)."""
+    base_overrides를 주면 체크포인트 규칙을 그것으로 덮어쓴 설정을 체크포인트 규칙으로 쓴다(대조 규칙도 그 위에 얹는다).
+    mode="shuffle"이면 0으로 지우는 대신 A끼리 그 칸을 바꿔 끼운다(frac은 스텝마다 섞는 A의 몫)."""
     side = measure.load_side(path)
     base = side["cfg"].with_overrides(base_overrides) if base_overrides else side["cfg"]
-    out = {"ckpt": str(path), "step": side["step"], "channel": channel,
+    out = {"ckpt": str(path), "step": side["step"], "channel": channel, "mode": mode,
            "columns": columns(base, channel), "n_each": n, "steps": steps, "reps": reps}
+    if mode != "zero":
+        out["frac"] = frac
     if base_overrides:
         out["base_overrides"] = base_overrides
     plan = [("ckpt_rules", base)]
@@ -130,37 +185,63 @@ def split(path: Path, channel: str, n: int = 400, steps: int = 8000, reps: int =
     if off:
         plan.append(("control_rules", base.with_overrides(off)))
         out["control_overrides"] = off
-    a_label, b_label = f"막은 쪽({channel})이", "원래 쪽이"
+    a_label = f"막은 쪽({channel})이" if mode == "zero" else f"섞은 쪽({channel})이"
+    b_label = "원래 쪽이"
     for name, cfg in plan:
         a = dict(side, cfg=cfg, path=f"{path} ({channel} 막음)")
         b = dict(side, cfg=cfg)
-        with knockout(cfg, channel, tag=0):
+        with knockout(cfg, channel, tag=0, mode=mode, seed=seed + 31, frac=frac) as ko_cols:
             res = measure.assay_sides(a, b, n, steps, reps, seed, neutral=False)
+        if mode != "zero":
+            st_ = ko_cols.stats
+            res["shuffle_stats"] = dict(st_)
+            # 섞을 짝이 없으면(A가 줄어 한 마리) 값이 그대로다. 실제로 바뀐 행의 몫
+            res["changed_row_frac"] = st_["changed"] / st_["rows"] if st_["rows"] else 0.0
         res["neutral_r_per_1000"] = _neutral(side, cfg, n, steps, reps, seed)
+        nsd = res["neutral_r_per_1000"].get("sd", float("nan"))
+        # 중립 흔들림으로 가를 수 있는 가장 작은 r(어림: t95 × 중립 sd / √반복, 임시)
+        res["min_detectable_r_per_1000"] = float(measure.t95(reps - 1) * nsd / np.sqrt(reps)) if reps > 1 else None
         res["winner"] = measure.winner(res)
         res["verdict"] = measure.verdict(res, a_label, b_label)
         out[name] = res
         if log:
             print(json.dumps({name: {kk: res[kk] for kk in ("r_per_1000", "neutral_r_per_1000", "final_counts",
-                                                          "verdict")}}, ensure_ascii=False), file=log, flush=True)
+                                                          "min_detectable_r_per_1000", "verdict")}},
+                             ensure_ascii=False), file=log, flush=True)
     return out
 
 
 # ---- 묘사(판정 아님) ----
-def _forward(s, rows, obs, h_prev, mind: bool) -> np.ndarray:
-    """같은 순간의 뇌를 다시 계산한다(kernels._think_par / stages.think_plastic의 식). 출력 전체를 돌려준다."""
-    Win = s.Win[rows].astype(np.float64)
+def _forward(s, rows, obs, h_prev, mind: bool, Hin=None, Hrec=None, Win=None) -> np.ndarray:
+    """같은 순간의 뇌를 다시 계산한다(kernels._think_par / stages.think_plastic의 식). 출력 전체를 돌려준다.
+    평생 학습은 생각한 뒤에 Hin·Hrec을 고치므로, 그 스텝의 생각과 맞추려면 스텝 전에 뜬 사본(전체 배열)을 준다.
+    Win(rows만큼, 타고난 것 + 배운 것을 이미 더한 값)을 주면 그것을 그대로 쓴다(가중치를 섞은 기준선용).
+    노드 섭동의 잡음은 넣지 않는다."""
     Wrec = s.Wrec[rows].astype(np.float64)
     if mind:
         al = s.alpha[rows][:, None, :].astype(np.float64)
-        Win = Win + al * s.Hin[rows]
-        Wrec = Wrec + al * s.Hrec[rows]
+        Wrec = Wrec + al * (s.Hrec if Hrec is None else Hrec)[rows]
+    if Win is None:
+        Win = s.Win[rows].astype(np.float64)
+        if mind:
+            Win = Win + al * (s.Hin if Hin is None else Hin)[rows]
     nh = s.n_hidden[rows]
     H = Win.shape[2]
     mask = (np.arange(H)[None, :] < nh[:, None]).astype(np.float64)
     pre = s.bh[rows] + np.einsum("ri,rih->rh", obs, Win) + np.einsum("rj,rjh->rh", h_prev * mask, Wrec)
     hid = np.tanh(pre) * mask
     return np.tanh(s.bout[rows] + np.einsum("roh,rh->ro", s.Wout[rows].astype(np.float64), hid))
+
+
+CTX_NAMES = ("energy", "ate", "smell", "stress", "dopamine", "boredom", "fatigue")
+
+
+def context_columns(cfg: Config) -> list[int]:
+    """내는 쪽 상황 칸: 에너지·방금 먹음·냄새(내부 감각, 시야 뒤 0·5·6번), 호르몬 넷(단계 입력 앞 넷).
+    (11/07 바로잡음: 전에는 셋을 단계 입력 시작에서 세어 스트레스 호르몬·들은 신호 두 칸을 집었다.)"""
+    iv = 2 * cfg.vision_sectors
+    b = _base(cfg)
+    return [iv + 0, iv + 5, iv + 6] + list(range(b + IN_HORM, b + IN_HORM + 4))
 
 
 def _corr(a: np.ndarray, b: np.ndarray) -> float:
@@ -175,7 +256,7 @@ def describe(path: Path, steps: int = 500) -> dict:
     if not cfg.social_enabled:
         return {"ckpt": str(path), "note": "사회 감각이 꺼진 세계라 신호가 없다"}
     mind = cfg.mind_enabled
-    b = _base(cfg)
+    ctx_cols = context_columns(cfg)
     hear = columns(cfg, "hear")
     vis = columns(cfg, "vision")
     mv = [ACT_THRUST, ACT_TURN]
@@ -199,12 +280,11 @@ def describe(path: Path, steps: int = 500) -> dict:
         d_hear.append(np.abs(_forward(s, rows, o2, hp, mind)[:, mv] - full[:, mv]).mean(0))
         d_vis.append(np.abs(_forward(s, rows, o3, hp, mind)[:, mv] - full[:, mv]).mean(0))
         heard_any.append(float((np.abs(obs[:, hear]).max(1) > 0.05).mean()))
-        sig_rows.append(np.column_stack([s.ids[rows], s.sig[rows, 0], s.sig[rows, 1], obs[:, b + 0], obs[:, b + 5],
-                                         obs[:, b + 6], obs[:, b + IN_HORM:b + IN_HORM + 4]]))
+        sig_rows.append(np.column_stack([s.ids[rows], s.sig[rows, 0], s.sig[rows, 1], obs[:, ctx_cols]]))
     world.drain_events()
     X = np.concatenate(sig_rows)
     ids = X[:, 0].astype(np.int64)
-    ctx_names = ["energy", "ate", "smell", "stress", "dopamine", "boredom", "fatigue"]
+    ctx_names = CTX_NAMES
     speaker = {}
     for c, name in ((1, "sig0"), (2, "sig1")):
         v = X[:, c]
@@ -235,6 +315,278 @@ def describe(path: Path, steps: int = 500) -> dict:
     }
 
 
+# ---- 상호정보량(설계 docs/superpowers/specs/2026-11-07-signal-measure-design.md) ----
+def _codes(x, bins: int) -> tuple[np.ndarray, list[int]]:
+    """분위 칸 부호. 2차원이면 열마다 칸을 나눠 결합 부호를 만든다. 같은 값(동점)은 같은 칸에 든다
+    (분위 경계가 겹치면 칸이 줄어든다). 실제로 차지한 칸 수도 돌려준다."""
+    x = np.asarray(x, dtype=np.float64)
+    if x.ndim == 1:
+        x = x[:, None]
+    code = np.zeros(len(x), dtype=np.int64)
+    used = []
+    for c in range(x.shape[1]):
+        col = x[:, c]
+        edges = np.unique(np.quantile(col, np.linspace(0.0, 1.0, bins + 1)[1:-1])) if len(col) else np.zeros(0)
+        b = np.searchsorted(edges, col, side="right")
+        code = code * (len(edges) + 1) + b
+        used.append(int(len(np.unique(b))))
+    return code, used
+
+
+def _mi_codes(cx: np.ndarray, cy: np.ndarray) -> float:
+    n = len(cx)
+    if n == 0:
+        return 0.0
+    _, ix = np.unique(cx, return_inverse=True)
+    _, iy = np.unique(cy, return_inverse=True)
+    nx, ny = ix.max() + 1, iy.max() + 1
+    if nx < 2 or ny < 2:
+        return 0.0
+    joint = np.bincount(ix * ny + iy, minlength=nx * ny).astype(np.float64) / n
+    px = np.bincount(ix, minlength=nx) / n
+    py = np.bincount(iy, minlength=ny) / n
+    pxy = joint.reshape(nx, ny)
+    m = pxy > 0
+    return float((pxy[m] * np.log2(pxy[m] / (px[:, None] * py[None, :])[m])).sum())
+
+
+def mi_binned(x, y, bins: int = 8) -> float:
+    """분위 칸으로 나눈 표본 상호정보량(비트). 치우침은 빼지 않는다(mi_diff가 같은 크기의 영가설로 뺀다)."""
+    return _mi_codes(_codes(x, bins)[0], _codes(y, bins)[0])
+
+
+def _fold_of(ids: np.ndarray, folds: int, seed: int) -> np.ndarray:
+    uniq, inv = np.unique(ids, return_inverse=True)
+    perm = np.random.default_rng(seed).permutation(len(uniq))
+    return (perm % folds)[inv]
+
+
+def _signflip_p(d: np.ndarray) -> float:
+    """겹 값들의 평균이 0보다 큰가: 부호 뒤집기 정확 검정(한쪽). 겹이 12개 넘으면 무작위 4,096번."""
+    d = np.asarray(d, dtype=np.float64)
+    n = len(d)
+    if n == 0 or np.all(d == 0):
+        return 1.0
+    if n <= 12:
+        signs = ((np.arange(2 ** n)[:, None] >> np.arange(n)[None, :]) & 1) * 2 - 1
+    else:
+        signs = np.random.default_rng(0).choice([-1, 1], size=(4096, n))
+    return float(((signs * d).mean(1) >= d.mean() - 1e-15).mean())
+
+
+def _interval(d: np.ndarray) -> dict:
+    d = np.asarray(d, dtype=np.float64)
+    m = float(d.mean())
+    sem = float(d.std(ddof=1) / np.sqrt(len(d))) if len(d) > 1 else float("nan")
+    t = measure.t95(len(d) - 1) if len(d) > 1 else float("nan")
+    lo, hi = m - t * sem, m + t * sem
+    return {"mean": m, "sem": sem, "lo": lo, "hi": hi, "above_zero": bool(lo > 0.0), "p": _signflip_p(d),
+            "folds": [float(v) for v in d]}
+
+
+def mi_diff(x, y, y_nulls: list, ids: np.ndarray, folds: int = 10, bins: int = 8, seed: int = 0,
+            xbins: int | None = None) -> dict:
+    """개체 id로 겹을 나눠(같은 개체는 한 겹에만) 겹마다 I(x; y) − 평균 I(x; 영가설 y)을 구한다.
+    겹 값들의 평균, t 95% 구간, 부호 뒤집기 p. 아래 끝 > 0이면 above_zero."""
+    fold = _fold_of(ids, folds, seed)
+    cx, ux = _codes(x, xbins or bins)
+    cy, uy = _codes(y, bins)
+    cn = [_codes(yn, bins)[0] for yn in y_nulls]
+    obs_v, null_v, d = [], [], []
+    for f in range(folds):
+        m = fold == f
+        if not m.any():
+            continue
+        o = _mi_codes(cx[m], cy[m])
+        nl = float(np.mean([_mi_codes(cx[m], c[m]) for c in cn]))
+        obs_v.append(o); null_v.append(nl); d.append(o - nl)
+    out = _interval(np.asarray(d))
+    out.update(mi=float(np.mean(obs_v)), mi_null=float(np.mean(null_v)), bins_used_x=ux, bins_used_y=uy)
+    return out
+
+
+def _id_key(ids: np.ndarray, seed: int) -> np.ndarray:
+    """개체 id → 고정된 무작위 순서 열쇠(splitmix64)."""
+    off = np.uint64((int(seed) * 0x9E3779B97F4A7C15) % (1 << 64))
+    with np.errstate(over="ignore"):
+        z = ids.astype(np.uint64) + off
+        z = (z ^ (z >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
+        z = (z ^ (z >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
+        z = z ^ (z >> np.uint64(31))
+    return z
+
+
+def neighbor_index(ids: np.ndarray, steps: np.ndarray, seed: int, strata: np.ndarray | None = None) -> np.ndarray:
+    """영가설 짝: 같은 스텝(그리고 같은 층) 안에서 개체를 고정된 무작위 순서로 늘어놓고 바로 다음 개체(돌아감).
+    순서가 스텝마다 같아 같은 짝이 이어지므로, 개체 꼬리표 × 오래 가는 상황이 만드는 부풂이 영가설에도 같이 생긴다."""
+    key = _id_key(ids, seed)
+    grp = steps.astype(np.int64) * 7 + (0 if strata is None else strata.astype(np.int64))
+    order = np.lexsort((key, grp))
+    g = grp[order]
+    partner = np.empty(len(ids), dtype=np.int64)
+    starts = np.flatnonzero(np.r_[True, g[1:] != g[:-1]])
+    ends = np.r_[starts[1:], len(g)]
+    for a, b in zip(starts, ends):
+        idx = order[a:b]
+        partner[idx] = np.roll(idx, -1)
+    return partner
+
+
+def mi_gain(x, y, ids, steps, bins: int = 8, folds: int = 10, n_null: int = 5, seed: int = 0) -> dict:
+    """I(x; y)가 영가설(같은 스텝의 고정 순서 옆 개체의 y)보다 큰가. n_null개의 순서로 영가설을 평균한다."""
+    y = np.asarray(y)
+    nulls = [y[neighbor_index(np.asarray(ids), np.asarray(steps), seed + 101 * i)] for i in range(n_null)]
+    return mi_diff(x, y, nulls, np.asarray(ids), folds, bins, seed)
+
+
+def holm(ps: list[float], alpha: float = 0.05) -> list[bool]:
+    order = np.argsort(ps)
+    ok = [False] * len(ps)
+    m = len(ps)
+    for rank, i in enumerate(order):
+        if ps[i] <= alpha / (m - rank):
+            ok[i] = True
+        else:
+            break
+    return ok
+
+
+def reseed(world, seed: int) -> None:
+    """체크포인트를 이어 돌 때 세계 씨앗만 바꾼다(반복 사이 구간용). 배열 크기는 그대로다."""
+    world.set_config(world.cfg.with_overrides([f"seed={int(seed)}"]))
+
+
+def _within(v: np.ndarray, ids: np.ndarray) -> np.ndarray:
+    _, inv = np.unique(ids, return_inverse=True)
+    cnt = np.bincount(inv)
+    if v.ndim == 1:
+        return v - (np.bincount(inv, v) / cnt)[inv]
+    return np.column_stack([_within(v[:, c], ids) for c in range(v.shape[1])])
+
+
+def info_world(world, steps: int = 2000, stride: int = 20, bins: int = 8, folds: int = 10, n_null: int = 5,
+               seed: int = 0, alpha: float = 0.05) -> dict:
+    """겨루기 없이 세계를 돌리며 신호의 상호정보량을 잰다(설계 ②). 판정이 아니라 반응의 크기다:
+    "쓰임"은 섞기 겨루기에서 지고 이 값이 기준선보다 클 때만 말한다."""
+    s, cfg = world.s, world.cfg
+    if not cfg.social_enabled:
+        return {"note": "사회 감각이 꺼진 세계라 신호가 없다"}
+    mind = cfg.mind_enabled
+    hear = np.asarray(columns(cfg, "hear"))
+    vis = np.asarray(columns(cfg, "vision"))
+    ctx = context_columns(cfg)
+    ctx_names = list(CTX_NAMES) if mind else list(CTX_NAMES[:3])
+    ctx = ctx[:len(ctx_names)]
+    acts = {"move": [ACT_THRUST, ACT_TURN]}
+    n_out = s.act.shape[1]
+    if cfg.conflict_enabled and ACT_ATTACK < n_out:
+        acts["attack"] = [ACT_ATTACK]
+    rec = {k_: [] for k_ in ("id", "step", "sig", "ctx", "heard", "vstr")}
+    resp = {name: {v: [] for v in ("orig", "shuf", "strat", "base", "base_shuf")} for name in acts}
+    fit_err = []
+    t0 = int(world.step_no)
+    for t in range(steps):
+        if t % stride:
+            world.run(1)
+            continue
+        h_prev = s.h.copy()
+        Hin = s.Hin.copy() if mind else None
+        Hrec = s.Hrec.copy() if mind else None
+        ids_before, alive_before = s.ids.copy(), s.alive.copy()
+        world.run(1)
+        rows = np.flatnonzero(s.alive & alive_before & (s.ids == ids_before) & (s.asleep <= 0.0))
+        if len(rows) < 3:
+            continue
+        obs = s.obs[rows].astype(np.float64)
+        hp = h_prev[rows].astype(np.float64)
+        ids = s.ids[rows].astype(np.int64)
+        stp = np.full(len(rows), t, dtype=np.int64)
+        vstr = np.abs(obs[:, vis]).sum(1)
+        strata = np.searchsorted(np.quantile(vstr, [1 / 3, 2 / 3]), vstr, side="right")
+        nb = neighbor_index(ids, stp, seed)
+        nb_s = neighbor_index(ids, stp, seed, strata)
+        o_sh = obs.copy(); o_sh[:, hear] = obs[nb][:, hear]
+        o_st = obs.copy(); o_st[:, hear] = obs[nb_s][:, hear]
+        Win = s.Win[rows].astype(np.float64)
+        if mind:
+            Win = Win + s.alpha[rows][:, None, :].astype(np.float64) * Hin[rows]
+        Wb = Win.copy(); Wb[:, hear, :] = Win[nb][:, hear, :]     # 듣기 가중치를 개체끼리 섞은 뇌(기준선)
+        full = _forward(s, rows, obs, hp, mind, Hin, Hrec)
+        fit_err.append(float(np.abs(full[:, ACT_SIG0:ACT_SIG0 + 2] - s.act[rows, ACT_SIG0:ACT_SIG0 + 2]).max()))
+        sh = _forward(s, rows, o_sh, hp, mind, Hin, Hrec)
+        stt = _forward(s, rows, o_st, hp, mind, Hin, Hrec)
+        bo = _forward(s, rows, obs, hp, mind, Hin, Hrec, Win=Wb)
+        bs = _forward(s, rows, o_sh, hp, mind, Hin, Hrec, Win=Wb)
+        for name, cols_ in acts.items():
+            for v, arr in (("orig", full), ("shuf", sh), ("strat", stt), ("base", bo), ("base_shuf", bs)):
+                resp[name][v].append(arr[:, cols_])
+        rec["id"].append(ids); rec["step"].append(stp)
+        rec["sig"].append(s.sig[rows].astype(np.float64)); rec["ctx"].append(obs[:, ctx])
+        rec["heard"].append(obs[:, hear]); rec["vstr"].append(vstr)
+    world.drain_events()
+    R = {k_: np.concatenate(v) for k_, v in rec.items()}
+    ids, stp = R["id"], R["step"]
+    out = {"step": t0, "steps": steps, "stride": stride, "seed": seed, "bins": bins, "folds": folds,
+           "samples": int(len(ids)), "individuals": int(len(np.unique(ids))),
+           "forward_check_max_err": float(max(fit_err)) if fit_err else float("nan"),
+           "heard_something_frac": float((np.abs(R["heard"]).max(1) > 0.05).mean())}
+    # 내는 쪽
+    sig = R["sig"]
+    sigvars = {"sig0": sig[:, 0], "sig1": sig[:, 1], "sum": sig[:, 0] + sig[:, 1], "diff": sig[:, 0] - sig[:, 1]}
+    pairs, within = {}, {}
+    for sn, sv in sigvars.items():
+        for ci, cn in enumerate(ctx_names):
+            cv = R["ctx"][:, ci]
+            pairs[f"{sn}|{cn}"] = mi_gain(sv, cv, ids, stp, bins, folds, n_null, seed)
+            within[f"{sn}|{cn}"] = mi_gain(_within(sv, ids), _within(cv, ids), ids, stp, bins, folds, n_null, seed)
+    names = list(pairs)
+    hp_ = holm([pairs[n]["p"] for n in names], alpha)
+    hw_ = holm([within[n]["p"] for n in names], alpha)
+    for n, a_, b_ in zip(names, hp_, hw_):
+        pairs[n]["holm"] = a_ and pairs[n]["above_zero"]
+        within[n]["holm"] = b_ and within[n]["above_zero"]
+    judged = [f"{a_}|{b_}" for a_ in ("sig0", "sig1") for b_ in ("energy", "ate")]
+    passing = [n for n in judged if pairs[n]["holm"] and within[n]["holm"]]
+    sp_all = float(np.var(sig, axis=0).sum())
+    sp_in = float(np.var(_within(sig, ids), axis=0).sum())
+    out["speaker"] = {"pairs": pairs, "within": within, "judged_pairs": judged, "passing": passing,
+                      "verdict_pass": bool(passing),
+                      "n_holm_pass": int(sum(pairs[n]["holm"] for n in names)),
+                      "n_within_holm_pass": int(sum(within[n]["holm"] for n in names)),
+                      "between_individual_share": float(1 - sp_in / sp_all) if sp_all > 1e-12 else float("nan"),
+                      "note": "단서이지 쓰임의 증거가 아니다(설계 판단표 규칙 5)"}
+    # 듣는 쪽: 들은 4칸 결합(칸마다 3분위) ↔ 행동 결합(칸마다 4분위)
+    H = R["heard"]
+    Hsd = np.column_stack([H[:, 0] + H[:, 1], H[:, 0] - H[:, 1], H[:, 2] + H[:, 3], H[:, 2] - H[:, 3]])
+    lis = {}
+    for name in acts:
+        A = {v: np.concatenate(resp[name][v]) for v in resp[name]}
+        ab = 4 if A["orig"].shape[1] > 1 else bins
+        r_ = mi_diff(H, A["orig"], [A["shuf"]], ids, folds, ab, seed, xbins=3)
+        r_st = mi_diff(H, A["orig"], [A["strat"]], ids, folds, ab, seed, xbins=3)
+        r_b = mi_diff(H, A["base"], [A["base_shuf"]], ids, folds, ab, seed, xbins=3)
+        r_sd = mi_diff(Hsd, A["orig"], [A["shuf"]], ids, folds, ab, seed, xbins=3)
+        gap = _interval(np.asarray(r_["folds"]) - np.asarray(r_b["folds"]))
+        lis[name] = {"response": r_, "response_strat": r_st, "baseline_shuffled_weights": r_b,
+                     "response_sumdiff": r_sd, "response_minus_baseline": gap,
+                     "mean_abs_change_if_shuffled": float(np.abs(A["orig"] - A["shuf"]).mean())}
+    out["listener"] = lis
+    out["listener_note"] = ("반응 = I(들은 것; 행동) − I(들은 것; 들은 칸만 옆 개체 것으로 바꿔 다시 계산한 행동). "
+                            "떠돌이 가중치도 0보다 크게 낸다 — 기준선(듣기 가중치를 개체끼리 섞은 뇌)보다 큰지 본다.")
+    return out
+
+
+def info(path: Path, steps: int = 2000, stride: int = 20, seed: int | None = None, bins: int = 8,
+         folds: int = 10, n_null: int = 5) -> dict:
+    world, _ = ckpt.load(Path(path))
+    if seed is not None:
+        reseed(world, seed)
+    out = info_world(world, steps, stride, bins, folds, n_null, seed=0 if seed is None else seed)
+    out["ckpt"] = str(path)
+    out["world_seed"] = int(world.cfg.seed)
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m kkumteul.knockout")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -248,13 +600,25 @@ def main(argv=None) -> int:
     p.add_argument("--control", nargs="*", default=None, help="대조 규칙 덮어쓰기(주지 않으면 감각마다 정한 것)")
     p.add_argument("--set", dest="base_set", action="append", default=None, metavar="키=값",
                    help="체크포인트 규칙 덮어쓰기(여러 번 가능). 예: --set taste_enabled=true")
+    p.add_argument("--mode", choices=MODES, default="zero", help="zero: 0으로 지우기, shuffle: A끼리 바꿔 끼우기")
+    p.add_argument("--frac", type=float, default=1.0, help="shuffle일 때 스텝마다 섞는 A의 몫(약한 양성 대조: 0.5)")
+    i = sub.add_parser("info")
+    i.add_argument("ckpt", type=Path)
+    i.add_argument("--steps", type=int, default=2000)
+    i.add_argument("--stride", type=int, default=20)
+    i.add_argument("--seed", type=int, default=None, help="세계 씨앗을 바꿔 돈다(반복 사이 구간용)")
+    i.add_argument("--bins", type=int, default=8)
+    i.add_argument("--folds", type=int, default=10)
+    i.add_argument("--n-null", type=int, default=5)
     d = sub.add_parser("describe")
     d.add_argument("ckpt", type=Path)
     d.add_argument("--steps", type=int, default=500)
     a = ap.parse_args(argv)
     if a.cmd == "split":
         out = split(a.ckpt, a.channel, a.n, a.steps, a.reps, a.seed, a.control, log=sys.stderr,
-                    base_overrides=a.base_set)
+                    base_overrides=a.base_set, mode=a.mode, frac=a.frac)
+    elif a.cmd == "info":
+        out = info(a.ckpt, a.steps, a.stride, a.seed, a.bins, a.folds, a.n_null)
     else:
         out = describe(a.ckpt, a.steps)
     print(json.dumps(out, ensure_ascii=False, indent=1))
