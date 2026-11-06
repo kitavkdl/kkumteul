@@ -1,13 +1,12 @@
 # 꿈틀 인수인계
-마지막 갱신: 2026-11-06 15:1x ET (서버 31 wrap)
-**서버 31(15:00~15:1x ET)**: 판정 체인을 지켜보며 **다시 보기 둘째 판** 시작 — 설계(`docs/visualization.md` 끝 "둘째 판"), 검토 둘 반영표, **파이썬 쪽 구현·시험 끝**(가지 `night/2026-11-06-kkumteul-taste`에 커밋·push, main에 아직 안 합침). **남은 것은 화면(`replay.html`)** — 같은 문서 "진행"의 "남은 것"과 반영표대로. 판정 씨앗 a 중간: 가 통과(+0.21), 다 맛 켬이 이김, 라 taste 막은 쪽 6/6 전멸(대조 규칙에서는 가를 수 없음 — 맞는 음성), 가 대조 통과(15:07 ET). 나·라 나머지·씨앗 b 진행 중.
+마지막 갱신: 2026-11-06 15:5x ET (서버 31 wrap)
+**★ 새 세션은 묻지 말고 바로 화면 작업(아래 '다시 보기 고치기')을 시작해서 끝까지 한다** — 대표님 15:4x "왜 너 혼자 계속 진행을 안 하는 거야". 서버 31은 알림 턴(시험 완료)에서 교대 규칙 때문에 일을 멈춰 두었다가 지적받았다. 판정 알림을 기다리며 쉬지 않는다. **서버 31**: 다시 보기 둘째 판 파이썬 쪽 끝(`9ec3ac5`), **main에 합쳐짐(`ebcafdf`, 대표님 손)**. 합치기는 이제 세션 몫(메모리 `background-sessions-work-on-a-branch` — 백그라운드 세션은 하네스가 막으므로 한 줄 명령을 드림). 판정 15:45 ET까지: 가 a·b 통과, 다 a·b 맛 켬이 이김, 라 taste a·b 막은 쪽 6/6 전멸(대조 규칙은 가를 수 없음), 가 대조 a 통과, **나(물려주기 첫 끼) a 못 넘음**. 나머지 진행 중.
 판정 체인: 유닛 `kkumteul-taste-judge`, 진행 `runs/taste-exp/progress.txt`, 결과 `runs/taste-exp/j-*.log`·`.json`, 끝나면 폰 알림. 기록 지우기로 커밋 번호가 모두 바뀜 — 옛 번호는 `docs/commit-map.tsv`.
 
 ## ★ 먼저 할 것
 - **판정 읽기**: 체인 `runs/taste-exp/judge.sh`(씨앗 a: 가 → 다 → 라 taste → 가 대조 → 나 → 라 나머지, 그다음 b). 로그를 읽어 결과 문서 "맛 기억" 절 아래에 판정 표를 쓰고 설계 "판정"대로 "값을 한다 / 아직 아니다"를 낸다. 끊겼으면 같은 명령으로 다시 띄우면 끝난 것은 건너뛴다: `~/.local/bin/memcap --bg kkumteul-taste-judge --log runs/taste-exp/judge.log --max 2500M -- bash runs/taste-exp/judge.sh`(원래 폴더에서). 가·라가 음성이면 Ruling 9 비용대로 손 배선을 키운 판정 0으로 가른다.
-- **작업 폴더**: 가지 `night/2026-11-06-kkumteul-taste`(작업 폴더 `.claude/worktrees/night-2026-11-06-kkumteul-taste`)가 서버 31부터 main보다 앞선다(다시 보기 둘째 판). 새 세션은 이 작업 폴더에 들어가 이 인수인계를 읽는다. 합치기는 대표님 몫: `cd ~/git/kkumteul && git push -u origin night/2026-11-06-kkumteul-taste && bash scripts/merge-into-main.sh night/2026-11-06-kkumteul-taste && echo 저장됨`. 옛 번호의 가지를 push하지 말 것(옛 기록이 되살아난다). 기록 지우기 끝 — 작업 목록의 그 항목은 닫음.
+- **작업 폴더**: 가지 `night/2026-11-06-kkumteul-taste`(작업 폴더 `.claude/worktrees/night-2026-11-06-kkumteul-taste`)가 서버 31부터 main보다 앞선다(다시 보기 둘째 판). 새 세션은 이 작업 폴더에 들어가 이 인수인계를 읽는다. 합치기(세션 몫, 막히면 대표님께 한 줄): `cd ~/git/kkumteul && git push -u origin night/2026-11-06-kkumteul-taste && bash scripts/merge-into-main.sh night/2026-11-06-kkumteul-taste && echo 저장됨`. 옛 번호의 가지를 push하지 말 것(옛 기록이 되살아난다). 기록 지우기 끝 — 작업 목록의 그 항목은 닫음.
 - **다시 보기 고치기**(대표님 11/06 "지금 실험을 잘 못 보여 준다"): 파이썬 쪽 끝(서버 31). 화면 작업은 `docs/visualization.md` 끝 "검토 기록 … 반영/기각"과 "진행"을 그대로 따른다(장면 전환은 `app(meta, bin)` + 해제 함수, 단추 줄은 `#rp` 밖, 맛 칸 0은 "B가 아닌 모든 것", 첫 장면 `fr_hud`는 모름, 색 겹침 피하기, 장면 `::설명` 추가). 만들 명령(판정 끝난 뒤, 원래 폴더 `runs/` 기준): `--ckpt runs/h2-full/checkpoints/ckpt_000012010000.npz::혹독한 세계::season --ckpt runs/t-inh-a/checkpoints/ckpt_000002600000.npz::맛 기억::flip --artifact`. 같은 주소로 올린다.
-- **판정 가 씨앗 a 통과**(14:58 ET): 켬 − 끔 +0.21, 95% 구간 [0.19, 0.23], 문턱 +0.05(`runs/taste-exp/j-ga-mem-a.log`). 나머지 판정이 남음.
 - 물어뜯기 갈래 넷은 모두 문턱 못 넘음(결과 문서 끝 "결과 — 갈래 넷"). 맛 기억 다음에 손 개체로 "사냥감 곁에서만 치면 이득인가" → 빗나간 공격 비용.
 - 교대: 이 세션 꼴(`rc-kkumteul` 아래 앱 세션)은 wrap하면 wrap-spawn으로 새 세션. 알림 턴에서는 저장만 하고 다음 대표님 말씀 턴에 교대(전역 wrap.md, 대표님 11/05). 알림 턴에도 끊김 없이 하려면 tmux 일꾼 창(`crew kkumteul work`). 예외 규칙은 넣지 말라 하심(11/06 "ㄴㄴ").
 - 큰 순서(대표님 14:4x ET): 혹독한 세계 → 암수 → 몸짓 → 기록 → 도구 — 여기에 맛 기억이 끼어들었다(대표님 11/06). 그 밖의 대표님 지시(암수 범위, 지구값·출처)는 보관 파일 맨 위 서버 18 절.
