@@ -13,7 +13,7 @@ import numpy as np
 from numba import njit, prange
 
 from .config import (ACT_ATTACK, ACT_CARRY, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_THRUST, ACT_TURN, FIRST_MEALS, N_REWARD,
-                     N_TASTE_IN, TASTE_VAL, TASTE_VIS)
+                     N_TASTE_IN, N_TASTE_VIS, TASTE_VAL, TASTE_VIS)
 from .rng import (S_BIRTH_ORDER, S_BIRTH_POS, S_FOOD, S_KIND, S_INIT_AGE, S_INIT_GENOME, S_INIT_POS, S_MUT_GENE,
                   S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, normal, u01)
 
@@ -726,7 +726,7 @@ def _sense_par(step, fp, ip, alive, x, y, heading, vx, vy, energy, age, touch, a
             # 꺼져 있으면 위에서 0으로 비운 그대로 둔다
             m_pos = taste_m[i, 0]
             m_neg = taste_m[i, 1]
-            for sec in range(nsec):
+            for sec in range(min(nsec, N_TASTE_VIS)):     # 물든 시야 칸을 넘어 기억 값 칸에 쓰지 않는다
                 v = obs[i, sec]
                 if v > 0.0:
                     obs[i, t0 + TASTE_VIS + sec] = v * m_pos

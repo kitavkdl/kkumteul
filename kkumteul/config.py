@@ -209,7 +209,8 @@ class Config:
     taste_rate: float = 0.5       # 먹은 순간 기억이 결과(독 -1, 아니면 +1) 쪽으로 움직이는 비율.
                                   # 한 번이면 반, 두 번이면 3/4("한두 끼면 바뀐다"). 임시 결정
     taste_decay: float = 0.002    # 스텝마다 기억이 0 쪽으로 줄어드는 비율. 반감기 약 350스텝으로 독을 다시 정하는
-                                  # 주기 1500의 4분의 1. 잊어야 피하던 모양을 다시 맛본다. 임시 결정
+                                  # 주기 1500의 4분의 1, 독이 실제로 바뀌는 평균 간격 약 3,000의 8분의 1.
+                                  # 잊어야 피하던 모양을 다시 맛본다. 임시 결정
     taste_inherit: float = 0.0    # 자연 출생 때 새끼가 받는 기억 = taste_inherit * 부모 기억. 0이면 0에서 시작. 임시 결정
 
     # --- 4단계: 판이 바뀌는 세계 (기본은 꺼짐) ---
@@ -385,8 +386,8 @@ class Config:
             raise ValueError("huddle_cap는 0 이상 1 미만, huddle_exp는 0 이상이어야 한다")
         if self.taste_enabled and self.n_spare_in < N_STAGE_IN + N_EXT_IN + N_TASTE_IN:
             raise ValueError("맛 기억 장치는 맛 블록 크기가 필요하다: preset=taste")
-        if self.taste_enabled and self.vision_sectors != TASTE_VAL:
-            raise ValueError(f"맛 기억 장치는 vision_sectors가 {TASTE_VAL}이어야 한다(맛 블록의 물든 시야 칸 수가 고정이다)")
+        if self.taste_enabled and self.vision_sectors != N_TASTE_VIS:
+            raise ValueError(f"맛 기억 장치는 vision_sectors가 {N_TASTE_VIS}이어야 한다(맛 블록의 물든 시야 칸 수가 고정이다)")
         for name in ("taste_rate", "taste_decay", "taste_inherit"):
             if not (0.0 <= getattr(self, name) <= 1.0):
                 raise ValueError(f"{name}은 0과 1 사이여야 한다")
@@ -500,6 +501,7 @@ EXT_SEX = 9          # 네 칸
 N_TASTE_IN = 10      # 기억으로 물든 시야 8칸 + 기억 값 2칸
 TASTE_VIS = 0        # 물든 시야 여덟 칸(vision_sectors와 같은 수)
 TASTE_VAL = 8        # 기억 값 두 칸: +로 보이는 먹이, -로 보이는 먹이
+N_TASTE_VIS = TASTE_VAL - TASTE_VIS   # 물든 시야 칸 수(8). 맛 기억 장치는 vision_sectors가 이 수여야 한다
 FIRST_MEALS = 10     # 측정: 개체의 첫 이만큼 끼니에서 독 비율을 센다(n_poison10)
 N_REWARD = 8     # 보상 특징: 먹음, 에너지 변화, 닿음, 호기심, 허기*먹음, 스트레스, 이웃이 먹음, 상수
 
