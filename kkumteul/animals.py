@@ -2,6 +2,7 @@
 
 사냥감은 유입의 한 몫(budget[2])에서 태어나고, 다 차 있으면 넘친 몫은 풀 배수를 곱해 풀 몫(budget[0])으로 간다.
 먹이 자리(목초지) 둘레를 천천히 맴돌다 다른 먹이 자리로 옮겨 간다. 개체와 부딪치지 않는다.
+개체가 치면 다치고(한 스텝 피해는 공격자 prey_sat_n 몫에서 포화) 친 개체들에게 반격을 나눠 주며, 쉬면 아물고, 쓰러지면 고기가 된다.
 난수 주소는 (칸, 스텝)으로만 정해 다른 동물·개체의 상태에 기대지 않는다.
 """
 import math
@@ -10,7 +11,8 @@ import numpy as np
 from numba import njit
 
 from . import kernels as k
-from .rng import S_ANIMAL_POS, S_WANDER, u01
+from .config import ACT_ATTACK
+from .rng import S_ANIMAL_POS, S_MEAT, S_WANDER, normal, u01
 
 # ---- 동물 종류 (an_kind) ----
 ANIMAL_PREY = 0
@@ -184,6 +186,118 @@ def move_animals(step, s, fa, ia):
         s.an_heading[j] = math.atan2(math.sin(hd), math.cos(hd))     # -pi~pi로 감는다
         s.an_x[j] = k._wrap(nx, w)
         s.an_y[j] = k._wrap(ny, h)
+
+
+# ---- 사냥: 상처·회복·반격·고기 ----
+@njit(cache=True)
+def wound(s, a, dmg):
+    """동물 a가 dmg만큼 다친다. 쉰 스텝 수는 0으로 돌아간다. 종류와 무관하다."""
+    s.an_hp[a] -= dmg
+    s.an_rest[a] = 0
+
+
+@njit(cache=True)
+def heal(s, a, hp_max, regen, rest):
+    """맞지 않은 스텝마다 쉰 스텝 수를 하나 늘리고(rest에서 멈춘다), rest스텝을 쉬었으면 regen만큼 아문다(hp_max까지).
+    종류와 무관하다."""
+    if s.an_rest[a] < rest:
+        s.an_rest[a] += 1
+    if s.an_rest[a] >= rest:
+        hp = s.an_hp[a] + regen
+        s.an_hp[a] = hp_max if hp > hp_max else hp
+
+
+@njit(cache=True)
+def _scatter_meat(step, s, fa, ia, a):
+    """쓰러진 사냥감 a의 몸 에너지를 고기 prey_meat알로 나눠 사냥감 자리 둘레에 뿌린다.
+    자리는 사냥감 자리 + prey_radius × 정규 난수(S_MEAT, a = 늘리기 전 C_PREY_KILLED, b = 2q·2q+1)이고 감는다.
+    고기는 들판 아닌 물건이라 저장 칸에 자리가 있어야 놓인다. 놓지 못한 알은 장부의 L_LOST로 간다."""
+    n = ia[AI_MEAT]
+    e = s.an_energy[a] / n
+    seed = ia[AI_SEED]
+    serial = s.counters[k.C_PREY_KILLED]
+    r = fa[AF_RADIUS]
+    for q in range(n):
+        px = k._wrap(s.an_x[a] + r * normal(seed, S_MEAT, serial, 2 * q), fa[AF_W])
+        py = k._wrap(s.an_y[a] + r * normal(seed, S_MEAT, serial, 2 * q + 1), fa[AF_H])
+        if not (k.store_room(s, 1) and k._place_food(s, px, py, e, k.KIND_MEAT, step, 1)):
+            s.ledger[k.L_LOST] += e
+
+
+@njit(cache=True)
+def attack_animals(step, s, fa, ia):
+    """공격 출력을 낸 개체가 닿는 가장 가까운 산 동물(종류 무관)을 친다. 쓰러뜨린 사냥감 수를 돌려준다.
+    1. 공격 출력 a > 0이고 에너지 > 0이면 비용 attack_cost × a(빗나가도 든다, L_MOVE)를 매긴다. 공격이 켜진 세계에서는
+       st.attack이 이미 매겼으므로 여기서는 매기지 않는다. 감긴 중심 거리 AF_REACH 안의 가장 가까운 산 동물을 a_hit에 적는다.
+    2. 맞은 사냥감은 그 스텝 피해의 합을 prey_sat_n × attack_damage까지만 입는다(포화).
+    3. 사냥감을 친 개체는 반격 prey_strike를 그 사냥감의 공격자 수로 나눠 잃고(L_LOST) 닿음 감각이 TOUCH_HIT가 된다.
+       반격은 쓰러지는 스텝에도 든다. 에너지가 바닥나면 process_deaths가 DEATH_KILLED로 센다.
+    4. 체력이 0 이하인 사냥감은 쓰러져 고기가 되고, 그 스텝의 공격자 수를 C_HUNTERS에 더한다.
+    5. 이번 스텝에 맞지 않은 산 사냥감은 쉬며 아문다. 순차 커널이다."""
+    n_an = s.an_alive.shape[0]
+    for j in range(n_an):
+        s.an_natt[j] = 0
+        s.an_dmg[j] = 0.0
+    w = fa[AF_W]
+    h = fa[AF_H]
+    reach2 = fa[AF_REACH] * fa[AF_REACH]
+    dmg1 = fa[AF_ATK_DMG]
+    pay = ia[AI_CONFLICT] == 0
+    n = s.x.shape[0]
+    for i in range(n):
+        s.a_hit[i] = -1
+        if not s.alive[i]:
+            continue
+        act = float(s.act[i, ACT_ATTACK])
+        if act <= 0.0 or s.energy[i] <= 0.0:
+            continue
+        if pay:
+            cost = fa[AF_ATK_COST] * act
+            s.energy[i] -= cost
+            s.ledger[k.L_MOVE] += cost
+        best = -1
+        bd = reach2
+        for j in range(n_an):
+            if not s.an_alive[j]:
+                continue
+            dx = k._wdiff(s.an_x[j] - s.x[i], w)
+            dy = k._wdiff(s.an_y[j] - s.y[i], h)
+            d2 = dx * dx + dy * dy
+            if d2 < bd:
+                bd = d2
+                best = j
+        if best >= 0:
+            s.a_hit[i] = best
+            s.an_natt[best] += 1
+            s.an_dmg[best] += dmg1 * act
+    cap = ia[AI_SAT_N] * dmg1
+    for j in range(n_an):
+        if s.an_alive[j] and s.an_kind[j] == ANIMAL_PREY and s.an_natt[j] > 0:
+            d = s.an_dmg[j]
+            wound(s, j, cap if d > cap else d)
+    strike = fa[AF_STRIKE]
+    for i in range(n):
+        j = s.a_hit[i]
+        if j < 0 or s.an_kind[j] != ANIMAL_PREY:
+            continue
+        loss = strike / s.an_natt[j]
+        s.energy[i] -= loss
+        s.ledger[k.L_LOST] += loss
+        s.touch[i] = k.TOUCH_HIT
+    killed = 0
+    for j in range(n_an):
+        if not s.an_alive[j] or s.an_kind[j] != ANIMAL_PREY:
+            continue
+        if s.an_hp[j] <= 0.0:
+            _scatter_meat(step, s, fa, ia, j)    # 고기 자리의 난수 번호는 늘리기 전 C_PREY_KILLED
+            s.counters[k.C_PREY_KILLED] += 1
+            s.counters[k.C_HUNTERS] += s.an_natt[j]
+            s.an_alive[j] = False
+            s.an_energy[j] = 0.0
+            killed += 1
+        elif s.an_natt[j] == 0:
+            heal(s, j, fa[AF_HP], fa[AF_REGEN], ia[AI_REST])
+    return killed
 
 
 @njit(cache=True)

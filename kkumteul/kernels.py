@@ -74,6 +74,7 @@ AGENT_FIELDS = [
     ("act", np.float32, ("O",), False),
     ("dispx", np.float64, (), False),
     ("dispy", np.float64, (), False),
+    ("a_hit", np.int32, (), False),           # 이번 스텝에 친 동물 칸(-1이면 없음)
 ]
 FOOD_FIELDS = [
     ("fx", np.float64, True),
@@ -168,7 +169,8 @@ C_INFECTIONS = 32       # 감염 수
 C_DEATH_INFECTED = 33   # 감염으로 죽은 수
 # 34·35: 암수용 예비
 C_RESCUES = 36          # 구해 준 횟수
-# 37~39: 예비
+C_HUNTERS = 37          # 쓰러뜨린 사냥감마다 그 스텝의 공격자 수를 더한다(C_HUNTERS / C_PREY_KILLED = 한 마리에 붙은 평균 머릿수)
+# 38~39: 예비
 N_COUNTERS_BASE = 24    # 번호는 이 파일에만 둔다. 기본 크기 세계의 계수기 길이
 N_COUNTERS_EXT = 40     # 확장 크기 세계(Config.ext_size)의 계수기 길이
 N_COUNTERS = N_COUNTERS_BASE    # 바깥 코드 호환용 이름

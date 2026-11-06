@@ -1,4 +1,5 @@
-"""큰 사냥감 시험: 동물 배열, 유입 몫에서 태어나기, 떠돌기·수명, 끄면 정리, 동물 에너지 장부.
+"""큰 사냥감 시험: 동물 배열, 유입 몫에서 태어나기, 떠돌기·수명, 끄면 정리, 동물 에너지 장부,
+사냥(상처·회복·반격 나눠 맞기·포화·고기).
 
     python3 -m pytest -q tests/test_prey.py
 """
@@ -14,11 +15,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from test_harsh import _fix_out, _place, hold  # noqa: E402
 from test_stages import rel_residual, small  # noqa: E402
 from kkumteul import animals as an  # noqa: E402
 from kkumteul import checkpoint as ckpt  # noqa: E402
 from kkumteul import kernels as k  # noqa: E402
 from kkumteul import scenario  # noqa: E402
+from kkumteul.config import ACT_ATTACK  # noqa: E402
 from kkumteul.world import World  # noqa: E402
 
 
@@ -303,3 +306,267 @@ def test_prey_world_ledger_closes_long():
     w.check_sane()
     assert _n_prey(w.s) > 0
     assert rel_residual(w) < 1e-9
+
+
+# ---- 사냥: 커널을 직접 부르는 손 경기장 ----
+def _hunt_arena(n, **kw) -> World:
+    """먹이가 나지 않고 사냥감이 저절로 태어나지 않는 세계. 개체 n마리는 에너지 30(먹지도 죽지도 않게)이고
+    더한 에너지는 장부의 L_INJECT에 적는다."""
+    w = World(small("ext", prey_enabled=True, n_prey=0, init_agents=n, min_agents=0, food_inflow=0.0, **kw))
+    s = w.s
+    a = s.alive
+    s.ledger[k.L_INJECT] += float((30.0 - s.energy[a]).sum())
+    s.energy[a] = 30.0
+    return w
+
+
+def _put_prey(w, x, y, hp=None) -> int:
+    """빈 동물 칸에 사냥감 하나를 놓고 칸 번호를 돌려준다. 몸의 에너지는 장부의 L_SPAWN에 적는다."""
+    s, cfg = w.s, w.cfg
+    j = int(np.flatnonzero(~s.an_alive)[0])
+    meat_e = _meat_e(cfg)
+    s.an_alive[j] = True
+    s.an_kind[j] = an.ANIMAL_PREY
+    s.an_x[j], s.an_y[j], s.an_heading[j] = x, y, 0.0
+    s.an_hp[j] = cfg.prey_hp if hp is None else hp
+    s.an_energy[j] = meat_e
+    s.an_tx[j], s.an_ty[j] = x, y
+    s.an_timer[j] = 0
+    s.an_rest[j] = cfg.prey_rest
+    s.an_born[j] = w.step_no
+    s.ledger[k.L_SPAWN] += meat_e
+    return j
+
+
+def _ring(w, n, cx, cy, r=2.5) -> np.ndarray:
+    """산 개체 n마리를 (cx, cy) 둘레 반지름 r에 고르게 놓고 공격 출력만 1로 둔다. 칸 번호들을 돌려준다."""
+    s, cfg = w.s, w.cfg
+    idx = np.flatnonzero(s.alive)[:n]
+    assert len(idx) == n
+    for q, i in enumerate(idx):
+        ang = 2.0 * math.pi * q / n
+        s.x[i] = (cx + r * math.cos(ang)) % cfg.world_w
+        s.y[i] = (cy + r * math.sin(ang)) % cfg.world_h
+        s.act[i] = 0.0
+        s.act[i, ACT_ATTACK] = 1.0
+    return idx
+
+
+def _hunt(w, a, idx, max_steps=200) -> tuple[int, np.ndarray]:
+    """사냥감 a가 쓰러질 때까지 attack_animals만 부른다. (스텝 수, 개체별 잃은 에너지)를 돌려준다."""
+    s = w.s
+    e0 = s.energy[idx].copy()
+    for t in range(max_steps):
+        an.attack_animals(w.step_no + t, s, w.fa, w.ia)
+        if not s.an_alive[a]:
+            return t + 1, e0 - s.energy[idx]
+    raise AssertionError("사냥감이 쓰러지지 않았다")
+
+
+def test_hunt_cost_curve():
+    want_steps = {1: 100, 2: 50, 3: 34, 4: 25, 5: 25, 6: 25}
+    steps, loss = {}, {}
+    for n in range(1, 7):
+        w = _hunt_arena(n)
+        steps[n], lost = _hunt(w, _put_prey(w, 100.0, 100.0), _ring(w, n, 100.0, 100.0))
+        assert abs(steps[n] - want_steps[n]) <= 1, n
+        loss[n] = float(lost.mean())
+        assert lost == pytest.approx(steps[n] * (0.12 / n + 0.02), rel=1e-9)   # 반격은 쓰러지는 스텝에도 든다
+        s = w.s
+        assert (s.f_kind[s.f_alive] == k.KIND_MEAT).sum() == 24
+        assert s.f_energy[s.f_alive].sum() == pytest.approx(24 * w.cfg.food_energy, rel=1e-12)
+        assert s.counters[k.C_PREY_KILLED] == 1 and s.counters[k.C_HUNTERS] == n   # 쓰러뜨린 스텝의 공격자 수
+        assert not s.an_alive.any() and w.energy_balance()["animals"] == 0.0
+        assert rel_residual(w) < 1e-9
+    cfg = small("ext", prey_enabled=True)
+    assert loss[1] > cfg.e_max + cfg.food_energy           # 혼자는 이어 쳐서는 못 잡는다: 몸에 담을 수 있는 에너지보다 비용이 크다
+    net = {n: min(24.0 / n, 6.0) - loss[n] for n in loss}  # 배 채움 6 기준
+    assert net[1] < 0 < net[2] < net[3] < net[4]
+    assert net[5] <= net[4] and net[6] <= net[4]           # 넷 뒤로 늘지 않는다
+    assert steps[4] == steps[5] == steps[6]                # 포화
+
+
+def test_meat_scatters_around_prey_and_wraps():
+    w = _hunt_arena(4)
+    s, cfg = w.s, w.cfg
+    a = _put_prey(w, 1.0, 100.0, hp=0.5)                   # 세계 가장자리 곁: 고기 자리도 감긴다
+    an.attack_animals(w.step_no, s, w.fa, w.ia)
+    assert s.an_alive[a] and s.an_natt[a] == 0             # 공격 출력이 없으면 아무도 치지 않는다(쉰 사냥감은 아문다)
+    assert s.an_hp[a] == pytest.approx(0.5 + cfg.prey_regen, rel=1e-12)
+    _ring(w, 4, 1.0, 100.0)
+    an.attack_animals(w.step_no, s, w.fa, w.ia)
+    meat = s.f_alive & (s.f_kind == k.KIND_MEAT)
+    assert meat.sum() == 24
+    assert (s.f_born[meat] == w.step_no).all() and (s.f_holder[meat] == -1).all() and (s.f_dropped[meat] == 0).all()
+    d = np.array([_wdist(x, y, 1.0, 100.0, cfg.world_w, cfg.world_h) for x, y in zip(s.fx[meat], s.fy[meat])])
+    assert d.max() < 4 * cfg.prey_radius and d.mean() > 0.5 * cfg.prey_radius
+    assert ((0.0 <= s.fx[meat]) & (s.fx[meat] < cfg.world_w)).all()
+    assert (s.fx[meat] > cfg.world_w / 2).any()            # 가장자리 너머로 감긴 고기가 있다
+    assert s.counters[k.C_NFIELD] == 0                     # 고기는 들판 알이 아니다
+
+
+def test_saturation_caps_damage_per_step():
+    w = _hunt_arena(6)
+    s = w.s
+    a = _put_prey(w, 100.0, 100.0)
+    _ring(w, 6, 100.0, 100.0)
+    an.attack_animals(w.step_no, s, w.fa, w.ia)
+    assert s.an_natt[a] == 6 and s.an_dmg[a] == pytest.approx(6 * 0.2, rel=1e-12)
+    assert s.an_hp[a] == pytest.approx(20.0 - 4 * 0.2, rel=1e-12)   # 넷 몫까지만 쌓인다
+
+
+def test_wounds_heal_only_after_rest():
+    w = _hunt_arena(1)
+    s, fa, ia = w.s, w.fa, w.ia
+    a = _put_prey(w, 100.0, 100.0)
+    i = _ring(w, 1, 100.0, 100.0)[0]
+    for t in range(10):
+        an.attack_animals(t, s, fa, ia)
+    hp10 = float(s.an_hp[a])
+    assert hp10 == pytest.approx(18.0, rel=1e-12) and s.an_rest[a] == 0
+    s.act[i, ACT_ATTACK] = 0.0
+    for t in range(10, 109):
+        an.attack_animals(t, s, fa, ia)
+    assert s.an_hp[a] == hp10 and s.an_rest[a] == 99        # 99스텝 쉬어도 아물지 않는다
+    an.attack_animals(109, s, fa, ia)
+    assert s.an_hp[a] == pytest.approx(hp10 + 0.05, rel=1e-12) and s.an_rest[a] == 100
+    for t in range(110, 2000):
+        an.attack_animals(t, s, fa, ia)
+    assert s.an_hp[a] == 20.0 and s.an_rest[a] == 100       # 체력은 처음 값에서, 쉰 스텝 수는 prey_rest에서 멈춘다
+
+
+def test_counter_strike_split_and_touch_hit():
+    for conflict in (False, True):
+        w = _hunt_arena(4, conflict_enabled=conflict)
+        s = w.s
+        a = _put_prey(w, 100.0, 100.0)
+        idx = _ring(w, 3, 100.0, 100.0)
+        far = np.flatnonzero(s.alive)[3]                    # 닿는 사냥감이 없는데 공격 출력을 낸 개체
+        s.x[far], s.y[far] = 200.0, 200.0
+        s.act[far] = 0.0
+        s.act[far, ACT_ATTACK] = 1.0
+        s.touch[:] = 0.0
+        lost0, move0 = float(s.ledger[k.L_LOST]), float(s.ledger[k.L_MOVE])
+        an.attack_animals(w.step_no, s, w.fa, w.ia)
+        cost = 0.0 if conflict else 0.02                    # 공격이 켜진 세계에서는 st.attack이 이미 매겼다
+        assert s.energy[idx] == pytest.approx(30.0 - 0.04 - cost, rel=1e-12)
+        assert (s.touch[idx] == k.TOUCH_HIT).all() and (s.a_hit[idx] == a).all()
+        assert s.energy[far] == pytest.approx(30.0 - cost, rel=1e-12)   # 빗나가도 비용은 든다
+        assert s.touch[far] == 0.0 and s.a_hit[far] == -1
+        assert s.ledger[k.L_LOST] - lost0 == pytest.approx(0.12, rel=1e-9)
+        assert s.ledger[k.L_MOVE] - move0 == pytest.approx(4 * cost, abs=1e-12)
+        assert rel_residual(w) < 1e-9
+
+
+def test_counter_strike_can_kill_as_killed():
+    w = _hunt_arena(1)
+    s = w.s
+    a = _put_prey(w, 100.0, 100.0)
+    i = _ring(w, 1, 100.0, 100.0)[0]
+    _fix_out(w, i, carry=-5.0)
+    s.bout[i, ACT_ATTACK] = 3.0                             # 마음이 꺼져 있으면 출력 = tanh(편향)
+    s.ledger[k.L_INJECT] += 0.01 - s.energy[i]
+    s.energy[i] = 0.01
+    w.step()
+    assert not s.alive[i]
+    assert s.an_hp[a] < w.cfg.prey_hp                       # 친 뒤 반격을 맞고 죽었다
+    deaths = np.concatenate(w.deaths)
+    assert len(deaths) == 1 and deaths["cause"][0] == k.DEATH_KILLED
+    assert s.counters[k.C_DEATH_KILLED] == 1 and s.counters[k.C_DEATH_STARVE] == 0
+    assert rel_residual(w) < 1e-9                           # 음수 잔액까지 장부에 들어간다
+
+
+def test_kill_with_full_store_loses_meat_to_ledger():
+    w = _hunt_arena(8, max_agents=8)
+    s, cfg = w.s, w.cfg
+    alive = np.flatnonzero(s.alive)
+    for q, i in enumerate(alive):
+        hold(w, i, _place(w, x=10.0 + 3.0 * q, y=10.0))
+    assert s.counters[k.C_NFOOD] - s.counters[k.C_NFIELD] == 8 == cfg.max_agents
+    a = _put_prey(w, 100.0, 100.0, hp=0.5)
+    _ring(w, 4, 100.0, 100.0)
+    lost0 = float(s.ledger[k.L_LOST])
+    an.attack_animals(w.step_no, s, w.fa, w.ia)
+    assert not s.an_alive[a] and s.counters[k.C_PREY_KILLED] == 1
+    assert (s.f_alive & (s.f_kind == k.KIND_MEAT)).sum() == 0
+    assert s.ledger[k.L_LOST] - lost0 == pytest.approx(_meat_e(cfg) + 0.12, rel=1e-12)
+    assert s.counters[k.C_NFOOD] - s.counters[k.C_NFIELD] == 8
+    assert (s.a_held[alive] >= 0).all()                     # 든 물건은 밀려나지 않는다
+    assert rel_residual(w) < 1e-9
+
+
+def test_attack_reaches_across_wrap():
+    w = _hunt_arena(1)
+    s, cfg = w.s, w.cfg
+    a = _put_prey(w, 1.0, 1.0)
+    i = _ring(w, 1, 1.0, 1.0)[0]
+    s.x[i], s.y[i] = cfg.world_w - 1.0, 1.0                 # 감긴 거리 2
+    an.attack_animals(w.step_no, s, w.fa, w.ia)
+    assert s.a_hit[i] == a
+    assert s.an_hp[a] == pytest.approx(19.8, rel=1e-12)
+
+
+def _camp(winter: bool) -> float:
+    """혼자 사냥감을 쓰러뜨린 뒤 고기 곁에 머물며 먹는 개체가 먹은 양. winter면 겨울 첫 스텝에 잡은 꼴이다."""
+    kw = dict(spoil_enabled=True, season_enabled=True) if winter else dict(spoil_enabled=True)
+    w = _hunt_arena(1, **kw)
+    s, cfg = w.s, w.cfg
+    if winter:
+        w.step_no = cfg.season_period - cfg.winter_len
+        assert w.in_winter(w.step_no) and not w.in_winter(w.step_no - 1)
+    i = int(np.flatnonzero(s.alive)[0])
+    s.age[i] = 0
+    s.ledger[k.L_INJECT] += 6.0 - s.energy[i]
+    s.energy[i] = 6.0                                       # 혼자 14를 치른 뒤
+    _fix_out(w, i, carry=-5.0)                              # 멈춰 세움. 공격 편향 0이라 출력 0 → 치지 않는다
+    x0, y0 = float(s.x[i]), float(s.y[i])
+    for q in range(24):
+        ang = 2.0 * math.pi * q / 24
+        r = (q + 1) / 24.0
+        _place(w, e=cfg.food_energy, born=w.step_no, kind=k.KIND_MEAT,
+               x=(x0 + r * math.cos(ang)) % cfg.world_w, y=(y0 + r * math.sin(ang)) % cfg.world_h)
+    for _ in range(3000):
+        if not (s.f_alive & (s.f_kind == k.KIND_MEAT)).any():
+            break
+        w.step()
+    assert not (s.f_alive & (s.f_kind == k.KIND_MEAT)).any()
+    assert rel_residual(w) < 1e-9
+    return float(s.eaten[i])
+
+
+def test_lone_hunter_camping_at_meat():
+    summer, winter = _camp(False), _camp(True)
+    assert summer < 14.0                                   # 여름에 혼자 머물러 먹어도 비용을 못 메운다
+    assert winter > summer                                 # 겨울엔 고기가 늦게 상해 더 먹는다
+    assert winter < 14.0                                   # 겨울에도 혼자는 손해다. 셈으로는 약 12.6이라 여유가 작다
+
+
+def _hunting_world(prey: bool):
+    """200스텝 뒤 산 개체 모두의 공격 편향을 +3으로 두고, 산 사냥감마다 산 개체 하나의 자리로 옮겨 600스텝 돌린다.
+    매 스텝 센 고기 알 수를 함께 돌려준다."""
+    kw = dict(prey_enabled=True) if prey else {}
+    w = World(small("ext", prey_hp=2.0, **kw))
+    w.run(200)
+    s = w.s
+    s.bout[s.alive, ACT_ATTACK] = 3.0
+    ag = np.flatnonzero(s.alive)
+    for q, j in enumerate(np.flatnonzero(s.an_alive)):
+        s.an_x[j], s.an_y[j] = s.x[ag[q]], s.y[ag[q]]
+    meat = []
+    for _ in range(600):
+        w.step()
+        meat.append(int((s.f_alive & (s.f_kind == k.KIND_MEAT)).sum()))
+    return w, meat
+
+
+def test_hunting_world_ledger_closes():
+    w, meat = _hunting_world(True)
+    s = w.s
+    w.check_sane()
+    assert s.counters[k.C_PREY_KILLED] > 0
+    assert s.counters[k.C_HUNTERS] >= s.counters[k.C_PREY_KILLED]
+    assert max(meat) > meat[-1]                            # 부패가 없으니 줄어든 것은 먹힌 것
+    assert rel_residual(w) < 1e-9
+    off, meat_off = _hunting_world(False)                  # 같은 세계에서 사냥감만 끈 갈래
+    assert max(meat_off) == 0 and rel_residual(off) < 1e-9
+    assert s.ledger[k.L_LOST] != off.s.ledger[k.L_LOST]

@@ -229,6 +229,8 @@ class World:
             st.give(s, fs, isp)
         if cfg.conflict_enabled:
             st.attack(t, s, fs, isp)
+        if cfg.prey_enabled:
+            an.attack_animals(t, s, self.fa, self.ia)
         nd = k.process_deaths(t, s, fp, ip)
         self._take_deaths(nd)
         nb = k.process_births(t, s, fp, ip)
