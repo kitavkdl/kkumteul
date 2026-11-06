@@ -2,6 +2,7 @@
 
     python3 -m pytest -q tests/test_taste.py
 """
+import json
 import sys
 from pathlib import Path
 
@@ -18,6 +19,8 @@ from kkumteul import measure  # noqa: E402
 from kkumteul.config import (ACT_TURN, FIRST_MEALS, N_EXT_IN, N_STAGE_IN, N_TASTE_IN, TASTE_VAL,  # noqa: E402,F401
                              TASTE_VIS, preset)
 from kkumteul.world import World  # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[1]
 
 # 맛 장치를 넣기 전 코드가 같은 크기(n_spare_in=36, n_spare_out=7) 세계를 300스텝 돌려 낸 해시.
 # taste_size 묶음(장치 끈 같은 크기 세계)은 이 값을 그대로 내야 한다. 장치를 끈 세계의 계산을 일부러 바꿀 때만 고친다.
@@ -367,3 +370,86 @@ def test_taste_world_hash_pinned():
     w = taste_world("taste", taste_inherit=1.0)
     w.run(300)
     assert w.state_hash() == PINNED_TASTE_HASH_300
+
+
+# ---- 손 개체(양성 대조) ----
+def _hand_learner():
+    sys.path.insert(0, str(ROOT / "wayfinder" / "stage2-4"))
+    import hand_learner
+    return hand_learner
+
+
+def test_hand_taste_wiring():
+    hl = _hand_learner()
+    w = taste_world("taste")
+    side = measure.side_from_world(w)
+    t0 = w.cfg.taste_in0
+    g = hl.make_hand(side["genomes"], 4, taste_in0=t0, **hl.VARIANTS["taste"])
+    assert (g["Win"][:, :16, 0] == 0).all()                       # 원래 시야는 0
+    assert (g["Win"][:, t0 + 4:t0 + 8, 0] == 0.4).all() and (g["Win"][:, t0:t0 + 4, 0] == -0.4).all()
+    assert (g["Wout"][:, ACT_TURN, 0] == 1.0).all() and (g["eta"] == 0).all()
+    with pytest.raises(ValueError):
+        hl.make_hand(side["genomes"], 4, **hl.VARIANTS["taste"])     # taste_in0 없이
+
+
+def test_after_flips_uses_real_flips():
+    hl = _hand_learner()
+    period, every, end = 250, 250, 3000
+
+    def good(sd, t):
+        return int(k.good_kind(sd, t, period))
+
+    # 0~1749는 한 종류(1500 경계에서 다시 정해졌지만 그대로), 1750 경계에서 바뀌고 끝까지 그대로인 씨앗
+    seed = next(sd for sd in range(1, 10 ** 6)
+                if len({good(sd, t) for t in range(0, 1750, period)}) == 1
+                and len({good(sd, t) for t in range(1750, end, period)}) == 1 and good(sd, 1749) != good(sd, 1750))
+    # 줄 = curve의 꼴: 스텝 S 줄은 앞 줄 스텝부터 S 직전까지 먹은 것, good은 방금 돈 스텝(S − 1)의 좋은 종류
+    series = [{"step": s, "good": good(seed, s - 1), "eaten": 10 + i, "poisoned": i % 4}
+              for i, s in enumerate(range(every, end + 1, every))]
+    by = {r["step"]: r for r in series}
+
+    def ratio(steps):
+        return sum(by[s]["poisoned"] for s in steps) / sum(by[s]["eaten"] for s in steps)
+
+    out = hl.after_flips(series, period, seed, win=300)
+    assert len(out) == 1 and out[0]["flip"] == 1750
+    # 1750~2050에 시작한 줄(스텝 2000, 2250), 그 뒤 끝까지(2500, 2750, 3000)
+    assert out[0]["first"] == pytest.approx(ratio([2000, 2250]))
+    assert out[0]["rest"] == pytest.approx(ratio([2500, 2750, 3000]))
+    # 씨앗으로 보면 바뀌지 않은 경계(750)에서 good이 바뀐 줄은 받지 않는다(씨앗이나 주기를 잘못 넘긴 것)
+    bad = [dict(r) for r in series]
+    bad[3]["good"] = 1 - bad[3]["good"]
+    with pytest.raises(ValueError):
+        hl.after_flips(bad, period, seed)
+
+
+@pytest.mark.parametrize("lab", [True, False])
+def test_hand_curve_counts_placed_food(lab):
+    hl = _hand_learner()
+    cfg = small("stage2", "kinds", "taste")
+    side = measure.side_from_world(World(cfg))
+    g = hl.make_hand(side["genomes"], 4, taste_in0=cfg.taste_in0, **hl.VARIANTS["taste"])
+    x = hl.curve(cfg, g, 4, 200, 1, every=100, lab=lab)
+    assert len(x["series"]) == 2
+    for r in x["series"]:
+        assert r["placed"] > 0 and 0.0 <= r["placed_poison"] <= 1.0
+
+
+def test_hand_taste_command_runs(tmp_path, monkeypatch):
+    # 맛 블록이 없는 옛 체크포인트를 맛 크기로 읽어 세계 둘 × 켬/끔을 아주 짧게 돌린다(배선·인자 길만 본다)
+    hl = _hand_learner()
+    r = Runner.new(tmp_path / "r", small("stage2", "kinds"))
+    r.loop(400, quiet=True)
+    r.close()
+    p = ckpt.latest(tmp_path / "r" / "checkpoints")
+    out = tmp_path / "taste.json"
+    monkeypatch.setenv("HAND_N", "4")
+    monkeypatch.setenv("HAND_SEEDS", "1")
+    monkeypatch.delenv("HAND_SET", raising=False)
+    monkeypatch.setattr(sys, "argv", ["hand_learner.py", "taste", str(p), "200", str(out)])
+    hl.main()
+    res = json.loads(out.read_text())
+    runs = [(x["lab"], x["taste"]) for x in res["taste"]]
+    assert runs == [(True, True), (True, False), (False, True), (False, False)]
+    assert all(len(x["series"]) == 2 and "placed_poison" in x["series"][0] for x in res["taste"])
+    assert set(res["verdict0"]) == {"pass", "on_rest", "off_rest"}
