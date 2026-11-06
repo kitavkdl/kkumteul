@@ -18,11 +18,9 @@
 - 아티팩트: 다시 보기 https://claude.ai/artifact/LJwqLAmdv8evuPTUj7W69Z, 여정 https://claude.ai/artifact/EZUf6Mkz429VDmrkWddk3H (원본 `docs/journey.html`).
 
 ## 다음 할 일 (위에서부터)
-1. **2부-나 SDD — 장부를 보고 이어 간다** (계획 둘째 판 `docs/superpowers/plans/2026-11-05-harsh-world-part2b.md`, 검토 판단 표는 `docs/superpowers/specs/2026-11-05-harsh-world-review.md` 끝 절). 과제 1~6 SDD → 최종 전체 검토(opus) → 과제 7(0번 셋째, 갈래 다섯, 세션이 직접). 아래는 초안 때의 메모다. 범위: ④ 사냥감 + ⑥ 뭉쳐 자기 + 미룬 셋(지적 1 `validate`·`needs_ext`에 prey, 지적 2 사체 저장 칸 시험, 지적 3 `Q_CARRY` 지우기) + 0번 셋째. ⑤ 포식자·약탈자·헷갈림과 섞기 대조는 2부-다(⑤가 ④의 동물 배열 위에 섬).
+1. **2부-나 SDD — 장부를 보고 이어 간다** (계획 둘째 판 `docs/superpowers/plans/2026-11-05-harsh-world-part2b.md`, 검토 판단 표는 `docs/superpowers/specs/2026-11-05-harsh-world-review.md` 끝 절). 과제 1~6 SDD → 최종 전체 검토(opus) → 과제 7(0번 셋째, 갈래 다섯, 세션이 직접). 아래는 초안 때의 메모다(나머지는 보관 파일 서버 23 절). 범위: ④ 사냥감 + ⑥ 뭉쳐 자기 + 미룬 셋(지적 1 `validate`·`needs_ext`에 prey, 지적 2 사체 저장 칸 시험, 지적 3 `Q_CARRY` 지우기) + 0번 셋째. ⑤ 포식자·약탈자·헷갈림과 섞기 대조는 2부-다(⑤가 ④의 동물 배열 위에 섬).
    - 과제 일곱: 1 고기 종류·`always_edible`·고기 부패·미룬 지적 / 2 동물 배열(`kkumteul/animals.py`)·출생·떠돌기·`budget[2]`·켜짐→꺼짐·해시 / 3 사냥(상처·반격·포화·고기 24알, 손 개체 시험) / 4 ⑥ 뭉쳐 자기 / 5 감각 2칸·`bout[ACT_ATTACK]=-1`·`harsh2`에 더함·`PINNED_PREY_HASH_300` / 6 다시 보기 / 7 0번 셋째(세션이 직접, 갈래 넷 + 진단 갈래 공격 편향 0).
-   - 계획 앞머리 "설계와 다른 점" 6줄: 혼자 사냥 비용 14 > 몸 에너지(9 미만)라 치고 빠지기만 됨 · "넷 뒤 평평"은 시간·비용만(순이득은 줄어듦) · 혼자 잡아 머물면 여름 약 8 < 14 · 뭉쳐 자기 반지름 2 → 2.5(`collide`가 2.0까지 밀어내서) · `always_edible` numba·numpy 두 판 · 진단 갈래(편향 −1이면 1만 스텝에 사냥 거의 없음, 0번 둘째의 들기와 같은 까닭).
-   - 초안 쓴 쪽이 물은 둘, 서버 22 판정(검토 뒤 장부에 Ruling으로): ① 진단 갈래를 실행 폴더 밖 임시 스크립트로 → 받아들임(0번 스크립트들과 같은 방식, CLI 안 늘림) ② 사냥감 반격 죽음을 `DEATH_KILLED`와 같은 칸에 → 지금은 받아들임(`harsh2`는 공격이 꺼져 있어 `w_killed` = 반격 죽음). 2부-다에서 conflict와 같이 켤 일이 생기면 칸을 가른다.
-   - 다음: 맥락 없는 검토 두 갈래(규칙 축·명세 축, sonnet, 서로 모르게, `~/.claude/docs/review-2axis.md`) → 지적마다 코드로 확인해 반영/기각 → 둘째 판 → SDD(작업 공간 새로, `common-template.md` 복사해 세션 주소 고치기). 모델: 과제 2·3·4는 opus, 1·5·6은 sonnet.
+   - 초안 쓴 쪽이 물은 둘, 서버 22 판정(SDD 장부에 Ruling으로 옮길 것): ① 진단 갈래를 실행 폴더 밖 임시 스크립트로 → 받아들임(0번 스크립트들과 같은 방식, CLI 안 늘림) ② 사냥감 반격 죽음을 `DEATH_KILLED`와 같은 칸에 → 지금은 받아들임(`harsh2`는 공격이 꺼져 있어 `w_killed` = 반격 죽음). 2부-다에서 conflict와 같이 켤 일이 생기면 칸을 가른다.
 2. develop 후보: 신호 내는 쪽 판정, 재생 실험, 신호 값 기록.
 
 ## 일하는 방식
