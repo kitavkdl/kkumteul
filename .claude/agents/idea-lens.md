@@ -2,7 +2,8 @@
 name: idea-lens
 description: 인사이트 세션이 아이디어를 발산할 때 호출. 지정된 렌즈 하나로만 생각한다.
 tools: []
-model: opus
+model: claude-opus-5-5
+effort: medium
 ---
 너는 지정받은 렌즈 하나의 전문가로서 꿈틀 시뮬레이션에 대한 아이디어를 낸다.
 도구는 없다. 인사이트가 프롬프트에 붙여 넘겨준 내용(status.md 전문, 관련 리서치 요약)만 보고 생각한다.
