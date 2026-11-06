@@ -1,6 +1,6 @@
 # 꿈틀 인수인계
-마지막 갱신: 2026-11-05 19:35 ET (서버 21)
-요약: **혹독한 세계 2부-가 과제 1~4 끝, 최종 전체 검토 통과("합쳐도 된다", 치명·중요 0).** 과제 4 검토에서 남이 든 알의 시야 규칙을 판정으로 고침(`5009758`, 시험 232건). 남은 것: 사소한 지적 한 번에 고치기 → 과제 5(0번 실험, 예측은 커밋함 `wayfinder/stage2-4/results.md` 끝).
+마지막 갱신: 2026-11-05 19:55 ET (서버 22)
+요약: **혹독한 세계 2부-가 끝**(과제 1~5, 최종 검토 고치기 `fd81724` 재검토 통과, 시험 233건). 0번 둘째 결과(`2ae4be3`): 가을은 남는 먹이를 바로 개체 수로 바꾸고(넘침 0, 겨울 감소 91~92%), 들기는 1만 스텝에 한 번도 안 쓰임(치우침 −1). 다음은 2부-나 계획.
 
 ## ★ 먼저 할 것
 - **대표님 지시(16:3x ET): "제발 그냥 좀 끝까지 진행하라고, 특히 wrap."** 묻지 말고 끝까지, 맥락이 차면 미루지 말고 바로 wrap. 알림 턴이어도 이 지시대로 교대한다(서버 16·18·19·20이 그렇게 함). 전역 규칙 "자동 이벤트 턴에는 새 세션을 띄우지 않는다"와 엇갈리므로, 대표님이 오시면 어느 쪽인지 한 줄로 여쭌다(tasks.md "대표님이 정하실 것").
@@ -12,16 +12,14 @@
 ## 현재 상태
 - 설계: `docs/superpowers/specs/2026-11-05-harsh-world-design.md`(여섯째 판), `2026-11-05-sex-design.md`(셋째 판). 검토 기록 `-harsh-world-review.md`, `-sex-review.md`.
 - 계획: 1부 `docs/superpowers/plans/2026-11-05-harsh-world-part1.md`(끝남), **2부-가 `…-part2a.md`(둘째 판, 과제 1~5)**. 2부-나(④⑤⑥·섞기 대조)는 아직 안 씀.
-- **SDD 작업 공간** `.superpowers/sdd/2026-11-05-harsh-world-part2a/`(git 밖): **`progress.md`부터 읽는다**(과제별 완료 줄, Ruling, 미뤄 둔 사소한 지적 목록, 과제 4 구현자의 걱정 셋과 다음 순서가 끝에). `common.md`(지시문 공통 규칙 — 서버 20에서 세션 주소·임시 폴더를 바꿨다. 새 세션은 자기 job id·세션 주소로 다시 고친다), `constraints.md`, `task-N-brief.md`·`task-N-report.md`(1~4), `review-*.diff`.
-- 0번 스크립트 사본 `.superpowers/scratch/harsh/`(git 밖). 0번 결과 `wayfinder/stage2-4/results.md` 끝 절. 갈래 `runs/h0-*`, 코드 사본 `runs/code-621c300`.
+- 2부-가 SDD 작업 공간은 끝나서 지웠다. 미룬 사소한 지적은 `docs/superpowers/specs/2026-11-05-harsh-world-review.md` 끝 절(2부-나에 넣을 셋 표시). 새 SDD 지시문의 공통 규칙 틀은 `.superpowers/sdd/common-template.md`(git 밖, 세션 주소·job id를 고쳐 쓴다).
+- 0번 스크립트 사본 `.superpowers/scratch/harsh/`(git 밖). 0번 결과 `wayfinder/stage2-4/results.md` 끝 두 절. 갈래 `runs/h0-*`·`runs/h1-*`, 코드 사본 `runs/code-621c300`·`runs/code-fd81724`.
 - 서버 세계 둘 `kkumteul-main`, `kkumteul-world4`(원래 폴더 main `d0b7ead` 코드). 재부팅하면 원래 폴더에서 `memcap --bg kkumteul-main --log runs/main.log --max 1500M -- nice -n 15 .venv/bin/python -m kkumteul.run resume --run runs/main --quiet`(world4도 같게, 하나씩).
 - 아티팩트: 다시 보기 https://claude.ai/artifact/LJwqLAmdv8evuPTUj7W69Z, 여정 https://claude.ai/artifact/EZUf6Mkz429VDmrkWddk3H (원본 `docs/journey.html`).
 
 ## 다음 할 일 (위에서부터)
-1. **최종 검토 고치기 한 번** — progress.md 끝 "Final review" 줄의 Minor ①②③ + 싼 정리 둘을 sonnet 구현자 하나에게 한꺼번에(지시서 대신 그 목록, `common.md`, 덮는 시험) → 고친 범위만 재검토(sonnet, `re-review-prompt.md`). 남는 것은 Ruling으로 적고 끝.
-2. **과제 5(0번 둘째, 세션이 직접)** — `memcap --bg h1 --log runs/h1.log --max 1500M -- bash <작업 폴더>/.superpowers/scratch/harsh/h1-run.sh <고친 HEAD 짧은 해시>`(갈래 셋, 대조는 `h0-ctrl` 재사용 — Ruling) → 원래 폴더 `.venv` python으로 `-I .superpowers/scratch/harsh/h1-read.py` → 결과 문서에 예측과 견줘 적기, 목표 밖 숫자는 설계 근거로 고치고 Ruling. 끝나면 SDD "Finish": progress.md의 `Ruling:` 줄을 모두 대표님 보고에 모으고 작업 공간 지우기, `finishing-a-development-branch`(합치기는 대표님 몫 — tasks.md).
-3. 2부-나 계획 → 검토 두 갈래 → 구현 → 판정. 2부-나 계획에 넣을 것(최종 검토): `field_cap`을 `carry or prey`로 넓히면 prey도 `needs_ext`여야 한다(`store_room`이 확장 계수기 칸에 쓴다), 사체가 저장 칸을 내는 길 끝까지 시험, `Q_CARRY`를 쓸지 지울지. 그다음 암수(계획만 쓰면 됨) → 몸짓 → 기록 → 도구.
-4. develop 후보: 신호 내는 쪽 판정, 재생 실험, 신호 값 기록.
+1. 2부-나 계획 → 검토 두 갈래 → 구현 → 판정. 2부-나 계획에 넣을 것(최종 검토): `field_cap`을 `carry or prey`로 넓히면 prey도 `needs_ext`여야 한다(`store_room`이 확장 계수기 칸에 쓴다), 사체가 저장 칸을 내는 길 끝까지 시험, `Q_CARRY`를 쓸지 지울지. 그다음 암수(계획만 쓰면 됨) → 몸짓 → 기록 → 도구.
+2. develop 후보: 신호 내는 쪽 판정, 재생 실험, 신호 값 기록.
 
 ## 일하는 방식
 - 서버가 바쁘다. 실험은 2스레드, 메모리 상한 1.5GB, 한 번에 하나, `memcap --bg`. 서브에이전트에게 시뮬레이션을 시키지 않는다(시험은 됨).
@@ -62,4 +60,5 @@
 - (11/05) 구현자가 지시서 밖에서 감각 규칙을 정하면 기본값(칸 수·반지름·사거리)으로 몇 거리에서 무엇이 보이는지 셈해 본다(서버 21: 든 개체가 멀리서 사라지는 것을 검토자가 셈으로 잡음).
 
 ## 세션 기록 (앞의 것은 보관 파일)
+- 19:40~19:55 ET (서버 22, 넘겨받음): 최종 검토 사소한 지적 다섯 고치기(sonnet, `fd81724`) → 재검토 통과 → 0번 둘째 실험(갈래 셋) → 결과 문서(`2ae4be3`), 미룬 지적 목록을 검토 기록으로(`02fe7cb`), SDD 작업 공간 지움. 2부-가 Ruling 다섯은 대표님 보고에 모음.
 - 19:05~19:35 ET (서버 21, 넘겨받음): 과제 4 검토(opus) → 중요 1건(남이 든 알을 `d − a_rad`로 당겨 멀리서 든 개체가 먹이로만 보임) → 판정: 시야에서만 든 개체 머리 앞에 둠 → 고치기 `5009758`·재검토 통과 → 최종 전체 검토(opus) 통과. 0번 둘째 예측 커밋, 실행·읽기 스크립트 준비. 맥락 15만이라 교대.
