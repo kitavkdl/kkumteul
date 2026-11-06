@@ -33,3 +33,5 @@
 
 ## 세션 운영
 시작할 때 `sessions/handoff/kkumteul.md`와 `sessions/tasks.md`를 읽고 이어 간다. 마무리할 때 인수인계를 고쳐 쓰고 커밋한다.
+
+**`docs/status.md`는 메인 세션이 갱신한다.** 결과 문서(`wayfinder/*/results.md`)에 판정을 적을 때 status.md의 관찰·기각 칸과 마지막 갱신일도 같이 고친다. 관찰에는 잰 값만, 해석에는 추정만. 인사이트·리서처·idea-lens가 이 한 장을 근거로 삼는다.
