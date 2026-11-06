@@ -55,7 +55,7 @@
 - [ ] 인수인계(`sessions/handoff/kkumteul.md`) 교훈 대청소 필요 — ★ 교훈만으로 6천 자 근처. 남길 것 / 메모리로 올릴 것 / 보관할 것 표를 드리고 답대로 옮긴다
 - [ ] **가려 먹기의 다음 길** — 지금 학습 규칙으로는 못 배운다(결과 문서 "판정"). 셋 가운데: ① 맛 기억(먹은 종류 × 결과를 한두 끼에 적는 좁은 장치, 추천) ② 이어지는 탐색(잡음을 열 스텝쯤 잇기) ③ 과제를 바꾸기(구간 길이)
 - [ ] **시각화의 임시 결정** — 실시간 화면을 고치는 대신 "다시 보기 파일"을 먼저 만든다, 첫 화면은 주인공 하나를 따라간다, 지도는 늘 어두운 바탕, "가려 먹는다"의 문턱(차이 10%p) 등. `docs/visualization.md`. 올린 화면(https://claude.ai/artifact/LJwqLAmdv8evuPTUj7W69Z)을 보시고 고칠 것을 말씀해 주시면 된다
-- [ ] **`main`에 합치기** — 02:50 ET부터의 커밋은 가지 `worktree-night-1105c`에 있다(실행 환경이 이 세션의 main push·합치기를 막는다). 합치려면 서버 터미널에서 레포 폴더로 가서 `git merge --ff-only origin/worktree-night-1105c && git push && echo 합침`. 그 전까지 다음 세션은 작업 폴더 `.claude/worktrees/night-1105c`에서 이어 간다(인수인계 맨 위)
+- [ ] **`main`에 합치기** — 02:50 ET부터의 커밋은 가지 `worktree-night-1105c`에 있다(실행 환경이 이 세션의 main push·합치기를 막는다). 합치기는 **언제나 스크립트로** 안내한다(원래 폴더에 커밋 안 된 변경이 있으면 맨 명령은 거절된다 — 11/05 22:4x 실제로 남). 서버 터미널에서 `cd ~/git/kkumteul && bash <(git show origin/worktree-night-1105c:scripts/merge-into-main.sh)`, main에 들어간 뒤로는 `bash scripts/merge-into-main.sh`. 가지가 이미 담은 변경은 정리하고, 아니면 멈추고 보여 준다. 그 전까지 다음 세션은 작업 폴더 `.claude/worktrees/night-1105c`에서 이어 간다(인수인계 맨 위)
 - [ ] "하루 10세대"의 뜻 — 지금 값으로는 하루 약 11만 세대(맥)가 쌓인다. 10세대를 하한으로 읽었다. `wayfinder/stage1/T09-death-reproduction-generation.md`
 - [ ] 관찰 화면을 직접 보고 더 보여야 할 것 — `wayfinder/stage1/T07-observation-screen.md`
 - [x] 라이선스 — MIT로 확정(대표님 15:3x ET)
