@@ -17,7 +17,8 @@ from kkumteul import checkpoint as ckpt  # noqa: E402
 from kkumteul import replay  # noqa: E402
 from kkumteul import kernels as k  # noqa: E402
 from kkumteul import stages as st  # noqa: E402
-from kkumteul.config import ACT_CARRY, EXT_SEASON, N_EXT_IN, N_EXT_OUT, N_INTERNAL, N_STAGE_IN, N_STAGE_OUT  # noqa: E402
+from kkumteul.config import (ACT_CARRY, ACT_REPRO, ACT_THRUST, ACT_TURN, EXT_CARRY, EXT_SEASON, N_EXT_IN,  # noqa: E402
+                             N_EXT_OUT, N_INTERNAL, N_STAGE_IN, N_STAGE_OUT)
 from kkumteul.run import Runner  # noqa: E402
 from kkumteul.world import World  # noqa: E402
 
@@ -837,3 +838,230 @@ def test_carry_ledger_closes():
     _check_hands(w.s)
     assert w.s.counters[k.C_NFIELD] == _n_field(w.s)
     assert rel_residual(w) < 1e-9
+
+
+# ---- 들기: 행동·감각·비용 ----
+def _carry_world(n_agents, *presets, **kw):
+    """먹이가 나지 않는 carry 세계. 개체는 n_agents마리이고 다시 넣지 않는다."""
+    return World(small(*presets, "ext", carry_enabled=True, init_agents=n_agents, min_agents=0, food_inflow=0.0, **kw))
+
+
+def _fix_out(w, i, carry, thrust=0.0):
+    """개체 i의 출력을 편향으로만 정한다(마음이 꺼져 있으면 출력 = tanh(편향)). 번식은 끄고 멈춰 세운다."""
+    s = w.s
+    s.Wout[i] = 0.0
+    s.bout[i] = 0.0
+    s.bout[i, ACT_REPRO] = -5.0
+    s.bout[i, ACT_CARRY] = carry
+    s.bout[i, ACT_THRUST] = thrust
+    s.vx[i] = s.vy[i] = 0.0
+
+
+def _full(w, i):
+    """개체 i의 에너지를 e_max보다 높여 먹지 않게 한다. 더한 에너지는 장부에도 적는다."""
+    s = w.s
+    e = w.cfg.e_max + 1.0
+    s.ledger[k.L_INJECT] += e - s.energy[i]
+    s.energy[i] = e
+
+
+def _sense_once(w):
+    s, fp, ip = w.s, w.fp, w.ip
+    gw, gh, inv = int(ip[k.Q_GW]), int(ip[k.Q_GH]), fp[k.P_INV_CELL]
+    k.build_grid(s.x, s.y, s.alive, inv, gw, gh, s.a_start, s.a_items, s.cursor)
+    k.build_grid(s.fx, s.fy, s.f_alive, inv, gw, gh, s.f_start, s.f_items, s.cursor)
+    k.sense(w.step_no, s, fp, ip)
+
+
+def test_carry_pick_and_drop_by_output():
+    # 마음 꺼진 carry 세계, 개체 하나 곁에 들판 알 둘(거리 0.5, 0.8). bout[ACT_CARRY]=+5 → 한 스텝 뒤
+    # a_held == 가까운 알, f_holder == 그 개체, f_dropped == 1, C_NFIELD 1 줄고 C_CARRIES == 1
+    # bout[ACT_CARRY]=-5 → 한 스텝 뒤 a_held == -1, 알은 그 자리에 f_holder == -1, f_dropped == 1
+    w = _carry_world(1)
+    s = w.s
+    i = int(np.flatnonzero(s.alive)[0])
+    s.x[i], s.y[i] = 100.0, 100.0
+    _full(w, i)
+    near = _place(w, x=100.5, y=100.0)
+    far = _place(w, x=100.0, y=100.8)
+    _fix_out(w, i, 5.0)
+    nf0 = int(s.counters[k.C_NFIELD])
+    w.step()
+    assert s.a_held[i] == near and s.f_holder[near] == i and s.f_dropped[near] == 1
+    assert s.f_holder[far] == -1 and s.f_dropped[far] == 0 and s.f_alive[far]
+    assert s.counters[k.C_NFIELD] == nf0 - 1 and s.counters[k.C_CARRIES] == 1
+    w.step()                                    # 든 채로 한 스텝 더: 다시 들지 않는다
+    assert s.a_held[i] == near and s.counters[k.C_CARRIES] == 1
+    s.bout[i, ACT_CARRY] = -5.0
+    w.step()
+    assert s.a_held[i] == -1 and s.f_holder[near] == -1 and s.f_dropped[near] == 1 and s.f_alive[near]
+    assert (s.fx[near], s.fy[near]) == (s.x[i], s.y[i])
+    assert s.counters[k.C_NFIELD] == nf0 - 1    # 내려놓은 알은 들판으로 돌아가지 않는다
+    assert rel_residual(w) < 1e-9
+
+
+def test_sleeping_agent_keeps_item():
+    # 마음 켠 carry 세계에서 든 개체를 잠재운다(asleep=1) → after_think가 출력을 0으로 만들어도 a_held 그대로
+    w = _carry_world(2, "stage2")
+    s = w.s
+    a, b = (int(i) for i in np.flatnonzero(s.alive)[:2])
+    s.x[a], s.y[a], s.x[b], s.y[b] = 50.0, 50.0, 150.0, 150.0
+    ja = _place(w, x=50.0, y=50.0)
+    jb = _place(w, x=150.0, y=150.0)
+    hold(w, a, ja)
+    hold(w, b, jb)
+    _fix_out(w, a, -5.0)
+    _fix_out(w, b, -5.0)                        # 깨어 있는 b는 출력이 음수라 내려놓는다(대조)
+    s.asleep[a], s.fatigue[a] = 1.0, 1.0
+    w.step()
+    assert s.asleep[a] > 0.0 and s.act[a, ACT_CARRY] == 0.0
+    assert s.a_held[a] == ja and s.f_holder[ja] == a
+    assert s.a_held[b] == -1 and s.f_holder[jb] == -1
+
+
+def test_held_item_follows_after_collide():
+    # 든 개체 둘을 겹쳐 놓아 collide가 밀어내게 → 스텝 뒤 (fx, fy) == (x, y) (매 스텝)
+    w = _carry_world(2)
+    s = w.s
+    a, b = (int(i) for i in np.flatnonzero(s.alive)[:2])
+    s.x[a], s.y[a], s.x[b], s.y[b] = 100.0, 100.0, 100.6, 100.2
+    for i in (a, b):
+        hold(w, i, _place(w, x=s.x[i], y=s.y[i]))
+        _fix_out(w, i, 5.0, thrust=1.0)
+    start = (s.x[a], s.y[a])
+    for _ in range(6):
+        w.step()
+        for i in (a, b):
+            j = int(s.a_held[i])
+            assert j >= 0 and (s.fx[j], s.fy[j]) == (s.x[i], s.y[i])
+    assert (s.x[a], s.y[a]) != start
+
+
+def test_hand_and_item_point_to_each_other():
+    # carry 켠 세계를 마음 켜고 300스텝, 매 스텝 a_held[i] = j ⇔ f_holder[j] = i, 든 물건은 f_alive,
+    # C_NFIELD == 살아 있는 들판 알 수
+    w = World(small("stage2", "ext", carry_enabled=True))
+    a = np.flatnonzero(w.s.alive)
+    w.s.bout[a[::2], ACT_CARRY] = 3.0
+    for t in range(300):
+        w.step()
+        _check_hands(w.s)
+        assert (w.s.a_held[~w.s.alive] == -1).all(), t
+        assert w.s.counters[k.C_NFIELD] == _n_field(w.s), t
+    assert w.s.counters[k.C_CARRIES] > 0 and (w.s.a_held >= 0).any()
+    assert rel_residual(w) < 1e-9
+
+
+def test_held_item_not_seen_by_holder():
+    # 든 개체의 시야 칸에 자기 알이 안 잡히고 곁 개체 시야에는 잡힌다
+    w = _carry_world(2)
+    s = w.s
+    a, b = (int(i) for i in np.flatnonzero(s.alive)[:2])
+    s.x[a], s.y[a], s.heading[a] = 100.0, 100.0, 0.0
+    s.x[b], s.y[b], s.heading[b] = 106.0, 100.0, np.pi      # a 쪽을 본다
+    j = _place(w, x=100.0, y=100.0)
+    hold(w, a, j)
+    nsec = w.cfg.vision_sectors
+    smell = 2 * nsec + 6
+    _sense_once(w)
+    assert not s.obs[a, :nsec].any() and s.obs[a, smell] == 0.0
+    assert s.obs[b, :nsec].max() > 0.0 and s.obs[b, smell] > 0.0
+    unhold(w, a)
+    _sense_once(w)
+    assert s.obs[a, :nsec].max() > 0.0 and s.obs[a, smell] > 0.0   # 손을 놓으면 보인다
+
+
+def test_carry_costs_more_to_move():
+    # 같은 추력으로 한 스텝: 든 개체의 ΔL_MOVE == 빈손의 1.3배
+    w = _carry_world(1)
+    s = w.s
+    i = int(np.flatnonzero(s.alive)[0])
+    _fix_out(w, i, -5.0, thrust=1.0)
+    s.bout[i, ACT_TURN] = 0.5                   # 회전 비용도 함께 곱해지는지 본다
+    m0 = float(s.ledger[k.L_MOVE])
+    w.step()
+    empty = float(s.ledger[k.L_MOVE]) - m0
+    hold(w, i, _place(w, x=s.x[i], y=s.y[i]))
+    m0 = float(s.ledger[k.L_MOVE])
+    w.step()                                    # 이동 비용은 move 때의 손으로 매기고, 내려놓기는 그 뒤다
+    held = float(s.ledger[k.L_MOVE]) - m0
+    assert empty > 0.0 and held == pytest.approx(w.cfg.carry_cost_mult * empty, rel=1e-12)
+    assert w.cfg.carry_cost_mult == 1.3 and s.a_held[i] == -1
+    assert rel_residual(w) < 1e-9
+
+
+def test_held_input_written():
+    # 든 개체의 obs[ext_in0 + EXT_CARRY] == 1, 빈손 0. 기본 크기 세계에는 쓰지 않는다(넘침 없음)
+    w = _carry_world(2)
+    s = w.s
+    a, b = (int(i) for i in np.flatnonzero(s.alive)[:2])
+    hold(w, a, _place(w, x=s.x[a], y=s.y[a]))
+    col = w.cfg.ext_in0 + EXT_CARRY
+    w.step()
+    assert s.obs[a, col] == 1.0 and s.obs[b, col] == 0.0
+    c = small()
+    assert c.ext_in0 + EXT_CARRY >= c.n_in      # 기본 크기에는 그 칸이 없다
+    base = World(c)
+    base.run(3)
+    off = World(small("ext"))                   # 들기가 꺼진 확장 세계: 칸은 있지만 쓰지 않는다
+    off.s.a_held[np.flatnonzero(off.s.alive)[0]] = 0
+    off.step()
+    assert not off.s.obs[off.s.alive, off.cfg.ext_in0 + EXT_CARRY].any()
+
+
+def test_carry_on_default_size_is_rejected():
+    with pytest.raises(ValueError):
+        small(carry_enabled=True)       # needs_ext
+
+
+def _carry_pair(n_steps, carry_bias):
+    """마음 켠 carry 세계에서 산 개체 절반의 들기 편향을 carry_bias로 맞추고 n_steps 돌린다."""
+    w = World(small("stage2", "ext", carry_enabled=True))
+    a = np.flatnonzero(w.s.alive)
+    w.s.bout[a[::2], ACT_CARRY] = carry_bias
+    w.run(n_steps)
+    return w
+
+
+def test_carry_behaviour_ledger_closes():
+    # 마음 켠 carry 세계에서 산 개체 절반의 bout[ACT_CARRY]를 +3으로 맞추고 600스텝(실제 carry 커널과 무게 비용이 돈다)
+    # → 잔차 < 1e-9, C_CARRIES > 0, L_MOVE가 같은 세계의 carry 끈 갈래와 다르다(장치를 빼면 이 단언이 실패한다)
+    # 끈 갈래는 같은 세계에서 들기 편향만 -3으로 둔 것이다. 들기 출력은 carry 커널만 읽으므로 장치가 없으면 두 세계가 같다
+    w = _carry_pair(600, 3.0)
+    w.check_sane()
+    _check_hands(w.s)
+    assert rel_residual(w) < 1e-9
+    assert w.s.counters[k.C_CARRIES] > 0
+    off = _carry_pair(600, -3.0)
+    assert rel_residual(off) < 1e-9
+    assert w.s.ledger[k.L_MOVE] != off.s.ledger[k.L_MOVE]
+
+
+def test_carry_world_does_not_depend_on_thread_count():
+    # tests/test_core.py의 같은 이름 시험 꼴: carry 켠 세계(bout[ACT_CARRY] 양수)를 스레드 1개와 2개 이상으로 300스텝 → 해시 같음
+    import numba
+    n0 = numba.get_num_threads()
+    try:
+        numba.set_num_threads(1)
+        a = _carry_pair(300, 3.0)
+        numba.set_num_threads(max(2, min(4, n0)))
+        b = _carry_pair(300, 3.0)
+    finally:
+        numba.set_num_threads(n0)
+    assert a.s.counters[k.C_CARRIES] > 0
+    assert a.state_hash() == b.state_hash()
+
+
+def test_branch_into_harsh2(tmp_path):
+    # 기본 크기 세계를 400스텝 돌려 저장 → Runner.branch(..., ["preset=harsh2"]) → 이어 300스텝 → 잔차 < 1e-9,
+    # 갈라 켠 세계의 a_held 모두 -1에서 시작, 다시 resume하면 해시가 같다(기존 test_branch_into_ext_from_default_size 꼴)
+    _main(tmp_path)
+    r = Runner.branch(tmp_path / "main", tmp_path / "h2", 400, ["preset=harsh2"], False, False)
+    c = r.world.cfg
+    assert c.carry_enabled and c.season_enabled and c.spoil_enabled and c.autumn_len == 800
+    assert (r.world.s.a_held == -1).all() and (r.world.s.f_holder == -1).all()
+    assert r.world.s.counters[k.C_NFIELD] == _n_field(r.world.s)
+    r.loop(300, quiet=True); r.close()
+    assert rel_residual(r.world) < 1e-9
+    again = Runner.resume(tmp_path / "h2")
+    assert again.world.state_hash() == r.world.state_hash(); again.close()

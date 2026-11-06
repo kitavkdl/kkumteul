@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kkumteul import checkpoint as ckpt  # noqa: E402
 from kkumteul import kernels as k  # noqa: E402
 from kkumteul import replay  # noqa: E402
-from kkumteul.config import ACT_ATTACK, ACT_GIVE, Config  # noqa: E402
+from kkumteul.config import ACT_ATTACK, ACT_CARRY, ACT_GIVE, ACT_REPRO, ACT_THRUST, Config  # noqa: E402
 from kkumteul.run import Runner  # noqa: E402
 from kkumteul.scenario import Scenario  # noqa: E402
 from kkumteul.world import World  # noqa: E402
@@ -149,7 +149,8 @@ def test_one_poison_and_one_good_food_are_told_apart():
     assert len(food) == 2 and (food["f_in"] == 0).all() and (food["f_out"] == 1).all()
     by_kind = {int(r["kind"]): int(r["why"]) for r in food}
     assert by_kind[good] == replay.WHY_GOOD and by_kind[1 - good] == replay.WHY_POISON
-    assert rep.seen == {"good": 1, "poison": 1, "unknown": 0, "evicted": 0, "burnt": 0, "gave": 0, "spoiled": 0}
+    assert rep.seen == {"good": 1, "poison": 1, "unknown": 0, "evicted": 0, "burnt": 0, "gave": 0, "spoiled": 0,
+                        "picked": 0, "dropped": 0, "stored_out": 0}
     assert int(rep.c_eaten[1]) == 2 and int(rep.c_poisoned[1]) == 1
 
 
@@ -492,3 +493,103 @@ def test_screen_logic_agrees_with_the_recording(kinds_run, tmp_path):
     lum = lambda c: 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]   # noqa: E731
     assert lum(dark) >= 100 and lum(navy) >= 100 and white == [250, 250, 250]
     assert navy[2] > navy[0], "어두운 색을 밝혀도 빛깔은 남는다"
+
+
+# ---------------------------------------------------------------- 들기
+def _carry_cfg(**kw) -> Config:
+    return small("ext", **kw).with_overrides(["carry_enabled=True"])
+
+
+def test_replay_tracks_carried_item(tmp_path):
+    # 마음 꺼진 carry 세계, 개체 하나 곁에 들판 알 하나. 몇 스텝 들고 움직인 뒤 내려놓게 출력을 맞추고 적는다 →
+    # 그 알의 첫 행이 WHY_PICKED로 닫히고, 내려놓은 자리에서 행 하나가 열린다(합계 두 행), 든 동안 그 개체 장면의 깃발에 F_CARRY,
+    # seen["unknown"] == 0, seen["picked"] == 1, seen["dropped"] == 1
+    w = World(_carry_cfg(init_agents=1, min_agents=0, food_inflow=0.0))
+    s = w.s
+    i = int(np.flatnonzero(s.alive)[0])
+    s.x[i], s.y[i], s.heading[i] = 100.0, 100.0, 0.0
+    s.vx[i] = s.vy[i] = 0.0
+    s.ledger[k.L_INJECT] += w.cfg.e_max + 1.0 - s.energy[i]
+    s.energy[i] = w.cfg.e_max + 1.0             # 배가 불러 먹지 않는다
+    s.Wout[i] = 0.0
+    s.bout[i] = 0.0
+    s.bout[i, ACT_REPRO] = -5.0
+    s.bout[i, ACT_CARRY] = 5.0
+    s.bout[i, ACT_THRUST] = 2.0
+    assert k._place_food(s, 100.5, 100.0, 1.0, k.KIND_A, 0, 1)
+    s.ledger[k.L_SPAWN] += 1.0
+    j = int(np.flatnonzero(s.f_alive)[0])
+    rec = replay.Recorder(w, every=1)
+    rec.advance(5)                              # 첫 스텝에 들고 네 스텝 들고 간다
+    assert s.a_held[i] == j
+    s.bout[i, ACT_CARRY] = -5.0
+    s.bout[i, ACT_THRUST] = 0.0
+    rec.advance(1)                              # 여섯째 스텝에 내려놓는다
+    drop_x, drop_y = float(s.fx[j]), float(s.fy[j])
+    assert s.a_held[i] == -1 and drop_x > 101.0     # 처음 자리(100.5)에서 옮겨 내려놓았다
+    rec.advance(3)
+    rep = rec.finish()
+    food = rep.food
+    assert len(food) == 2
+    first, second = food[0], food[1]
+    assert (first["f_in"], first["f_out"], first["why"]) == (0, 1, replay.WHY_PICKED)
+    assert (second["f_in"], second["f_out"], second["why"]) == (6, rep.n_frames, replay.WHY_PRESENT)
+    assert second["x"] == min(int(drop_x / w.cfg.world_w * 65536.0), 65535)
+    assert second["y"] == min(int(drop_y / w.cfg.world_h * 65536.0), 65535)
+    flags = [int(rep.frame(f).flags[0]) for f in range(rep.n_frames)]
+    assert [bool(fl & replay.F_CARRY) for fl in flags] == [False] + [True] * 5 + [False] * 4
+    assert rep.seen["unknown"] == 0 and rep.seen["picked"] == 1 and rep.seen["dropped"] == 1
+    assert rep.seen["stored_out"] == 0 and rep.meta["on"]["carry"]
+
+
+def test_replay_store_eviction_is_not_unknown(tmp_path):
+    # max_agents를 작게 해 저장 칸이 차게 만든 carry 세계를 적는다 → C_STORE_EVICTED 증가분만큼 WHY_STORED_OUT, unknown 늘지 않음
+    w = World(_carry_cfg(max_agents=30, init_agents=12, min_agents=0))
+    s = w.s
+    gen = np.random.default_rng(4)
+    for n in range(30):                         # 저장 칸을 내려놓은 알로 채운다(오래된 것부터 밀려난다)
+        assert k._place_food(s, float(gen.random() * 256.0), float(gen.random() * 256.0), 1.0, k.KIND_A, -100 + n, 1)
+        s.ledger[k.L_SPAWN] += 1.0
+    stored = np.flatnonzero(s.f_alive & (s.f_born < 0))
+    s.f_dropped[stored] = 1
+    w.recount_field()
+    assert s.counters[k.C_NFOOD] - s.counters[k.C_NFIELD] == 30
+    s.bout[s.alive, ACT_CARRY] = 5.0           # 모두 들려고 한다
+    c0 = s.counters.copy()
+    rec = replay.Recorder(w, every=1)
+    rec.advance(150)
+    rep = rec.finish()
+    dc = s.counters - c0
+    n_out = int(dc[k.C_STORE_EVICTED])
+    assert n_out > 0 and int(dc[k.C_CARRIES]) >= n_out
+    assert rep.seen["stored_out"] == n_out and int((rep.food["why"] == replay.WHY_STORED_OUT).sum()) == n_out
+    assert rep.seen["unknown"] == 0
+    assert rep.seen["picked"] == int(dc[k.C_CARRIES])
+
+
+def test_replay_scenario_turning_carry_off_records_release(tmp_path):
+    # 각본이 들기를 끈 스텝의 풀림(release_all)은 내려놓음으로 적힌다: 든 알마다 든 자리에서 행이 다시 열린다
+    cfg = _carry_cfg(init_agents=40, min_agents=0, food_inflow=0.0)
+    w = World(cfg)
+    s = w.s
+    s.Wout[:, ACT_CARRY] = 0.0
+    s.bout[:, ACT_CARRY] = -5.0                 # 다른 개체는 들지 않는다
+    for i in np.flatnonzero(s.alive)[:5].tolist():
+        assert k._place_food(s, float(s.x[i]), float(s.y[i]), 1.0, k.KIND_A, 0, 1)
+        s.ledger[k.L_SPAWN] += 1.0
+        s.bout[i, ACT_CARRY] = 5.0
+        s.Wout[i, ACT_REPRO] = 0.0
+        s.bout[i, ACT_REPRO] = -5.0             # 낳지 않고 배가 불러 먹지 않는다(내려놓은 알이 남는다)
+        s.ledger[k.L_INJECT] += cfg.e_max + 1.0 - s.energy[i]
+        s.energy[i] = cfg.e_max + 1.0
+    scn = Scenario.from_dict({"name": "들기 끔", "events": [{"at": 3, "set": {"carry_enabled": False}}]})
+    rec = replay.Recorder(w, every=1, scenario=scn, base_cfg=cfg, scenario_start=0)
+    rec.advance(2)
+    held = int((s.a_held >= 0).sum())
+    assert held == 5
+    rec.advance(4)
+    assert not w.cfg.carry_enabled and (s.a_held == -1).all()
+    rep = rec.finish()
+    assert rep.seen["dropped"] == held and rep.seen["unknown"] == 0
+    reopened = rep.food[(rep.food["f_in"] == 4) & (rep.food["kind"] != k.KIND_CORPSE)]
+    assert len(reopened) == held and (reopened["why"] == replay.WHY_PRESENT).all()
