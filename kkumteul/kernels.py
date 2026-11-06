@@ -1455,6 +1455,11 @@ def _child(s, i, j, step, fp, ip, e_child, kind, nb):
     hd = 6.283185307179586 * u01(seed, S_BIRTH_POS, cid, 1)
     _reset_body(s, j, cid, s.ids[i], s.gen[i] + 1, s.tag[i], step, px, py, hd, e_child)
     copy_genome(s, i, j, cid, fp, ip)
+    if kind == BIRTH_NATURAL and ip[Q_TASTE_IN0] >= 0:
+        # 자연 출생만 부모의 맛 기억을 물려받는다(재주입·대조 새끼는 _reset_body가 지운 0 그대로)
+        inh = fp[P_TASTE_INHERIT]
+        s.taste_m[j, 0] = inh * s.taste_m[i, 0]
+        s.taste_m[j, 1] = inh * s.taste_m[i, 1]
     s.n_off[i] += 1
     s.counters[C_BIRTHS] += 1
     _log_birth(s, nb, cid, s.ids[i], step, s.gen[j], s.n_hidden[j], kind)

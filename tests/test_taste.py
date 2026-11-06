@@ -277,3 +277,93 @@ def test_branch_old_checkpoint_into_taste(tmp_path):
     assert same.sum() >= 10 and np.abs(m0[same]).max() > 0
     assert np.array_equal(s.obs[same, t0 + TASTE_VAL:t0 + TASTE_VAL + 2], m0[same])
     w.check_sane()
+
+
+# ---- 물려주기·기록 ----
+# 맛 장치를 켠 세계(taste_inherit=1)를 300스텝 돌린 해시. 맛 장치의 계산을 일부러 바꿀 때만 고친다.
+PINNED_TASTE_HASH_300 = "2ae2c2b913c2fbb0f11899b3f25edbaccd260d4e6cf9eb5c54efc1aded4d0b1c"
+
+PARENT_M = (0.6, -0.4)
+
+
+def _parent_world(inherit, **kw) -> World:
+    """부모 하나만 산 세계(먹이 없음). 부모 기억 = PARENT_M."""
+    w = taste_world("taste", taste_inherit=inherit, init_agents=1, food_inflow=0.0, **kw)
+    assert w.s.alive[0] and w.s.alive.sum() == 1
+    w.s.taste_m[0] = PARENT_M
+    return w
+
+
+@pytest.mark.parametrize("inherit", [0.0, 1.0, 0.5])
+def test_natural_child_inherits(inherit):
+    w = _parent_world(inherit, min_agents=0)
+    s = w.s
+    s.energy[0] = w.cfg.e_repro + 1.0
+    s.age[0] = w.cfg.repro_min_age + 1
+    s.act[0, k.ACT_REPRO] = 1.0             # 뇌가 번식을 고른 것으로 친다
+    s.birth_step[0] = w.step_no - 1         # 태어난 그 스텝에는 번식하지 않는다
+    assert k.process_births(w.step_no, s, w.fp, w.ip) == 1
+    j = int(np.flatnonzero(s.alive & (s.parent == s.ids[0]))[0])
+    assert s.taste_m[j] == pytest.approx((inherit * 0.6, inherit * -0.4))
+    assert s.taste_m[0] == pytest.approx(PARENT_M)          # 부모 기억은 그대로
+
+
+def test_reseed_and_passive_children_start_blank():
+    # 둘 다 산 부모의 복제본으로 새끼를 넣지만(_child), 물려받기를 켜도 기억은 0에서 시작한다.
+    # 새끼를 하나만 넣는다(둘째는 첫 새끼를 부모로 고를 수 있어 부모 기억이 0일 수 있다)
+    w = _parent_world(1.0, min_agents=2)
+    s = w.s
+    assert k.reseed(w.step_no, s, w.fp, w.ip, 0) == 1
+    kids = np.flatnonzero(s.alive & (s.parent == s.ids[0]))
+    assert len(kids) == 1 and (s.taste_m[kids] == 0).all()
+    w = _parent_world(1.0, min_agents=0, passive=True)
+    s = w.s
+    assert k.passive_events(w.step_no, s, w.fp, w.ip, 1, 0) == (1, 0)
+    kids = np.flatnonzero(s.alive & (s.parent == s.ids[0]))
+    assert len(kids) == 1 and (s.taste_m[kids] == 0).all()
+
+
+def test_taste_world_ledger_closes_and_memory_moves():
+    on = taste_world("taste", taste_inherit=1.0)
+    on.run(1500)
+    assert rel_residual(on) < 1e-9
+    assert np.abs(on.s.taste_m[on.s.alive]).max() > 0.1
+    off = taste_world("taste_size")
+    off.run(1500)
+    assert on.state_hash() != off.state_hash()
+
+
+def test_taste_summary_keys():
+    on = taste_world("taste", taste_inherit=1.0)
+    on.run(300)
+    s, cfg = on.s, on.cfg
+    m = s.taste_m[s.alive]
+    assert np.abs(m).max() > 0
+    out = on.summary()
+    assert out["taste_plus"] == pytest.approx(float(m[:, 0].mean()))
+    assert out["taste_minus"] == pytest.approx(float(m[:, 1].mean()))
+    bad = 1 - k.good_kind(cfg.seed, on.step_no - 1, cfg.kind_flip_period)    # 방금 돈 스텝의 독
+    col = 1 if bad == k.KIND_B else 0
+    assert out["taste_on_poison"] == pytest.approx(float(m[:, col].mean()))
+    # 독이 바뀌는 스텝 t(t - 1과 t의 good_kind가 다르다)에서도 방금 돈 스텝(t - 1)의 독 쪽을 적는다.
+    # summary는 step_no만 읽으므로 그 자리로 옮겨 본다
+    on.s.taste_m[s.alive] = np.where(np.arange(2) == 0, 0.25, -0.75).astype(np.float32)
+    t = next(t for t in range(1, 10 ** 6)
+             if k.good_kind(cfg.seed, t - 1, cfg.kind_flip_period) != k.good_kind(cfg.seed, t, cfg.kind_flip_period))
+    on.step_no = t
+    out = on.summary()
+    was_bad = 1 - k.good_kind(cfg.seed, t - 1, cfg.kind_flip_period)
+    assert out["good_kind"] == was_bad                                       # 다음 스텝은 독이 좋은 먹이가 된다
+    assert out["taste_on_poison"] == pytest.approx(-0.75 if was_bad == k.KIND_B else 0.25)
+    off = taste_world("taste_size")
+    off.run(10)
+    assert not {"taste_plus", "taste_minus", "taste_on_poison"} & set(off.summary())
+    alone = World(small("taste"))           # 먹이 종류가 꺼진 세계: 독 쪽 키만 없다
+    out = alone.summary()
+    assert {"taste_plus", "taste_minus"} <= set(out) and "taste_on_poison" not in out
+
+
+def test_taste_world_hash_pinned():
+    w = taste_world("taste", taste_inherit=1.0)
+    w.run(300)
+    assert w.state_hash() == PINNED_TASTE_HASH_300
