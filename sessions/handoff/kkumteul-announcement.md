@@ -18,7 +18,7 @@
 - **insight·idea-lens·announcement는 claude-opus-5-5 · medium, research는 claude-sonnet-5-5 · high** (대표님 17:39 "리서처는 model: sonnet", 18:0x "리서치는 원래 소넷 높음"). 앞 세션이 17:48 "모든 애들 이 모델·노력도"를 리서처까지로 읽어 opus로 바꿨다가 정정함. 메인 구현은 Opus·high(대표님 18:0x 확정: "넌 오퍼스 중간, 리서치는 소넷 높음, 인사이트는 오퍼스 중간, 메인구현은 오퍼스 높음").
 - **insight·research는 계속 돈다.** 맥락이 차면 에이전트 파일 「교대」 절대로 announcement에 "교대 요청"(할 일 3~5줄)을 보낸다. 인수인계 파일·유언은 남기지 않는다.
 - 교대 요청을 받으면: ① `~/.claude/bin/wrap-spawn kkumteul-insight <레포 경로> claude-opus-5-5 medium insight` / `wrap-spawn kkumteul-research <레포 경로> claude-sonnet-5-5 high researcher` (5번째 인자가 `--agent`) ② `띄움:` 출력 확인 ③ 새 세션에 SendMessage로 할 일 전달 — 이름이 겹치니 `ListAgents`의 `[ref]`(bg 쪽이 새 세션)로 보낸다 ④ 옛 세션 끄기: `~/.local/bin/claude agents --json`에서 id → `claude stop <id>`. 손으로 띄운 세션(id 없음)은 안 꺼지니 대표님께 창을 닫아 달라고 한 줄.
-- **커밋·push (대표님 11/06 18:0x):** 이 레포는 main에 자동 커밋·push. 검사는 개인정보·API 키·env만. 리서처는 Bash가 없어 raw 파일을 못 올리므로 announcement가 커밋한다(리서처가 파일 이름을 알려 줌).
+- **커밋·push (대표님 11/06 18:0x):** 이 레포는 main에 자동 커밋·push. 검사는 개인정보·API 키·env만. 리서처는 Bash가 없어 raw 파일을 못 올리므로 announcement가 커밋한다(리서처가 파일 이름을 알려 줌). 리서처는 백그라운드라 main 폴더에 못 쓰므로 전용 작업 폴더 `.claude/worktrees/research`(가지 `research`)에 쓴다 → `git -C <그 폴더>`로 add·commit·fetch·rebase origin/main·push HEAD:main, 그 뒤 main 폴더 `git pull --ff-only`. 리서처를 새로 띄우면 이 경로를 할 일에 넣는다.
 
 ## 지금 걸린 것 (위에서부터)
 1. **옛 창 둘 닫기 대기**: `claude --agent insight`(pid 1248540)·`claude --agent researcher`(pid 1249338) — 대표님께 요청함. 그 전엔 같은 이름이 둘씩이라 메시지가 옛 창으로 갈 수 있음(옛 insight가 정정을 보내와 새 insight에 전달함).
