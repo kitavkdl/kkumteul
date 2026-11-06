@@ -187,6 +187,7 @@ DEATH_KILLED = 4         # 공격을 맞은 스텝에 에너지가 바닥남
  P_KIND_RATIO, P_SPOIL_RATE, P_SPOIL_MIN, P_CARRY_COST, N_FP) = range(52)
 
 # ---- 정수 설정 칸 ----
+# Q_CARRY는 채우기만 하고 아직 읽는 곳이 없다 — 들기 결과를 기록할 자리로 둔다.
 (Q_SEED, Q_GW, Q_GH, Q_FOOD_CAP, Q_N_PATCH, Q_PATCH_LIFE, Q_MAX_AGE, Q_MIN_AGENTS,
  Q_SECTORS, Q_H_MAX, Q_H_INIT, Q_H_MIN, Q_REPRO_BRAIN, Q_REPRO_MIN_AGE, Q_MUT, Q_CORPSE,
  Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, Q_CAP_REPLACE, Q_SPOIL_AFTER, Q_FIELD_CAP, Q_CARRY, N_IP) = range(24)
