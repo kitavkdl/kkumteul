@@ -631,14 +631,23 @@ def _sense_par(step, fp, ip, alive, x, y, heading, vx, vy, energy, age, touch, a
                     ddx = _wdiff(fx[j] - xi, w)
                     ddy = _wdiff(fy[j] - yi, hgt)
                     d2 = ddx * ddx + ddy * ddy
-                    if d2 > vr2:
-                        continue
-                    smell += 1.0 / (1.0 + d2 / sl2)
-                    d = math.sqrt(d2)
-                    if f_holder[j] >= 0:
-                        # 남이 든 물건은 든 개체 자리에 있어 그 몸에 가려진다. 보는 쪽에서 든 개체의 앞면에 있는 것으로 본다
-                        d -= a_rad
-                    _see(obs, i, 0, nsec, ddx, ddy, d, f_rad, hi, fov, vrange,
+                    h = f_holder[j]
+                    if h >= 0:
+                        # 남이 든 알은 시야에서만 든 개체 머리 앞(몸 반지름 + 알 반지름)에 있는 것으로 본다.
+                        # 든 개체가 이쪽을 보면 알이 앞에 보이고, 등을 돌리면 몸 뒤에 가려진다. 냄새는 저장된 자리 그대로
+                        if d2 <= vr2:
+                            smell += 1.0 / (1.0 + d2 / sl2)
+                        reach_h = a_rad + f_rad
+                        ddx = _wdiff(x[h] + math.cos(heading[h]) * reach_h - xi, w)
+                        ddy = _wdiff(y[h] + math.sin(heading[h]) * reach_h - yi, hgt)
+                        d2 = ddx * ddx + ddy * ddy
+                        if d2 > vr2:
+                            continue
+                    else:
+                        if d2 > vr2:
+                            continue
+                        smell += 1.0 / (1.0 + d2 / sl2)
+                    _see(obs, i, 0, nsec, ddx, ddy, math.sqrt(d2), f_rad, hi, fov, vrange,
                          np.float32(-1.0) if f_kind[j] == KIND_B else np.float32(1.0))
                 for p in range(a_start[c], a_start[c + 1]):
                     j = a_items[p]
