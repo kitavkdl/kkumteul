@@ -347,7 +347,7 @@ class Recorder:
             left = p_energy[gone] - p_energy[gone] * (cfg.spoil_rate * self.w.spoil_mult(t))
             rotten = (t - p_born[gone] >= cfg.spoil_after) & (left < cfg.spoil_min_frac * cfg.food_energy)
         if len(gone) and n_stored_out > 0:
-            # 저장 칸이 차서 치운 것(들기 커널 안, 썩음 뒤·먹기 앞): 들지 않은 들판 아닌 물건 가운데 가장 먼저 놓인 것부터.
+            # 저장 칸이 차서 치운 것(C_STORE_EVICTED는 들기 커널(먹기 앞)과 사망 처리(먹기 뒤)에서 오른다): 들지 않은 들판 아닌 물건 가운데 가장 먼저 놓인 것부터.
             # 사라진 것 가운데서 고른다. 그보다 앞에 썩은 것은 빼고, 이 스텝에 내려놓였다가 치워진 것도 받게
             # 스텝 앞에 들려 있던 것(f_dropped가 1이다)도 후보로 둔다
             cand = gone[~rotten & ((p_dropped[gone] == 1) | (p_kind[gone] == k.KIND_CORPSE))]
@@ -403,11 +403,13 @@ class Recorder:
             self._add_food(j, t + 1)
         if carry:
             # 같은 물건의 손이 바뀐 것. 든 개체가 들자마자 죽으면 손은 그대로 비어 있고 자리만 옮겨진다(들고 내려놓음)
+            # 같은 자리에서 들렸다 놓인 것은 자리도 손도 그대로라, 앞 스텝에 놓여 있다가 이번에 들판을 떠난 표시(f_dropped)로도 본다
             moved = same & ((s.fx != p_x) | (s.fy != p_y))
-            for j in np.flatnonzero(same & (p_holder < 0) & ((s.f_holder >= 0) | moved)).tolist():
+            lifted = same & (p_dropped == 0) & (s.f_dropped == 1)
+            for j in np.flatnonzero(same & (p_holder < 0) & ((s.f_holder >= 0) | moved | lifted)).tolist():
                 self._food_gone(j, t + 1, WHY_PICKED)
                 self.seen["picked"] += 1
-            for j in np.flatnonzero(same & (s.f_holder < 0) & ((p_holder >= 0) | moved)).tolist():
+            for j in np.flatnonzero(same & (s.f_holder < 0) & ((p_holder >= 0) | moved | lifted)).tolist():
                 self._add_food(j, t + 1)
                 self.seen["dropped"] += 1
 

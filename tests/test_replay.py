@@ -542,6 +542,22 @@ def test_replay_tracks_carried_item(tmp_path):
     assert rep.seen["stored_out"] == 0 and rep.meta["on"]["carry"]
 
 
+def test_replay_reads_item_lifted_and_put_back_at_the_same_spot():
+    # 스텝 앞에 들판에 놓여 있던 알이 스텝 뒤에는 손이 비어 있고 자리도 그대로이지만 f_dropped가 0에서 1로 바뀌었다
+    # (들었다가 같은 자리에 내려놓음) → 들림 한 번과 내려놓음 한 번이 적힌다
+    w = World(_carry_cfg(init_agents=1, min_agents=0, food_inflow=0.0))
+    s = w.s
+    assert k._place_food(s, 100.5, 100.0, 1.0, k.KIND_A, 0, 1)
+    s.ledger[k.L_SPAWN] += 1.0
+    j = int(np.flatnonzero(s.f_alive)[0])
+    rec = replay.Recorder(w, every=1)
+    pre = rec._food_snapshot()
+    assert pre[7][j] == 0 and pre[6][j] == -1
+    s.f_dropped[j] = 1                          # 손과 자리는 그대로, 들었다 놓은 흔적만 남았다
+    rec._read_food(w.step_no, pre, w.cfg, 0, 0)
+    assert rec.seen["picked"] == 1 and rec.seen["dropped"] == 1 and rec.seen["unknown"] == 0
+
+
 def test_replay_store_eviction_is_not_unknown(tmp_path):
     # max_agents를 작게 해 저장 칸이 차게 만든 carry 세계를 적는다 → C_STORE_EVICTED 증가분만큼 WHY_STORED_OUT, unknown 늘지 않음
     w = World(_carry_cfg(max_agents=30, init_agents=12, min_agents=0))

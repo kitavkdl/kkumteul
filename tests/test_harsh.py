@@ -824,6 +824,7 @@ def test_carry_toggle_recounts_and_releases():
     w.set_config(small("ext"))
     assert (w.s.a_held == -1).all() and (w.s.f_holder == -1).all()
     assert np.array_equal(w.s.f_dropped, dropped)
+    assert rel_residual(w) < 1e-9
 
 
 def test_carry_ledger_closes():
