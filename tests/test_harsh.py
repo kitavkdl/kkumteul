@@ -18,7 +18,7 @@ from kkumteul import replay  # noqa: E402
 from kkumteul import kernels as k  # noqa: E402
 from kkumteul import stages as st  # noqa: E402
 from kkumteul.config import (ACT_CARRY, ACT_REPRO, ACT_THRUST, ACT_TURN, EXT_CARRY, EXT_SEASON, N_EXT_IN,  # noqa: E402
-                             N_EXT_OUT, N_INTERNAL, N_STAGE_IN, N_STAGE_OUT)
+                             N_EXT_OUT, N_INTERNAL, N_STAGE_IN, N_STAGE_OUT, Config)
 from kkumteul.run import Runner  # noqa: E402
 from kkumteul.world import World  # noqa: E402
 
@@ -1207,3 +1207,117 @@ def test_release_all_puts_items_at_holder():
 def test_carry_cost_mult_below_one_rejected():
     with pytest.raises(ValueError):
         small("ext", carry_enabled=True, carry_cost_mult=0.9)
+
+
+# ---- 뭉쳐 자기 ----
+HUDDLE_KW = dict(season_period=400, winter_len=200)     # 100은 봄, 200~399는 겨울
+
+
+def _huddle_world(**kw):
+    return World(small("harsh", huddle_enabled=True, **HUDDLE_KW, **kw))
+
+
+def _huddle_group(w, n, cx=100.0, cy=100.0):
+    """산 개체 앞 n+1마리를 (cx, cy) 둘레 반지름 1.2 원에 놓는다(모두 서로 중심 거리 2.5 안). 그 칸 번호를 돌려준다."""
+    idx = np.flatnonzero(w.s.alive)[:n + 1]
+    assert len(idx) == n + 1
+    ang = 2.0 * np.pi * np.arange(n + 1) / (n + 1)
+    w.s.x[idx] = cx + 1.2 * np.cos(ang)
+    w.s.y[idx] = cy + 1.2 * np.sin(ang)
+    return idx
+
+
+def _agent_grid(w):
+    s = w.s
+    k.build_grid(s.x, s.y, s.alive, w.fp[k.P_INV_CELL], int(w.ip[k.Q_GW]), int(w.ip[k.Q_GH]),
+                 s.a_start, s.a_items, s.cursor)
+
+
+@pytest.mark.parametrize("n", [0, 1, 2, 3, 4, 5])
+def test_huddle_cut_follows_neighbours(n):
+    w = _huddle_world(init_agents=n + 2, min_agents=0)
+    s = w.s
+    group = _huddle_group(w, n)
+    far = np.flatnonzero(s.alive)[-1]
+    assert far not in group
+    s.x[far], s.y[far] = 200.0, 200.0
+    _agent_grid(w)
+    k.huddle(s, w.fp, w.ip, True)
+    want = min(0.4, 1.0 - (1 + n) ** -0.33)
+    assert want == pytest.approx({0: 0.0, 1: 0.2045, 2: 0.3041, 3: 0.3671, 4: 0.4, 5: 0.4}[n], abs=1e-4)
+    assert s.huddle_cut[group] == pytest.approx(np.full(n + 1, want), rel=1e-12, abs=0.0)
+    assert s.huddle_cut[far] == 0.0
+
+
+def test_huddle_only_in_winter():
+    w = _huddle_world()
+    _huddle_group(w, 4)
+    w.s.huddle_cut[:] = 0.3               # 겨울 밖에서는 지난 값이 남지 않는다
+    spring, n = _one_step_basal(w, 100)
+    assert spring == pytest.approx(n * w.cfg.basal_cost, rel=1e-12)
+    assert (w.s.huddle_cut == 0.0).all()
+
+
+def test_huddle_cuts_basal_and_ledger_closes():
+    on = _huddle_world(init_agents=40)
+    off = World(small("harsh", **HUDDLE_KW, init_agents=40))
+    group = _huddle_group(on, 4)
+    _huddle_group(off, 4)
+    alive = on.s.alive.copy()
+    assert (alive == off.s.alive).all()
+    d_on, _ = _one_step_basal(on, 399)
+    d_off, _ = _one_step_basal(off, 399)
+    cfg = on.cfg
+    cut = on.s.huddle_cut[alive]
+    assert d_on < d_off
+    assert (on.s.huddle_cut[group] > 0.0).all()
+    assert d_off - d_on == pytest.approx(float((cfg.basal_cost * cfg.winter_basal_mult * cut).sum()), rel=1e-12)
+    assert rel_residual(on) < 1e-9 and rel_residual(off) < 1e-9
+    a = on.s.alive
+    assert on.summary()["huddle_cut_mean"] == pytest.approx(float(on.s.huddle_cut[a].mean()))
+    assert "huddle_cut_mean" not in off.summary()
+    on.run(1200)
+    assert rel_residual(on) < 1e-9
+
+
+def test_huddle_sleep_refund_uses_cut_basal():
+    # 자는 개체는 줄인 기초 대사의 (1 - sleep_basal)만 돌려받는다. 줄이기 전 값으로 돌려받으면 에너지가 생길 수 있다
+    cfg = small("stage2", "harsh", huddle_enabled=True, **HUDDLE_KW)
+    w = World(cfg)
+    s = w.s
+    group = _huddle_group(w, 4)
+    asleep = np.union1d(group, np.flatnonzero(s.alive)[::2])
+    s.asleep[asleep] = 1.0
+    s.fatigue[:] = 0.0
+    s.fatigue[asleep] = 50.0              # 한 스텝에 깨지 않게
+    alive = s.alive.copy()
+    winter, n = _one_step_basal(w, 399)
+    m = cfg.basal_cost * cfg.winter_basal_mult
+    cut = s.huddle_cut
+    sleeping = np.zeros_like(alive)
+    sleeping[asleep] = True
+    net = np.where(sleeping, m * (1.0 - cut) * cfg.sleep_basal, m * (1.0 - cut))[alive]
+    assert (cut[group] > 0.0).all() and 0 < len(asleep) < n
+    assert winter == pytest.approx(float(net.sum()), rel=1e-12)
+    assert (net >= 0.0).all()
+
+
+def test_huddle_needs_season_and_ext():
+    with pytest.raises(ValueError):
+        small("ext", huddle_enabled=True)                  # 겨울 없음
+    with pytest.raises(ValueError):
+        small(season_enabled=True, huddle_enabled=True)    # 기본 크기
+    assert Config(huddle_enabled=True).needs_ext
+    for bad in (dict(huddle_cap=1.0), dict(huddle_cap=-0.1), dict(huddle_exp=-0.1)):
+        with pytest.raises(ValueError):
+            small("harsh", huddle_enabled=True, **bad)
+
+
+def test_huddle_off_clears_cut():
+    w = _huddle_world()
+    _huddle_group(w, 4)
+    w.step_no = 399
+    w.step()
+    assert (w.s.huddle_cut > 0.0).any()
+    w.set_config(small("harsh", **HUDDLE_KW))
+    assert (w.s.huddle_cut == 0.0).all()

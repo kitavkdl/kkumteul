@@ -75,6 +75,7 @@ AGENT_FIELDS = [
     ("dispx", np.float64, (), False),
     ("dispy", np.float64, (), False),
     ("a_hit", np.int32, (), False),           # 이번 스텝에 친 동물 칸(-1이면 없음)
+    ("huddle_cut", np.float64, (), False),    # 이번 스텝 기초 대사를 줄이는 비율(뭉쳐 자기, 겨울 밖이면 0)
 ]
 FOOD_FIELDS = [
     ("fx", np.float64, True),
@@ -208,7 +209,8 @@ DEATH_KILLED = 4         # 공격을 맞은 스텝에 에너지가 바닥남
  P_FOV, P_VRANGE, P_VNOISE, P_SMELL_LEN, P_SMELL_GAIN, P_INIT_WIN, P_INIT_WREC, P_INIT_WOUT,
  P_BIAS_THRUST, P_BIAS_REPRO, P_SIGMA_INIT, P_SIGMA_MIN, P_SIGMA_MAX, P_SIGMA_TAU,
  P_P_HIDDEN, P_COLOR_SIGMA, P_SYN, P_BACK_COST, P_ETA_INIT, P_ETA_MAX, P_ALPHA_INIT, P_POISON,
- P_KIND_RATIO, P_SPOIL_RATE, P_SPOIL_MIN, P_CARRY_COST, P_MEAT_SPOIL, N_FP) = range(53)
+ P_KIND_RATIO, P_SPOIL_RATE, P_SPOIL_MIN, P_CARRY_COST, P_MEAT_SPOIL, P_HUDDLE_CAP, P_HUDDLE_EXP,
+ N_FP) = range(55)
 
 # ---- 정수 설정 칸 ----
 (Q_SEED, Q_GW, Q_GH, Q_FOOD_CAP, Q_N_PATCH, Q_PATCH_LIFE, Q_MAX_AGE, Q_MIN_AGENTS,
@@ -271,6 +273,8 @@ def pack_params(cfg):
     fp[P_SPOIL_MIN] = cfg.spoil_min_frac * cfg.food_energy
     fp[P_CARRY_COST] = cfg.carry_cost_mult
     fp[P_MEAT_SPOIL] = cfg.meat_spoil_mult
+    fp[P_HUDDLE_CAP] = cfg.huddle_cap
+    fp[P_HUDDLE_EXP] = cfg.huddle_exp
     ip[Q_SEED] = cfg.seed
     ip[Q_GW] = cfg.grid_w
     ip[Q_GH] = cfg.grid_h
@@ -781,6 +785,57 @@ def think(s):
 
 # ---- 움직임과 대사 ----
 @njit(cache=True)
+def huddle(s, fp, ip, on):
+    """뭉쳐 자기: 산 개체마다 닿은(중심 거리 2 * agent_radius + 0.5 안) 다른 산 개체 수 n을 세어
+    기초 대사를 줄이는 비율 huddle_cut = min(huddle_cap, 1 - (1 + n) ** -huddle_exp)를 적는다.
+    개체 격자는 스텝 처음에 세운 것을 쓴다(그 뒤 move 전까지 자리가 바뀌지 않는다). on이 아니면(겨울 밖) 모두 0이다."""
+    n = s.x.shape[0]
+    if not on:
+        for i in range(n):
+            s.huddle_cut[i] = 0.0
+        return
+    gw = ip[Q_GW]
+    gh = ip[Q_GH]
+    w = fp[P_W]
+    hgt = fp[P_H]
+    inv_cell = fp[P_INV_CELL]
+    reach = 2.0 * fp[P_A_RAD] + 0.5
+    reach2 = reach * reach
+    cap = fp[P_HUDDLE_CAP]
+    ex = fp[P_HUDDLE_EXP]
+    for i in range(n):
+        if not s.alive[i]:
+            s.huddle_cut[i] = 0.0
+            continue
+        xi = s.x[i]
+        yi = s.y[i]
+        cx = int(xi * inv_cell)
+        cy = int(yi * inv_cell)
+        if cx >= gw:
+            cx = gw - 1
+        if cy >= gh:
+            cy = gh - 1
+        cnt = 0
+        for oy in range(-1, 2):
+            yy = (cy + oy) % gh
+            for ox in range(-1, 2):
+                xx = (cx + ox) % gw
+                c = yy * gw + xx
+                for p in range(s.a_start[c], s.a_start[c + 1]):
+                    j = s.a_items[p]
+                    if j == i or not s.alive[j]:
+                        continue
+                    ddx = _wdiff(s.x[j] - xi, w)
+                    ddy = _wdiff(s.y[j] - yi, hgt)
+                    if ddx * ddx + ddy * ddy < reach2:
+                        cnt += 1
+        cut = 1.0 - (1.0 + cnt) ** (-ex)
+        if cut > cap:
+            cut = cap
+        s.huddle_cut[i] = cut
+
+
+@njit(cache=True)
 def move(s, fp, ip, basal_mult=1.0):
     n = s.x.shape[0]
     w = fp[P_W]
@@ -824,7 +879,7 @@ def move(s, fp, ip, basal_mult=1.0):
             for k in range(nh):
                 a += abs(s.h[i, k])
             c_brain += fp[P_BRAIN_ACT] * a / h_max
-        basal = fp[P_BASAL] * basal_mult
+        basal = fp[P_BASAL] * basal_mult * (1.0 - s.huddle_cut[i])
         s.energy[i] -= basal + c_brain + c_move
         s.ledger[L_BASAL] += basal
         s.ledger[L_BRAIN] += c_brain

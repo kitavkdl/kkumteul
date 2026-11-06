@@ -480,7 +480,7 @@ def after_think(s, fs, isp):
 
 @njit(cache=True)
 def after_move(s, fs, isp, basal_mult=1.0):
-    """움직인 뒤에 한다: 잠의 대사 할인, 학습 비용, 길의 이동 비용 할인, 흔적 남기기, 거름 쌓기."""
+    """움직인 뒤에 한다: 잠의 대사 할인(뭉쳐 자기로 줄인 기초 대사 기준), 학습 비용, 길의 이동 비용 할인, 흔적 남기기, 거름 쌓기."""
     n = s.x.shape[0]
     mind = isp[I_MIND] != 0
     niche = isp[I_NICHE] != 0
@@ -492,7 +492,7 @@ def after_move(s, fs, isp, basal_mult=1.0):
             continue
         if mind:
             if s.asleep[i] > 0.0:
-                back = fs[F_BASAL] * basal_mult * (1.0 - fs[F_SLEEP_BASAL])
+                back = fs[F_BASAL] * basal_mult * (1.0 - s.huddle_cut[i]) * (1.0 - fs[F_SLEEP_BASAL])
                 s.energy[i] += back
                 s.ledger[L_BASAL] -= back
             c = fs[F_PLAST_COST] * (s.eta[i] / fs[F_ETA_MAX]) * s.n_hidden[i] / h_max

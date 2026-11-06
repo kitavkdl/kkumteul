@@ -192,6 +192,13 @@ class Config:
     prey_graze_r: float = 18.0    # 목적지에서 이 거리 안을 맴돈다. 임시 결정, 먹이 자리 퍼짐(patch_sigma)과 같은 크기
     prey_wander_turn: float = 0.3  # 맴돌 때 스텝마다 방향을 흔드는 폭(rad, ±이 값 안 균등).
                                   # 임시 결정, 개체의 한 스텝 최대 회전(max_turn)과 같은 크기
+    huddle_enabled: bool = False  # 뭉쳐 자기: 겨울에만 닿은(중심 거리 2 * agent_radius + 0.5 안) 다른 개체 수 n으로
+                                  # 기초 대사를 min(huddle_cap, 1 - (1 + n) ** -huddle_exp)만큼 줄인다.
+                                  # 붙어 있으면 생기는 물리 효과다. 겨울(season_enabled)이 켜져 있어야 한다
+    huddle_cap: float = 0.4       # 줄이는 비율의 상한. 지구: 겨울 대사 6~53% 절약, 상한 0.3~0.5
+                                  # (Gilbert et al. 2010 [2차]). 임시 결정
+    huddle_exp: float = 0.33      # 머릿수 지수. 지구: 한 마리 대사가 대략 N^-0.33(Gilbert et al. 2010 [2차]).
+                                  # 셋이 붙으면 약 0.37, 넷 이상은 상한에서 멈춘다. 임시 결정
 
     # --- 4단계: 판이 바뀌는 세계 (기본은 꺼짐) ---
     niche_enabled: bool = False   # 다닌 자리가 길이 되고, 쌓은 거름이 먹이를 끌어온다
@@ -237,7 +244,8 @@ class Config:
     @property
     def needs_ext(self) -> bool:
         """확장 입출력 칸(preset=ext)이 필요한 장치가 하나라도 켜져 있는가."""
-        return self.season_enabled or self.spoil_enabled or self.carry_enabled or self.prey_enabled
+        return (self.season_enabled or self.spoil_enabled or self.carry_enabled or self.prey_enabled
+                or self.huddle_enabled)
 
     @property
     def field_cap(self) -> bool:
@@ -352,6 +360,10 @@ class Config:
             raise ValueError("prey_graze_speed, prey_travel_speed는 0보다 크고 1 이하여야 한다(v_max 배수)")
         if not (0.0 <= self.prey_wander_turn <= math.pi):
             raise ValueError("prey_wander_turn은 0~pi여야 한다")
+        if self.huddle_enabled and not self.season_enabled:
+            raise ValueError("huddle_enabled는 겨울(season_enabled)이 켜져 있어야 쓸 수 있다")
+        if not (0.0 <= self.huddle_cap < 1.0) or self.huddle_exp < 0.0:
+            raise ValueError("huddle_cap는 0 이상 1 미만, huddle_exp는 0 이상이어야 한다")
         for name in ("give_loss", "deposit_loss", "path_bonus", "fert_frac", "sleep_basal", "trace_decay",
                      "hormone_rate_hunger", "hormone_rate_stress", "hormone_rate_dopamine",
                      "hormone_rate_boredom", "reward_baseline_rate", "proto_lr", "sleep_forget",
