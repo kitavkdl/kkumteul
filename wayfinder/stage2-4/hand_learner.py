@@ -21,7 +21,8 @@ taste: 맛 기억을 읽는 손 개체(변형 taste: 물든 시야 왼쪽 네 �
        체크포인트 설정 그대로) × 맛 켬/끔(taste_enabled=false, 같은 크기) × 씨앗(HAND_SEEDS)을 돌린다.
        실제 바뀜마다 바뀐 뒤 300스텝(first)과 그 뒤 다음 바뀜까지(rest)의 독 비율, 놓인 먹이 수와 그 가운데 독을 적는다.
        예측: 맛 켬은 바뀐 뒤 몇 백 스텝 안에 독 비율 0.35 아래로, 맛 끔(물든 시야 0 → 아무 데로나)은 0.5.
-       판정 0 통과 = 맛 켬의 rest 평균 < 0.35이고 맛 끔의 rest 평균이 0.5 ± 0.05.
+       판정 0은 세계마다 낸다: 맛 켬의 rest 평균 < 0.35이고 맛 끔의 rest 평균이 0.5 ± 0.05면 그 세계 통과.
+       전체 통과 = 두 세계 모두 통과(그대로 세계에서도 되는지가 예측의 절반이라 합친 평균으로 내지 않는다).
 
     PYTHONPATH=. python wayfinder/stage2-4/hand_learner.py taste <체크포인트.npz> <스텝> <출력.json>
 """
@@ -198,6 +199,17 @@ def after_flips(series: list, period: int, seed: int, win: int = 300) -> list[di
     return out
 
 
+def taste_verdict(rest: dict) -> dict:
+    """판정 0을 세계마다 낸다. rest는 (lab, 맛 켬) → 바뀜별 rest 목록. 전체 통과 = 두 세계 모두 통과."""
+    worlds = []
+    for lab in (True, False):
+        on_rest, off_rest = (float(np.nanmean(rest[(lab, v)])) if rest.get((lab, v)) else float("nan")
+                             for v in (True, False))
+        ok = bool(on_rest < TASTE_PASS and abs(off_rest - TASTE_CTRL[0]) <= TASTE_CTRL[1])
+        worlds.append({"lab": lab, "pass": ok, "on_rest": on_rest, "off_rest": off_rest})
+    return {"pass": all(w["pass"] for w in worlds), "worlds": worlds}
+
+
 def solo(cfg, genomes: dict, n: int, steps: int, seed: int, every: int = 500) -> dict:
     rng = np.random.default_rng(seed)
     acfg = measure.arena_config(cfg, seed, n)
@@ -345,17 +357,18 @@ def main():
                            "placed_poison_mean": float(np.nanmean([r["placed_poison"] for r in x["series"]])),
                            "series": x["series"]}
                     res["taste"].append(row)
-                    rest.setdefault(on, []).extend(f["rest"] for f in flips)
+                    rest.setdefault((lab, on), []).extend(f["rest"] for f in flips)
                     text = "  ".join(f"{f['flip']} {f['first']:.2f}→{f['rest']:.2f}" for f in flips)
                     print(f"{'LAB' if lab else '그대로':6s} {'맛 켬' if on else '맛 끔':5s} {seed} n={n} | {text} | "
                           f"first 평균 {row['first_mean']:.3f} rest 평균 {row['rest_mean']:.3f} | "
                           f"놓인 먹이 {row['placed_mean']:.0f} 그 가운데 독 {row['placed_poison_mean']:.2f}", flush=True)
                     out.write_text(json.dumps(res, indent=1, ensure_ascii=False, default=float))
-        on_rest, off_rest = (float(np.nanmean(rest[v])) if rest.get(v) else float("nan") for v in (True, False))
-        ok = bool(on_rest < TASTE_PASS and abs(off_rest - TASTE_CTRL[0]) <= TASTE_CTRL[1])
-        res["verdict0"] = {"pass": ok, "on_rest": on_rest, "off_rest": off_rest}
-        print(f"판정 0: {'통과' if ok else '실패'} | 맛 켬 rest 평균 {on_rest:.3f} (< {TASTE_PASS}) "
-              f"맛 끔 {off_rest:.3f} ({TASTE_CTRL[0]} ± {TASTE_CTRL[1]})", flush=True)
+        res["verdict0"] = v = taste_verdict(rest)
+        for w in v["worlds"]:
+            print(f"판정 0 {'LAB' if w['lab'] else '그대로':6s}: {'통과' if w['pass'] else '실패'} | "
+                  f"맛 켬 rest 평균 {w['on_rest']:.3f} (< {TASTE_PASS}) "
+                  f"맛 끔 {w['off_rest']:.3f} ({TASTE_CTRL[0]} ± {TASTE_CTRL[1]})", flush=True)
+        print(f"판정 0: {'통과' if v['pass'] else '실패'} (두 세계 모두 통과해야 통과)", flush=True)
     elif mode == "assay":
         hand = dict(side, path="hand-learn",
                     genomes=make_hand(side["genomes"], 400, **VARIANTS[os.environ.get("HAND_ASSAY", "learn")]))
