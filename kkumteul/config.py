@@ -485,7 +485,8 @@ def preset(name: str) -> dict:
         "ext": dict(n_spare_in=N_STAGE_IN + N_EXT_IN, n_spare_out=N_STAGE_OUT + N_EXT_OUT),  # 크기만 올린다(대조 갈래용)
     }
     table["harsh"] = {**table["ext"], "season_enabled": True, "spoil_enabled": True}  # 확장 묶음에 덧붙이므로 표 뒤에 만든다
-    table["harsh2"] = {**table["harsh"], "autumn_len": 800, "autumn_mult": 2.0, "carry_enabled": True}
+    table["harsh2"] = {**table["harsh"], "autumn_len": 800, "autumn_mult": 2.0, "carry_enabled": True,
+                       "prey_enabled": True, "huddle_enabled": True}
     if name not in table:
         raise ValueError(f"모르는 preset: {name} (stage1~stage4, conflict, kinds, ext, harsh, harsh2)")
     return table[name]

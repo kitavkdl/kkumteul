@@ -31,6 +31,7 @@ from . import kernels as k
 from . import scenario as scn_mod
 from .config import ACT_GIVE, Config
 from .scenario import Scenario
+from .world import attack_newly_on
 
 # 장면의 개체 표시(한 바이트): 아래 두 비트씩은 그 사이에 먹은 좋은 먹이 수와 독 수(3에서 멈춘다)
 F_ASLEEP = 16
@@ -679,9 +680,14 @@ def record(ckpt_path, steps: int | None = None, every: int = 2, from_flip: bool 
     overrides(["poison=0", ...])를 주면 그 설정으로 바꿔 돌린다(같은 체크포인트에서 설정 하나만 바꾼 대조)."""
     path = Path(ckpt_path)
     overrides = list(overrides or [])
+    calmed = False
     if overrides:     # 설정을 먼저 만들어 읽는다(preset=ext면 확장 크기로)
-        world, cmeta = ckpt.load(path, ckpt.read_config(path).with_overrides(overrides))
+        saved = ckpt.read_config(path)
+        world, cmeta = ckpt.load(path, saved.with_overrides(overrides))
         world.calm_new_outputs(cmeta["enlarged_out"][0])
+        if attack_newly_on(saved, world.cfg):     # 갈래(Runner.branch)와 같이 떠돈 공격 편향을 맞춘다
+            world.calm_attack()
+            calmed = True
     else:
         world, cmeta = ckpt.load(path)
     if cmeta["config"].get("passive"):     # 덮어쓴 설정이 아니라 저장된 설정으로 가린다
@@ -694,6 +700,8 @@ def record(ckpt_path, steps: int | None = None, every: int = 2, from_flip: bool 
                      + ")는 0에서 다시 시작했습니다.")
     if overrides:
         notes.append("원래 실행과 설정을 바꿔 다시 돌렸습니다: " + ", ".join(overrides) + ".")
+    if calmed:
+        notes.append("공격 출력 편향을 −1로 맞췄습니다(공격을 쓰는 장치가 새로 켜져서).")
     if cmeta.get("source_hash") not in (None, SOURCE_HASH):
         notes.append("이 체크포인트는 지금과 다른 판의 코드로 저장됐습니다. 다시 돌린 장면이 원래 실행이 "
                      "그 뒤에 겪은 것과 스텝 단위로 같지는 않을 수 있습니다.")

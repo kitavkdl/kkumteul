@@ -188,6 +188,47 @@ def move_animals(step, s, fa, ia):
         s.an_y[j] = k._wrap(ny, h)
 
 
+# ---- 감각 ----
+@njit(cache=True)
+def sense_animals(alive, x, y, heading, obs, col, an_alive, an_kind, an_x, an_y, kind, radius, vrange, fov, w, h):
+    """산 개체마다 kind 종류의 산 동물 가운데 보이는 가장 가까운 것 하나의 방향을 입력 두 칸(col, col+1)에
+    가까움 × (cos, sin)으로 쓴다(각도는 머리 기준 -pi~pi). 없으면 0, 0이다.
+    보인다 = 틈(감긴 거리 - radius)이 vrange보다 작고, 몸 한쪽 끝이 시야각 안에 든다
+    (|각도| - asin(radius / 거리) <= fov / 2, 거리가 radius 이하면 늘 보인다).
+    가까움 = 1 - 틈 / vrange(겹치면 틈 0으로 1). 순차 커널이다."""
+    half = 0.5 * fov
+    for i in range(alive.shape[0]):
+        if not alive[i]:
+            continue
+        best_d = -1.0
+        best_a = 0.0
+        for j in range(an_alive.shape[0]):
+            if not an_alive[j] or an_kind[j] != kind:
+                continue
+            dx = k._wdiff(an_x[j] - x[i], w)
+            dy = k._wdiff(an_y[j] - y[i], h)
+            d = math.hypot(dx, dy)
+            if d - radius >= vrange:
+                continue
+            ang = math.atan2(dy, dx) - heading[i]
+            ang = ang - 2.0 * math.pi * math.floor((ang + math.pi) / (2.0 * math.pi))
+            if d > radius and abs(ang) - math.asin(radius / d) > half:
+                continue
+            if best_d < 0.0 or d < best_d:
+                best_d = d
+                best_a = ang
+        if best_d < 0.0:
+            obs[i, col] = 0.0
+            obs[i, col + 1] = 0.0
+        else:
+            gap = best_d - radius
+            if gap < 0.0:
+                gap = 0.0
+            c = 1.0 - gap / vrange
+            obs[i, col] = c * math.cos(best_a)
+            obs[i, col + 1] = c * math.sin(best_a)
+
+
 # ---- 사냥: 상처·회복·반격·고기 ----
 @njit(cache=True)
 def wound(s, a, dmg):

@@ -28,9 +28,9 @@ import numpy as np
 from . import checkpoint as ckpt
 from . import events
 from . import kernels as k
-from .config import ACT_ATTACK, Config
+from .config import Config
 from .scenario import Scenario
-from .world import World
+from .world import World, attack_newly_on
 
 FRAME_MAGIC = b"WSF2"
 FRAME_HEADER = struct.Struct("<4sIqIIff")   # magic, 전체 바이트, step, 개체 수, 먹이 수, 세계 너비, 높이
@@ -221,9 +221,9 @@ class Runner:
                new_stream: bool, passive: bool, scenario=None, calm_attack: bool = False) -> "Runner":
         """scenario(각본 파일 경로나 Scenario)를 주면 갈라낸 스텝부터 그 각본을 적용한다.
 
-        calm_attack이거나 이 갈래에서 공격(conflict_enabled)이 새로 켜지면, 살아 있는 개체의 공격 출력 편향을
-        새로 만든 개체와 같은 -1로 맞춘다. 공격이 꺼진 세계에서는 그 출력이 쓰이지 않아 변이로 떠돌았기 때문에,
-        그대로 켜면 처음부터 공격자가 섞인 채 시작한다. 견줄 대조 갈래에는 --calm-attack을 준다.
+        calm_attack이거나 이 갈래에서 공격(conflict_enabled)이나 동물 장치(사냥감)가 새로 켜지면(attack_newly_on),
+        살아 있는 개체의 공격 출력 편향을 새로 만든 개체와 같은 -1로 맞춘다. 공격이 꺼진 세계에서는 그 출력이
+        쓰이지 않아 변이로 떠돌았기 때문에, 그대로 켜면 처음부터 공격자가 섞인 채 시작한다. 견줄 대조 갈래에는 --calm-attack을 준다.
         """
         if (run_dir / "run.json").exists():
             raise FileExistsError(f"이미 있는 실행이다: {run_dir}")
@@ -260,9 +260,8 @@ class Runner:
         edits = world.calm_new_outputs(cmeta["enlarged_out"][0])
         if cmeta["lifetime_reset"]:
             edits.append("lifetime_reset: " + ", ".join(cmeta["lifetime_reset"]))
-        if calm_attack or (cfg.conflict_enabled and not old.conflict_enabled):
-            world.s.bout[world.s.alive, ACT_ATTACK] = -1.0
-            edits.append("bout[ACT_ATTACK]=-1")
+        if calm_attack or attack_newly_on(old, cfg):
+            edits += world.calm_attack()
         diff = {key: [getattr(old, key), val] for key, val in d.items() if getattr(old, key) != val}
         scn = read_scenario(scenario, cfg)
         lock = acquire_lock(run_dir)
@@ -334,8 +333,8 @@ class Runner:
             "e_residual_rel": bal["residual"] / max(bal["spawn"] + bal["inject"], 1.0),
             "e_discard": bal["discard"],
         })
-        if w.cfg.conflict_enabled:
-            row["w_killed"] = int(dc[k.C_DEATH_KILLED])     # 맞아 죽은 수(w_starve에는 들어 있지 않다)
+        if w.cfg.conflict_enabled or w.cfg.prey_enabled:
+            row["w_killed"] = int(dc[k.C_DEATH_KILLED])     # 맞아 죽은 수(사냥감의 반격 포함, w_starve에는 들어 있지 않다)
         if self.scenario is not None:
             # 각본이 건드리는 설정의 지금 값
             row["scn"] = {name: getattr(w.cfg, name) for name in self.scenario.touched}
@@ -471,7 +470,7 @@ def main(argv=None) -> int:
             p.add_argument("--new-stream", action="store_true", help="난수 흐름을 새로 한다")
             p.add_argument("--passive", action="store_true", help="선택 없는 대조 실행으로 만든다")
             p.add_argument("--calm-attack", action="store_true",
-                           help="공격 출력 편향을 -1로 맞춘다(공격을 켠 갈래와 견줄 대조 갈래에 준다)")
+                           help="공격 출력 편향을 -1로 맞춘다(공격이나 사냥감을 켠 갈래와 견줄 대조 갈래에 준다)")
     args = ap.parse_args(argv)
 
     if args.cmd == "new":

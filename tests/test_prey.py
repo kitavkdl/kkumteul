@@ -1,5 +1,5 @@
 """큰 사냥감 시험: 동물 배열, 유입 몫에서 태어나기, 떠돌기·수명, 끄면 정리, 동물 에너지 장부,
-사냥(상처·회복·반격 나눠 맞기·포화·고기).
+사냥(상처·회복·반격 나눠 맞기·포화·고기), 사냥감 감각, 공격 편향 맞추기, 요약, 박은 해시.
 
     python3 -m pytest -q tests/test_prey.py
 """
@@ -20,9 +20,11 @@ from test_stages import rel_residual, small  # noqa: E402
 from kkumteul import animals as an  # noqa: E402
 from kkumteul import checkpoint as ckpt  # noqa: E402
 from kkumteul import kernels as k  # noqa: E402
+from kkumteul import replay  # noqa: E402
 from kkumteul import scenario  # noqa: E402
-from kkumteul.config import ACT_ATTACK  # noqa: E402
-from kkumteul.world import World  # noqa: E402
+from kkumteul.config import ACT_ATTACK, EXT_PREY  # noqa: E402
+from kkumteul.run import Runner  # noqa: E402
+from kkumteul.world import World, attack_newly_on  # noqa: E402
 
 
 def _prey_world(*presets, **kw):
@@ -570,3 +572,165 @@ def test_hunting_world_ledger_closes():
     off, meat_off = _hunting_world(False)                  # 같은 세계에서 사냥감만 끈 갈래
     assert max(meat_off) == 0 and rel_residual(off) < 1e-9
     assert s.ledger[k.L_LOST] != off.s.ledger[k.L_LOST]
+
+
+# ---- 사냥감 감각, 동물 장치를 새로 켜는 갈래·다시 보기, 요약, 해시 ----
+def _sense_one(prey_xy, heading=0.0, at=(100.0, 100.0)):
+    """개체 하나를 at에 머리 heading으로 두고, 사냥감들을 prey_xy에 둔 세계에서 사냥감 감각 두 칸을 돌려준다."""
+    w = _hunt_arena(1)
+    s, cfg = w.s, w.cfg
+    i = int(np.flatnonzero(s.alive)[0])
+    s.x[i], s.y[i], s.heading[i] = at[0], at[1], heading
+    for x, y in prey_xy:
+        _put_prey(w, x, y)
+    col = cfg.ext_in0 + EXT_PREY
+    s.obs[i, col:col + 2] = 9.0                            # 없으면 0으로 덮어쓰는지도 본다
+    an.sense_animals(s.alive, s.x, s.y, s.heading, s.obs, col, s.an_alive, s.an_kind, s.an_x, s.an_y,
+                     an.ANIMAL_PREY, cfg.prey_radius, cfg.vision_range, cfg.vision_fov, cfg.world_w, cfg.world_h)
+    return tuple(float(v) for v in s.obs[i, col:col + 2])
+
+
+def test_prey_direction_input():
+    c = 1.0 - (8.0 - 2.0) / 16.0                           # 0.625
+    assert _sense_one([(108.0, 100.0)]) == pytest.approx((c, 0.0), abs=1e-7)
+    a30 = math.radians(30.0)
+    got = _sense_one([(100.0 + 8.0 * math.cos(a30), 100.0 + 8.0 * math.sin(a30))])
+    assert got == pytest.approx((c * math.cos(a30), c * math.sin(a30)), abs=1e-6)
+    assert _sense_one([(100.0, 108.0)]) == (0.0, 0.0)      # 90도, 시야(120도) 밖
+    assert _sense_one([(92.0, 100.0)]) == (0.0, 0.0)       # 뒤
+    assert _sense_one([(120.0, 100.0)]) == (0.0, 0.0)      # 틈 18 > 16
+    assert _sense_one([(112.0, 100.0), (108.0, 100.0)]) == pytest.approx((c, 0.0), abs=1e-7)   # 가까운 것
+    # 시야 끝에 걸친 몸은 보인다: 중심은 61도(시야 밖)지만 반지름 2가 시야 안으로 들어온다
+    a61 = math.radians(61.0)
+    edge = _sense_one([(100.0 + 8.0 * math.cos(a61), 100.0 + 8.0 * math.sin(a61))])
+    assert edge[0] == pytest.approx(c * math.cos(a61), abs=1e-6) and edge[1] > 0.0
+    # 머리 방향 기준: 머리가 90도면 (100, 108)이 바로 앞
+    assert _sense_one([(100.0, 108.0)], heading=math.pi / 2) == pytest.approx((c, 0.0), abs=1e-6)
+    # 감긴 거리: (252, 100)에서 보면 (4, 100)은 가장자리 너머 앞 8이다
+    assert _sense_one([(4.0, 100.0)], at=(252.0, 100.0)) == pytest.approx((c, 0.0), abs=1e-6)
+
+
+def test_world_step_writes_prey_sense():
+    w = _hunt_arena(1)
+    s, cfg = w.s, w.cfg
+    i = int(np.flatnonzero(s.alive)[0])
+    s.x[i], s.y[i], s.heading[i] = 100.0, 100.0, 0.0
+    _put_prey(w, 108.0, 100.0)
+    w.step()
+    col = cfg.ext_in0 + EXT_PREY
+    assert float(s.obs[i, col]) == pytest.approx(0.625) and float(s.obs[i, col + 1]) == pytest.approx(0.0, abs=1e-7)
+    off = World(small("ext", n_prey=0, init_agents=1, min_agents=0, food_inflow=0.0))
+    off.step()
+    assert not off.s.obs[:, col:col + 2].any()             # 사냥감이 꺼지면 두 칸은 0
+
+
+def test_attack_newly_on():
+    base, ext = small(), small("ext")
+    assert attack_newly_on(ext, small("ext", prey_enabled=True))
+    assert attack_newly_on(base, small("conflict"))
+    assert not attack_newly_on(small("ext", prey_enabled=True), small("ext", prey_enabled=True))
+    assert not attack_newly_on(base, ext)
+    assert not attack_newly_on(small("ext", prey_enabled=True), ext)    # 끄는 쪽은 아니다
+
+
+def _drifted_main(tmp_path):
+    """기본 크기 세계. 공격이 꺼진 채 떠돈 공격 편향을 흉내 내고 400스텝 돌려 저장한다."""
+    r = Runner.new(tmp_path / "main", small())
+    r.world.s.bout[:, ACT_ATTACK] = 0.7
+    r.loop(400, quiet=True)
+    r.close()
+
+
+def test_branch_into_harsh2_calms_attack(tmp_path):
+    _drifted_main(tmp_path)
+    r = Runner.branch(tmp_path / "main", tmp_path / "h2", 400, ["preset=harsh2"], False, False)
+    c, s = r.world.cfg, r.world.s
+    assert c.prey_enabled and c.huddle_enabled and c.carry_enabled and c.season_enabled
+    assert (s.bout[s.alive, ACT_ATTACK] == -1.0).all() and "bout[ACT_ATTACK]=-1" in r.meta["genome_edits"]
+    meta = json.loads((tmp_path / "h2" / "run.json").read_text())
+    assert "bout[ACT_ATTACK]=-1" in meta["genome_edits"]
+    r.loop(300, quiet=True); r.close()
+    assert rel_residual(r.world) < 1e-9
+    again = Runner.resume(tmp_path / "h2")
+    assert again.world.state_hash() == r.world.state_hash(); again.close()
+    plain = Runner.branch(tmp_path / "main", tmp_path / "ext", 400, ["preset=ext"], False, False)
+    assert (plain.world.s.bout[plain.world.s.alive, ACT_ATTACK] > 0).any()
+    assert "bout[ACT_ATTACK]=-1" not in plain.meta["genome_edits"]
+    plain.close()
+    ctrl = Runner.branch(tmp_path / "main", tmp_path / "ctrl", 400, ["preset=ext"], False, False, calm_attack=True)
+    assert (ctrl.world.s.bout[ctrl.world.s.alive, ACT_ATTACK] == -1.0).all()
+    ctrl.close()
+
+
+def test_replay_record_calms_attack_for_animal_override(tmp_path, monkeypatch):
+    _drifted_main(tmp_path)
+    calls = []
+    orig = World.calm_attack
+
+    def counted(self):
+        calls.append(1)
+        return orig(self)
+
+    monkeypatch.setattr(World, "calm_attack", counted)
+    path = dict(ckpt.list_checkpoints(tmp_path / "main" / "checkpoints"))[400]
+    rep = replay.record(path, steps=10, overrides=["preset=harsh2"])
+    assert len(calls) == 1 and any("공격 출력 편향" in n for n in rep.meta["notes"])
+    rep = replay.record(path, steps=10)
+    assert len(calls) == 1 and not any("공격 출력 편향" in n for n in rep.meta["notes"])
+    replay.record(path, steps=10, overrides=["preset=ext"])
+    assert len(calls) == 1
+
+
+def _thread_world():
+    """사냥이 일어나는 세계(뭉쳐 자기·겨울을 짧게 켬). 100스텝 뒤 공격 편향을 +3으로 두고 사냥감을 개체 자리로 옮겨
+    200스텝 더 돌린다. 개체가 곧 흩어지므로 사냥감 체력을 세 번 치면 쓰러지게 낮춘다."""
+    w = World(small("ext", prey_hp=0.5, prey_enabled=True, season_enabled=True, season_period=200, winter_len=60,
+                    huddle_enabled=True))
+    w.run(100)
+    s = w.s
+    s.bout[s.alive, ACT_ATTACK] = 3.0
+    ag = np.flatnonzero(s.alive)
+    for q, j in enumerate(np.flatnonzero(s.an_alive)):
+        s.an_x[j], s.an_y[j] = s.x[ag[q]], s.y[ag[q]]
+    w.run(200)
+    return w
+
+
+def test_prey_world_does_not_depend_on_thread_count():
+    import numba
+    n0 = numba.get_num_threads()
+    try:
+        numba.set_num_threads(1)
+        a = _thread_world()
+        numba.set_num_threads(max(2, min(4, n0)))
+        b = _thread_world()
+    finally:
+        numba.set_num_threads(n0)
+    assert a.s.counters[k.C_PREY_KILLED] > 0
+    assert a.state_hash() == b.state_hash()
+
+
+def test_summary_reports_prey():
+    w = World(small("harsh2"))
+    w.run(200)
+    out = w.summary()
+    assert out["prey_alive"] == int(w.s.an_alive.sum()) and out["prey_alive"] > 0
+    assert out["prey_killed"] == int(w.s.counters[k.C_PREY_KILLED])
+    assert out["prey_hunters"] == int(w.s.counters[k.C_HUNTERS])
+    assert out["deaths_killed"] == int(w.s.counters[k.C_DEATH_KILLED]) and "huddle_cut_mean" in out
+    w.s.alive[:] = False                                   # 개체가 모두 없어도 키는 남는다
+    assert "prey_alive" in w.summary() and "huddle_cut_mean" in w.summary()
+    assert "prey_alive" not in World(small("harsh")).summary()
+
+
+# 이 커밋의 코드가 낸 300스텝 해시. 포식자·약탈자를 더한 뒤에도 그것들을 끈 이 설정은 같아야 한다.
+PREY_HASH_CFG = dict(season_period=200, winter_len=60, autumn_len=40, autumn_mult=2.0,
+                     carry_enabled=True, prey_enabled=True, huddle_enabled=True)
+PINNED_PREY_HASH_300 = "7547f8c3959541e0061604453f66f452bb1b018b464cc480cdd45072f2a1f6d3"
+
+
+def test_prey_world_keeps_pinned_hash():
+    w = World(small("harsh", **PREY_HASH_CFG))
+    w.run(300)
+    assert int(w.s.an_alive.sum()) > 0                     # 사냥감이 해시에 들어간다. 300스텝 안에 겨울(140~199)도 있다
+    assert w.state_hash() == PINNED_PREY_HASH_300

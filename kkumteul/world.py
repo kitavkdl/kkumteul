@@ -9,7 +9,7 @@ import numpy as np
 from . import animals as an
 from . import kernels as k
 from . import stages as st
-from .config import ACT_CARRY, EXT_CARRY, EXT_SEASON, Config, N_REWARD
+from .config import ACT_ATTACK, ACT_CARRY, EXT_CARRY, EXT_PREY, EXT_SEASON, Config, N_REWARD
 
 # 2~4단계에서 새로 생긴 저장 필드. 옛 체크포인트에는 없어도 된다(그 밖의 필드가 없으면 깨진 것이다)
 NEW_SINCE_STAGE1 = frozenset({"rw", "eta", "alpha", "horm", "mod", "exp_r", "e_prev", "fatigue", "asleep",
@@ -20,6 +20,12 @@ BIRTH_DTYPE = np.dtype([("id", "<i8"), ("parent", "<i8"), ("step", "<i8"),
                         ("gen", "<i4"), ("n_hidden", "<i4"), ("kind", "<i4")])
 DEATH_DTYPE = np.dtype([("id", "<i8"), ("step", "<i8"), ("cause", "<i4"), ("age", "<i4"),
                         ("n_off", "<i4"), ("gen", "<i4"), ("n_hidden", "<i4"), ("eaten", "<f4")])
+
+
+def attack_newly_on(old: Config, new: Config) -> bool:
+    """old에서 new로 바꾸며 공격 출력이 처음으로 쓰이게 되는가: 공격(conflict_enabled)이나 동물 장치가 새로 켜진다.
+    꺼진 세계에서는 그 출력이 변이로 떠돌았으므로, 이때 편향을 새 개체와 같게 맞춘다(World.calm_attack)."""
+    return (new.conflict_enabled and not old.conflict_enabled) or (new.animals_on and not old.animals_on)
 
 
 class World:
@@ -120,6 +126,11 @@ class World:
             return ["bout[ACT_CARRY]=-1"]
         return []
 
+    def calm_attack(self) -> list[str]:
+        """산 개체의 공격 출력 편향을 새로 만든 개체와 같은 -1로 맞춘다. 손댄 것을 돌려준다."""
+        self.s.bout[self.s.alive, ACT_ATTACK] = -1.0
+        return ["bout[ACT_ATTACK]=-1"]
+
     # ---- 사건 버퍼 ----
     def _take_births(self, nb: int) -> None:
         if nb:
@@ -210,6 +221,10 @@ class World:
             k.write_ext2(s.alive, s.obs, cfg.ext_in0 + EXT_SEASON, sn, cs)
         if cfg.carry_enabled:
             k.write_held(s.alive, s.a_held, s.obs, cfg.ext_in0 + EXT_CARRY)
+        if cfg.prey_enabled:
+            an.sense_animals(s.alive, s.x, s.y, s.heading, s.obs, cfg.ext_in0 + EXT_PREY, s.an_alive, s.an_kind,
+                             s.an_x, s.an_y, an.ANIMAL_PREY, cfg.prey_radius, cfg.vision_range, cfg.vision_fov,
+                             cfg.world_w, cfg.world_h)
         if mind:
             st.mind_update(s, fs, isp)
             st.think_plastic(t, s, fs, isp)
@@ -439,8 +454,14 @@ class World:
                     "soil_total": float(s.soil.sum()),
                     "fertile_food": int(c[k.C_FERTILE]),
                 })
+        # 아래 키는 개체 수와 상관없이 낸다(모두 죽은 순간에도 열이 끊기지 않게)
         if self.cfg.huddle_enabled:
             out["huddle_cut_mean"] = float(s.huddle_cut[a].mean()) if n else 0.0
+        if self.cfg.prey_enabled:
+            out["prey_alive"] = int((s.an_alive & (s.an_kind == an.ANIMAL_PREY)).sum())
+            out["prey_killed"] = int(c[k.C_PREY_KILLED])
+            out["prey_hunters"] = int(c[k.C_HUNTERS])     # 쓰러뜨린 사냥감마다 붙어 있던 공격자 수의 합
+            out["deaths_killed"] = int(c[k.C_DEATH_KILLED])
         return out
 
     def energy_balance(self) -> dict:
