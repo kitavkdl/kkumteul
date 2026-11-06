@@ -167,6 +167,8 @@ class Config:
                                   # 켜면 먹이 상한은 들판 알(든 적 없는 알, 사체 제외)만 센다.
                                   # 들판 아닌 물건이 max_agents칸을 채우면 들지 않은 것 가운데 가장 오래된 것이 밀려난다
     carry_cost_mult: float = 1.3  # 들고 있을 때 이동 비용 배수. 지구 참고값 없음. 임시 결정
+    meat_spoil_mult: float = 3.0  # 고기는 부패 속도에 이 배수를 곱한다. 지구: 씨앗·견과 ≪ 과일 ≪ 고기
+                                  # (DeVault et al. 2004 [2차]). 임시 결정
 
     # --- 4단계: 판이 바뀌는 세계 (기본은 꺼짐) ---
     niche_enabled: bool = False   # 다닌 자리가 길이 되고, 쌓은 거름이 먹이를 끌어온다
@@ -288,6 +290,8 @@ class Config:
             raise ValueError("back_cost_mult는 1 이상이어야 한다(환급 금지)")
         if self.carry_cost_mult < 1.0:
             raise ValueError("carry_cost_mult는 1 이상이어야 한다(들면 이동이 싸지면 안 된다)")
+        if self.meat_spoil_mult < 1.0 or self.spoil_rate * self.meat_spoil_mult > 1.0:
+            raise ValueError("meat_spoil_mult는 1 이상이고 spoil_rate * meat_spoil_mult는 1 이하여야 한다(에너지가 음수가 되지 않게)")
         for name in ("stats_every", "frame_every", "frames_per_segment", "frame_ring_segments",
                      "ckpt_every", "ckpt_keep_last", "patch_life", "event_segment_steps", "max_age"):
             if getattr(self, name) < 1:
@@ -300,6 +304,8 @@ class Config:
             raise ValueError(f"n_spare_in은 {N_STAGE_IN} 이상, n_spare_out은 {N_STAGE_OUT} 이상이어야 한다")
         if self.needs_ext and (self.n_spare_in < N_STAGE_IN + N_EXT_IN or self.n_spare_out < N_STAGE_OUT + N_EXT_OUT):
             raise ValueError("혹독한 세계·암수 장치는 확장 크기가 필요하다: preset=ext")
+        if self.field_cap and not self.ext_size:
+            raise ValueError("들판 계수기는 확장 크기 세계에서만 쓴다(계수기 칸이 모자란다)")
         for name in ("give_loss", "deposit_loss", "path_bonus", "fert_frac", "sleep_basal", "trace_decay",
                      "hormone_rate_hunger", "hormone_rate_stress", "hormone_rate_dopamine",
                      "hormone_rate_boredom", "reward_baseline_rate", "proto_lr", "sleep_forget",

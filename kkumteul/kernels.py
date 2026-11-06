@@ -89,6 +89,8 @@ FOOD_FIELDS = [
 KIND_A = 0           # 시야에서 양수로 보이는 종류
 KIND_B = 1           # 시야에서 음수로 보이는 종류
 KIND_CORPSE = 2      # 죽은 개체가 남긴 먹이. 어느 쪽이 독이든 늘 먹을 수 있고 시야에서는 양수로 보인다
+KIND_MEAT = 3        # 쓰러진 큰 사냥감이 남긴 고기. 사체처럼 늘 먹을 수 있고 들판 알이 아니며, 사체보다 빨리 썩는다
+ALWAYS_EDIBLE = (KIND_CORPSE, KIND_MEAT)    # 독이 아니고 들판 알 수에도 세지 않는 종류(한 곳에서만 정한다)
 TOUCH_HIT = 2.0      # 이번 스텝에 공격을 맞은 개체의 닿음 감각(그냥 닿으면 1.0)
 
 OTHER_SAVED = ["counters", "ledger", "budget", "trail", "soil"]
@@ -184,13 +186,12 @@ DEATH_KILLED = 4         # 공격을 맞은 스텝에 에너지가 바닥남
  P_FOV, P_VRANGE, P_VNOISE, P_SMELL_LEN, P_SMELL_GAIN, P_INIT_WIN, P_INIT_WREC, P_INIT_WOUT,
  P_BIAS_THRUST, P_BIAS_REPRO, P_SIGMA_INIT, P_SIGMA_MIN, P_SIGMA_MAX, P_SIGMA_TAU,
  P_P_HIDDEN, P_COLOR_SIGMA, P_SYN, P_BACK_COST, P_ETA_INIT, P_ETA_MAX, P_ALPHA_INIT, P_POISON,
- P_KIND_RATIO, P_SPOIL_RATE, P_SPOIL_MIN, P_CARRY_COST, N_FP) = range(52)
+ P_KIND_RATIO, P_SPOIL_RATE, P_SPOIL_MIN, P_CARRY_COST, P_MEAT_SPOIL, N_FP) = range(53)
 
 # ---- 정수 설정 칸 ----
-# Q_CARRY는 채우기만 하고 아직 읽는 곳이 없다 — 들기 결과를 기록할 자리로 둔다.
 (Q_SEED, Q_GW, Q_GH, Q_FOOD_CAP, Q_N_PATCH, Q_PATCH_LIFE, Q_MAX_AGE, Q_MIN_AGENTS,
  Q_SECTORS, Q_H_MAX, Q_H_INIT, Q_H_MIN, Q_REPRO_BRAIN, Q_REPRO_MIN_AGE, Q_MUT, Q_CORPSE,
- Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, Q_CAP_REPLACE, Q_SPOIL_AFTER, Q_FIELD_CAP, Q_CARRY, N_IP) = range(24)
+ Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, Q_CAP_REPLACE, Q_SPOIL_AFTER, Q_FIELD_CAP, N_IP) = range(23)
 
 
 def pack_params(cfg):
@@ -247,6 +248,7 @@ def pack_params(cfg):
     fp[P_SPOIL_RATE] = cfg.spoil_rate
     fp[P_SPOIL_MIN] = cfg.spoil_min_frac * cfg.food_energy
     fp[P_CARRY_COST] = cfg.carry_cost_mult
+    fp[P_MEAT_SPOIL] = cfg.meat_spoil_mult
     ip[Q_SEED] = cfg.seed
     ip[Q_GW] = cfg.grid_w
     ip[Q_GH] = cfg.grid_h
@@ -269,7 +271,6 @@ def pack_params(cfg):
     ip[Q_CAP_REPLACE] = int(cfg.food_cap_replace)
     ip[Q_SPOIL_AFTER] = cfg.spoil_after
     ip[Q_FIELD_CAP] = int(cfg.field_cap)
-    ip[Q_CARRY] = int(cfg.carry_enabled)
     return fp, ip
 
 
@@ -348,9 +349,23 @@ def pick_kind(seed, a, b, ratio):
 
 
 @njit(cache=True, inline="always")
+def always_edible(kind):
+    """이 종류는 어느 쪽이 독이든 늘 먹을 수 있고 들판 알이 아닌가(사체·고기)."""
+    for e in ALWAYS_EDIBLE:
+        if kind == e:
+            return True
+    return False
+
+
+def always_edible_mask(kinds):
+    """always_edible의 배열 판(파이썬). 다시 보기와 시험이 쓴다."""
+    return np.isin(kinds, ALWAYS_EDIBLE)
+
+
+@njit(cache=True, inline="always")
 def is_field(s, j):
-    """먹이 칸 j가 들판 알인가: 들판을 떠난 적 없고 사체가 아니다."""
-    return s.f_dropped[j] == 0 and s.f_kind[j] != KIND_CORPSE
+    """먹이 칸 j가 들판 알인가: 들판을 떠난 적 없고 늘 먹을 수 있는 종류(사체·고기)가 아니다."""
+    return s.f_dropped[j] == 0 and not always_edible(s.f_kind[j])
 
 
 @njit(cache=True)
@@ -494,7 +509,7 @@ def spawn_food(step, s, fp, ip, mult=1.0):
 @njit(cache=True)
 def spoil_food(step, s, fp, ip, rate_mult=1.0):
     """난 지 spoil_after 스텝이 지난 먹이(사체 포함)를 스텝마다 spoil_rate * rate_mult 비율로 줄인다.
-    줄어든 에너지는 장부의 L_LOST로 가고, 남은 것이 하한(spoil_min_frac * food_energy) 아래면 남은 것도
+    고기(KIND_MEAT)는 여기에 meat_spoil_mult를 더 곱한다. 줄어든 에너지는 장부의 L_LOST로 가고, 남은 것이 하한(spoil_min_frac * food_energy) 아래면 남은 것도
     L_LOST로 넣고 칸을 비운다. 순차 커널이다."""
     after = ip[Q_SPOIL_AFTER]
     rate = fp[P_SPOIL_RATE] * rate_mult
@@ -502,7 +517,10 @@ def spoil_food(step, s, fp, ip, rate_mult=1.0):
     for j in range(s.fx.shape[0]):
         if not s.f_alive[j] or step - s.f_born[j] < after:
             continue
-        lost = s.f_energy[j] * rate
+        r = rate
+        if s.f_kind[j] == KIND_MEAT:
+            r = rate * fp[P_MEAT_SPOIL]
+        lost = s.f_energy[j] * r
         s.f_energy[j] -= lost
         s.ledger[L_LOST] += lost
         if s.f_energy[j] < floor:
@@ -933,10 +951,9 @@ def carry(step, s, fp, ip):
             continue
         if is_field(s, best):
             # 들판 알은 들면 저장 칸 물건이 된다. 자리가 없으면 들지 않는다(store_room은 들지 않은 들판 아닌 것만 치운다)
-            if field_cap != 0:
-                if not store_room(s, field_cap):
-                    continue
-                s.counters[C_NFIELD] -= 1
+            if not store_room(s, field_cap):
+                continue
+            s.counters[C_NFIELD] -= 1
             s.f_dropped[best] = 1
         s.a_held[i] = best
         s.f_holder[best] = i
@@ -992,7 +1009,7 @@ def eat(step, s, fp, ip):
                         continue
                     _drop_food_slot(s, j, field_cap)
                     s.counters[C_EATEN] += 1
-                    if kinds and s.f_kind[j] != KIND_CORPSE and s.f_kind[j] != good:
+                    if kinds and not always_edible(s.f_kind[j]) and s.f_kind[j] != good:
                         # 독: 먹이의 에너지는 사라지고 먹은 쪽도 에너지를 잃는다
                         s.energy[i] -= fp[P_POISON]
                         s.ledger[L_LOST] += s.f_energy[j] + fp[P_POISON]

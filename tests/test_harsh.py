@@ -506,7 +506,7 @@ def test_old_ext_checkpoint_loads_exact(tmp_path):
 def hold(w, i, j):
     """개체 i가 물건 j를 든 꼴로 맞춘다. 들기처럼 들판 알이면 들판 수를 하나 줄이고 f_dropped를 켠다."""
     s = w.s
-    if s.f_dropped[j] == 0 and s.f_kind[j] != k.KIND_CORPSE:
+    if s.f_dropped[j] == 0 and not k.always_edible(int(s.f_kind[j])):
         s.counters[k.C_NFIELD] -= 1
     s.a_held[i], s.f_holder[j], s.f_dropped[j] = j, i, 1
 
@@ -522,14 +522,14 @@ def unhold(w, i):
 def _place_stored(w, e=1.0, born=0, kind=k.KIND_A, x=100.0, y=100.0):
     """내려놓은 물건(들판을 떠난 적 있는 알) 하나를 놓고 칸 번호를 돌려준다."""
     j = _place(w, e, born, kind, x, y)
-    if w.s.f_kind[j] != k.KIND_CORPSE:
+    if not k.always_edible(int(w.s.f_kind[j])):
         w.s.counters[k.C_NFIELD] -= 1
     w.s.f_dropped[j] = 1
     return j
 
 
 def _n_field(s):
-    return int((s.f_alive & (s.f_dropped == 0) & (s.f_kind != k.KIND_CORPSE)).sum())
+    return int((s.f_alive & (s.f_dropped == 0) & ~k.always_edible_mask(s.f_kind)).sum())
 
 
 def _check_hands(s):
@@ -1100,3 +1100,110 @@ def test_branch_into_harsh2(tmp_path):
     assert rel_residual(r.world) < 1e-9
     again = Runner.resume(tmp_path / "h2")
     assert again.world.state_hash() == r.world.state_hash(); again.close()
+
+
+# ---- 고기·늘 먹을 수 있는 종류, 들판 계수기 정리 ----
+def test_always_edible_scalar_and_mask_agree():
+    kinds = np.arange(4, dtype=np.int8)
+    assert [bool(k.always_edible(int(v))) for v in kinds] == k.always_edible_mask(kinds).tolist() == [False, False, True, True]
+
+
+def test_meat_is_never_poison():
+    # 독이 켜진 세계에서 독인 종류의 알은 독이지만 고기는 어느 쪽이 독이든 늘 먹을 수 있다
+    w = World(small("ext", food_kinds_enabled=True, init_agents=2, min_agents=0, food_inflow=0.0))
+    s = w.s
+    a, b = np.flatnonzero(s.alive)[:2]
+    for i, (x, y) in ((a, (10.0, 10.0)), (b, (200.0, 200.0))):
+        s.ledger[k.L_LOST] += s.energy[i] - 1.0     # 시험이 깎는 에너지를 장부에도 적는다
+        s.x[i], s.y[i], s.energy[i] = x, y, 1.0
+    poison_kind = 1 - k.good_kind(int(w.ip[k.Q_SEED]), w.step_no, int(w.ip[k.Q_KIND_PERIOD]))
+    _place(w, x=10.0, y=10.0, kind=k.KIND_MEAT)
+    _place(w, x=200.0, y=200.0, kind=poison_kind)    # 대조: 독인 종류의 알은 독이다
+    _eat_once(w)
+    assert s.energy[a] == pytest.approx(2.0) and s.energy[b] == pytest.approx(0.0)
+    assert s.counters[k.C_POISONED] == 1 and s.counters[k.C_EATEN] == 2
+    assert rel_residual(w) < 1e-9
+
+
+def test_meat_is_not_field():
+    w = _empty_world("ext", carry_enabled=True)
+    n_field = int(w.s.counters[k.C_NFIELD])
+    j = _place(w, kind=k.KIND_MEAT)
+    assert w.s.counters[k.C_NFIELD] == n_field and w.s.counters[k.C_NFOOD] == 1
+    assert not k.is_field(w.s, j)
+    w.recount_field()
+    assert w.s.counters[k.C_NFIELD] == n_field == _n_field(w.s)
+    _place(w, x=50.0, y=50.0)                       # 대조: 보통 알은 들판 알이다
+    assert w.s.counters[k.C_NFIELD] == n_field + 1
+
+
+def test_meat_spoils_faster():
+    w = _empty_world("ext", spoil_enabled=True)
+    s, r = w.s, w.cfg.spoil_rate
+    a = _place(w, kind=k.KIND_A, x=10.0, y=10.0)
+    m = _place(w, kind=k.KIND_MEAT, x=50.0, y=50.0)
+    after = int(w.cfg.spoil_after)
+    for t in range(after, after + 100):
+        k.spoil_food(t, s, w.fp, w.ip)
+    assert s.f_energy[m] == pytest.approx((1 - w.cfg.meat_spoil_mult * r) ** 100, rel=1e-12)
+    assert s.f_energy[a] == pytest.approx((1 - r) ** 100, rel=1e-12)
+    assert w.cfg.meat_spoil_mult == 3.0
+    assert rel_residual(w) < 1e-9
+
+
+def test_meat_spoil_mult_validated():
+    with pytest.raises(ValueError):
+        small("ext", spoil_enabled=True, meat_spoil_mult=0.5)
+    with pytest.raises(ValueError):
+        small("ext", spoil_enabled=True, spoil_rate=0.5, meat_spoil_mult=3.0)     # 0.5 * 3 > 1이면 에너지가 음수가 된다
+    small("ext", spoil_enabled=True, spoil_rate=0.5, meat_spoil_mult=2.0)
+
+
+def test_corpse_takes_store_room_on_death():
+    # 들판 아닌 물건이 max_agents칸을 채운 세계에서 늙어 죽으면 가장 오래된 내려놓은 알을 치우고 사체가 남는다
+    w = World(small("ext", carry_enabled=True, max_agents=40, init_agents=10, min_agents=0, food_inflow=0.0))
+    s = w.s
+    stored = [_place_stored(w, born=b, x=100.0 + b, y=100.0) for b in range(40)]
+    assert s.counters[k.C_NFOOD] - s.counters[k.C_NFIELD] == 40
+    i = int(np.flatnonzero(s.alive)[0])
+    s.ledger[k.L_LOST] += s.energy[i] - 3.0
+    s.age[i], s.energy[i] = w.cfg.max_age, 3.0
+    s.x[i], s.y[i] = 30.0, 30.0
+    assert k.process_deaths(w.step_no, s, w.fp, w.ip) == 1
+    assert s.counters[k.C_STORE_EVICTED] == 1 and not s.f_alive[stored[0]]
+    corpses = np.flatnonzero(s.f_alive & (s.f_kind == k.KIND_CORPSE))
+    assert len(corpses) == 1 and s.f_energy[corpses[0]] == 3.0
+    assert s.counters[k.C_NFOOD] - s.counters[k.C_NFIELD] == 40
+    assert rel_residual(w) < 1e-9
+
+
+def test_field_counter_zeroed_when_field_cap_off():
+    w = World(small("ext", carry_enabled=True))
+    w.run(20)
+    alive_field = _n_field(w.s)
+    assert alive_field > 0 and w.s.counters[k.C_NFIELD] == alive_field
+    w.set_config(small("ext"))
+    assert w.s.counters[k.C_NFIELD] == 0
+    w.set_config(small("ext", carry_enabled=True))
+    assert w.s.counters[k.C_NFIELD] == _n_field(w.s) == alive_field
+
+
+def test_release_all_puts_items_at_holder():
+    w = World(small("ext", carry_enabled=True, init_agents=3, min_agents=0, food_inflow=0.0))
+    s = w.s
+    a, b = np.flatnonzero(s.alive)[:2]
+    ja = _place(w, x=10.0, y=10.0)
+    jb = _place(w, x=20.0, y=20.0)
+    hold(w, int(a), ja)
+    hold(w, int(b), jb)
+    s.x[a], s.y[a] = 111.0, 112.0
+    s.x[b], s.y[b] = 201.0, 202.0
+    w.release_all()
+    assert (s.fx[ja], s.fy[ja]) == (111.0, 112.0) and (s.fx[jb], s.fy[jb]) == (201.0, 202.0)
+    assert (s.f_holder == -1).all() and (s.a_held == -1).all()
+    assert s.f_dropped[ja] == 1 and s.f_dropped[jb] == 1
+
+
+def test_carry_cost_mult_below_one_rejected():
+    with pytest.raises(ValueError):
+        small("ext", carry_enabled=True, carry_cost_mult=0.9)

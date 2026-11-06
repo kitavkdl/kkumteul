@@ -70,12 +70,14 @@ class World:
             self.release_all()
         if cfg.field_cap and not old.field_cap:
             self.recount_field()    # 꺼져 있던 동안 들판 알 수를 맞추지 않았다
+        if old.field_cap and not cfg.field_cap:
+            self.s.counters[k.C_NFIELD] = 0     # 꺼진 동안은 맞추지 않으니 남은 값이 낡지 않게 비운다
 
     # ---- 들기: 물건 칸 ----
     def recount_field(self) -> None:
-        """들판 알 수(C_NFIELD)를 살아 있는 들판 알(들판을 떠난 적 없고 사체가 아닌 것) 수로 다시 센다."""
+        """들판 알 수(C_NFIELD)를 살아 있는 들판 알(들판을 떠난 적 없고 사체·고기가 아닌 것) 수로 다시 센다."""
         s = self.s
-        s.counters[k.C_NFIELD] = int((s.f_alive & (s.f_dropped == 0) & (s.f_kind != k.KIND_CORPSE)).sum())
+        s.counters[k.C_NFIELD] = int((s.f_alive & (s.f_dropped == 0) & ~k.always_edible_mask(s.f_kind)).sum())
 
     def release_all(self) -> None:
         """모든 손을 푼다. 든 물건은 든 개체의 자리에 내려놓는다(f_dropped는 그대로 1이다)."""
