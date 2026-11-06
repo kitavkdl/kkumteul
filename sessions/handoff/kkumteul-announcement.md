@@ -15,7 +15,7 @@
 - `docs/status.md` — 세계 규칙·관찰(수치만)·해석(추정만)·막힌 점·기각. 갱신은 메인 몫(레포 CLAUDE.md 「세션 운영」).
 
 ## 모델·노력도와 상주 세션 교대 (사용자 11/06 17:5x ET, 18:0x 정정)
-- **insight·idea-lens·announcement는 claude-opus-5-5 · medium, research는 claude-sonnet-5-5 · high** (사용자 17:39 "리서처는 model: sonnet", 18:0x "리서치는 원래 소넷 높음"). 앞 세션이 17:48 "모든 애들 이 모델·노력도"를 리서처까지로 읽어 opus로 바꿨다가 정정함. 메인 밤샘 체인은 overnight 기본 Opus·high(사용자 판단 대기).
+- **insight·idea-lens·announcement는 claude-opus-5-5 · medium, research는 claude-sonnet-5-5 · high** (사용자 17:39 "리서처는 model: sonnet", 18:0x "리서치는 원래 소넷 높음"). 앞 세션이 17:48 "모든 애들 이 모델·노력도"를 리서처까지로 읽어 opus로 바꿨다가 정정함. 메인 구현은 Opus·high(사용자 18:0x 확정: "넌 오퍼스 중간, 리서치는 소넷 높음, 인사이트는 오퍼스 중간, 메인구현은 오퍼스 높음").
 - **insight·research는 계속 돈다.** 맥락이 차면 에이전트 파일 「교대」 절대로 announcement에 "교대 요청"(할 일 3~5줄)을 보낸다. 인수인계 파일·유언은 남기지 않는다.
 - 교대 요청을 받으면: ① `~/.claude/bin/wrap-spawn kkumteul-insight <레포 경로> claude-opus-5-5 medium insight` / `wrap-spawn kkumteul-research <레포 경로> claude-sonnet-5-5 high researcher` (5번째 인자가 `--agent`) ② `띄움:` 출력 확인 ③ 새 세션에 SendMessage로 할 일 전달 — 이름이 겹치니 `ListAgents`의 `[ref]`(bg 쪽이 새 세션)로 보낸다 ④ 옛 세션 끄기: `~/.local/bin/claude agents --json`에서 id → `claude stop <id>`. 손으로 띄운 세션(id 없음)은 안 꺼지니 사용자에게 창을 닫아 달라고 한 줄.
 - **커밋·push (사용자 11/06 18:0x):** 이 레포는 main에 자동 커밋·push. 검사는 개인정보·API 키·env만. 리서처는 Bash가 없어 raw 파일을 못 올리므로 announcement가 커밋한다(리서처가 파일 이름을 알려 줌).
@@ -24,7 +24,6 @@
 1. **옛 창 둘 닫기 대기**: `claude --agent insight`(pid 1248540)·`claude --agent researcher`(pid 1249338) — 사용자에게 요청함. 그 전엔 같은 이름이 둘씩이라 메시지가 옛 창으로 갈 수 있음(옛 insight가 정정을 보내와 새 insight에 전달함).
 2. **인사이트 첫 바퀴 결론(정정판)**은 메인에 전달됨: 1순위 대조 b 기억 입력 뒤섞기(mode=shuffle)로 판정 가 지표·막기 겨루기 재실행 + 1인당 섭취량·먹은 것의 독 여부 기록. 막기 −0.33은 중립 −0.007±0.05라 진짜 효과. 실행은 사용자 확인 뒤, 새 방향 다음.
 3. **status.md 낡음**: 새 insight가 메인에게 갱신 요청함(가지 results.md에 판정 셋·11/07 정정). 메인은 자기 가지에서 고치므로 main 합칠 때 들어왔는지 확인.
-4. **메인 effort**: 밤샘 체인 `night-kkumteul-learn-2`가 `--effort high`. 그대로 둘지 사용자 답 대기.
 
 ## 현황 (18:0x ET)
 - 메인: 신호 판정 측정 구현 중. insight `[111f6c]`(opus·medium, bg): 0단계 갱신 대기 → 개인 학습 방향 발산 예정. research `[a53060]`(sonnet·high, bg): 할 일 받음.
