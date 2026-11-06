@@ -169,6 +169,29 @@ class Config:
     carry_cost_mult: float = 1.3  # 들고 있을 때 이동 비용 배수. 지구 참고값 없음. 임시 결정
     meat_spoil_mult: float = 3.0  # 고기는 부패 속도에 이 배수를 곱한다. 지구: 씨앗·견과 ≪ 과일 ≪ 고기
                                   # (DeVault et al. 2004 [2차]). 임시 결정
+    prey_enabled: bool = False    # 큰 사냥감: 유입의 prey_inflow_frac 몫에서 태어나 먹이 자리를 떠돈다.
+                                  # 켜면 먹이 상한은 들판 알만 센다. 실행 중에 끄면 산 사냥감은 사라지고(에너지는 장부의 L_LOST)
+                                  # 쌓여 있던 사냥감 몫은 풀 몫으로 돌아간다
+    max_animals: int = 64         # 동물 배열 크기(사냥감과 다른 동물이 함께 쓴다). 실행 중에 바꿀 수 없다
+    n_prey: int = 4               # 산 사냥감 수의 상한. 드물게 두어 찾아다니게 한다. 임시 결정
+    prey_hp: float = 20.0         # 사냥감 체력. 공격 피해 0.2/스텝으로 혼자 100스텝, 넷이면 25스텝에 쓰러진다. 임시 결정
+    prey_regen: float = 0.05      # 쉰 뒤 스텝당 아무는 체력. 임시 결정
+    prey_rest: int = 100          # 이만큼 맞지 않아야 아물기 시작한다(스텝). 임시 결정
+    prey_strike: float = 0.12     # 사냥감 반격의 스텝당 총량. 그 스텝의 공격자 수로 나눠 각자 잃는다.
+                                  # 혼자 100스텝이면 12 + 공격 비용 2 = 14로 얻는 것보다 크다. 임시 결정
+    prey_sat_n: int = 4           # 한 스텝 피해는 공격자 이만큼의 몫까지만 쌓인다. 지구: 엘크 사냥 4마리에서 포화
+                                  # (MacNulty et al. 2012, 2014). 임시 결정
+    prey_meat: int = 24           # 쓰러지면 남기는 고기 알 수. 넷이 나누면 각 6(배를 채우는 양). 임시 결정
+    prey_inflow_frac: float = 0.3  # 유입 가운데 사냥감 몫. 겨울에도 줄지 않아 사냥이 되면 겨울 먹이가 0.3배에서
+                                  # 약 0.51배로 는다. 사냥감이 다 차 있으면 넘친 몫은 풀 배수를 곱해 풀로 간다. 임시 결정
+    prey_life: int = 12000        # 사냥감 수명(스텝). 다하면 고기 없이 사라진다(장부의 L_LOST). 임시 결정
+    prey_stay: int = 1500         # 한 먹이 자리에서 맴도는 스텝 수. 임시 결정
+    prey_graze_speed: float = 0.1  # 맴돌 때 속도(v_max 배수). 임시 결정
+    prey_travel_speed: float = 0.3  # 다른 먹이 자리로 옮겨 갈 때 속도(v_max 배수). 임시 결정
+    prey_radius: float = 2.0      # 사냥감 반지름. 개체(1)보다 크다. 임시 결정, 개체 지름과 같은 크기
+    prey_graze_r: float = 18.0    # 목적지에서 이 거리 안을 맴돈다. 임시 결정, 먹이 자리 퍼짐(patch_sigma)과 같은 크기
+    prey_wander_turn: float = 0.3  # 맴돌 때 스텝마다 방향을 흔드는 폭(rad, ±이 값 안 균등).
+                                  # 임시 결정, 개체의 한 스텝 최대 회전(max_turn)과 같은 크기
 
     # --- 4단계: 판이 바뀌는 세계 (기본은 꺼짐) ---
     niche_enabled: bool = False   # 다닌 자리가 길이 되고, 쌓은 거름이 먹이를 끌어온다
@@ -214,12 +237,18 @@ class Config:
     @property
     def needs_ext(self) -> bool:
         """확장 입출력 칸(preset=ext)이 필요한 장치가 하나라도 켜져 있는가."""
-        return self.season_enabled or self.spoil_enabled or self.carry_enabled
+        return self.season_enabled or self.spoil_enabled or self.carry_enabled or self.prey_enabled
 
     @property
     def field_cap(self) -> bool:
-        """먹이 상한을 들판 알 수(C_NFIELD)로 재는가. 꺼져 있으면 칸 점유 수(C_NFOOD)로 잰다."""
-        return self.carry_enabled
+        """먹이 상한을 들판 알 수(C_NFIELD)로 재는가. 꺼져 있으면 칸 점유 수(C_NFOOD)로 잰다.
+        들판 아닌 물건(든 알, 고기)이 생기는 장치가 켜져 있으면 켠다."""
+        return self.carry_enabled or self.prey_enabled
+
+    @property
+    def animals_on(self) -> bool:
+        """동물 배열을 쓰는 장치가 하나라도 켜져 있는가."""
+        return self.prey_enabled
 
     @property
     def ext_size(self) -> bool:
@@ -306,6 +335,23 @@ class Config:
             raise ValueError("혹독한 세계·암수 장치는 확장 크기가 필요하다: preset=ext")
         if self.field_cap and not self.ext_size:
             raise ValueError("들판 계수기는 확장 크기 세계에서만 쓴다(계수기 칸이 모자란다)")
+        if self.max_animals < 1 or not (0 <= self.n_prey <= self.max_animals):
+            raise ValueError("max_animals는 1 이상, n_prey는 0 이상 max_animals 이하여야 한다")
+        for name in ("prey_regen", "prey_rest", "prey_strike"):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name}은 0 이상이어야 한다")
+        for name in ("prey_hp", "prey_radius", "prey_graze_r"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name}은 0보다 커야 한다")
+        for name in ("prey_sat_n", "prey_meat", "prey_life", "prey_stay"):
+            if getattr(self, name) < 1:
+                raise ValueError(f"{name}은 1 이상이어야 한다")
+        if not (0.0 <= self.prey_inflow_frac < 1.0):
+            raise ValueError("prey_inflow_frac는 0 이상 1 미만이어야 한다")
+        if not (0.0 < self.prey_graze_speed <= 1.0) or not (0.0 < self.prey_travel_speed <= 1.0):
+            raise ValueError("prey_graze_speed, prey_travel_speed는 0보다 크고 1 이하여야 한다(v_max 배수)")
+        if not (0.0 <= self.prey_wander_turn <= math.pi):
+            raise ValueError("prey_wander_turn은 0~pi여야 한다")
         for name in ("give_loss", "deposit_loss", "path_bonus", "fert_frac", "sleep_basal", "trace_decay",
                      "hormone_rate_hunger", "hormone_rate_stress", "hormone_rate_dopamine",
                      "hormone_rate_boredom", "reward_baseline_rate", "proto_lr", "sleep_forget",

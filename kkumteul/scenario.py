@@ -37,7 +37,7 @@ from .config import Config
 
 # 실행 중에 바꾸면 배열 크기가 달라지는 설정(`World.set_config`가 막는 것과 같은 목록)
 FIXED_SIZE = ("max_agents", "food_cap", "h_max", "vision_sectors", "n_spare_in", "n_spare_out",
-              "world_w", "world_h", "cell")
+              "world_w", "world_h", "cell", "max_animals")
 # 세계의 조건이 아니라 실행·기록 방법인 설정
 RUN_ONLY = ("seed", "threads", "max_steps_per_sec", "passive", "init_agents",
             "stats_every", "frame_every", "clip_every", "clip_len", "frames_per_segment",

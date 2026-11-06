@@ -6,6 +6,7 @@ import math
 
 import numpy as np
 
+from . import animals as an
 from . import kernels as k
 from . import stages as st
 from .config import ACT_CARRY, EXT_CARRY, EXT_SEASON, Config, N_REWARD
@@ -27,6 +28,7 @@ class World:
         self.cfg = cfg
         self.fp, self.ip = k.pack_params(cfg)
         self.fs, self.isp = st.pack_stage_params(cfg)
+        self.fa, self.ia = an.pack_animal_params(cfg)
         self.s = k.alloc_state(cfg)
         self.step_no = 0
         self.births: list[np.ndarray] = []   # 아직 파일에 안 쓴 사건
@@ -45,7 +47,7 @@ class World:
         """배열 크기를 바꾸지 않는 설정만 바꿀 수 있다."""
         old = self.cfg
         for name in ("max_agents", "food_cap", "h_max", "vision_sectors", "n_spare_in",
-                     "n_spare_out", "world_w", "world_h", "cell"):
+                     "n_spare_out", "world_w", "world_h", "cell", "max_animals"):
             if getattr(old, name) != getattr(cfg, name):
                 raise ValueError(f"{name}은 실행 중에 바꿀 수 없다(배열 크기가 달라진다)")
         cfg.validate()
@@ -66,8 +68,14 @@ class World:
         self.cfg = cfg
         self.fp, self.ip = k.pack_params(cfg)
         self.fs, self.isp = st.pack_stage_params(cfg)
+        self.fa, self.ia = an.pack_animal_params(cfg)
         if old.carry_enabled and not cfg.carry_enabled:
             self.release_all()
+        if old.prey_enabled and not cfg.prey_enabled:
+            # 산 사냥감은 사라지고(에너지는 L_LOST), 쌓여 있던 사냥감 몫은 풀 몫으로 돌아간다
+            self.clear_animals(an.ANIMAL_PREY)
+            self.s.budget[0] += self.s.budget[2]
+            self.s.budget[2] = 0.0
         if cfg.field_cap and not old.field_cap:
             self.recount_field()    # 꺼져 있던 동안 들판 알 수를 맞추지 않았다
         if old.field_cap and not cfg.field_cap:
@@ -78,6 +86,18 @@ class World:
         """들판 알 수(C_NFIELD)를 살아 있는 들판 알(들판을 떠난 적 없고 사체·고기가 아닌 것) 수로 다시 센다."""
         s = self.s
         s.counters[k.C_NFIELD] = int((s.f_alive & (s.f_dropped == 0) & ~k.always_edible_mask(s.f_kind)).sum())
+
+    def clear_animals(self, kind: int) -> float:
+        """그 종류의 산 동물을 모두 없앤다. 몸에 든 에너지는 장부의 L_LOST로 가고, 그 합을 돌려준다."""
+        s = self.s
+        gone = s.an_alive & (s.an_kind == kind)
+        e = 0.0
+        for j in np.flatnonzero(gone):
+            e += float(s.an_energy[j])
+        s.ledger[k.L_LOST] += e
+        s.an_energy[gone] = 0.0
+        s.an_alive[gone] = False
+        return e
 
     def release_all(self) -> None:
         """모든 손을 푼다. 든 물건은 든 개체의 자리에 내려놓는다(f_dropped는 그대로 1이다)."""
@@ -166,11 +186,17 @@ class World:
         gw, gh = int(ip[k.Q_GW]), int(ip[k.Q_GH])
         inv_cell = fp[k.P_INV_CELL]
         grass, basal, sn, cs = self.season(t)
+        g = grass       # 풀 몫의 배수. 사냥감이 켜지면 유입의 사냥감 몫을 먼저 떼어 낸다
+        if cfg.prey_enabled:
+            an.prey_inflow(s, self.fa, self.ia, grass)
+            g = grass * (1.0 - cfg.prey_inflow_frac)
         if niche:
-            st.niche_world(t, s, fs, isp, grass)
-        k.spawn_food(t, s, fp, ip, grass)
+            st.niche_world(t, s, fs, isp, g)
+        k.spawn_food(t, s, fp, ip, g)
         if cfg.spoil_enabled:
             k.spoil_food(t, s, fp, ip, self.spoil_mult(t))
+        if cfg.prey_enabled:
+            an.spawn_prey(t, s, self.fa, self.ia)
         k.build_grid(s.x, s.y, s.alive, inv_cell, gw, gh, s.a_start, s.a_items, s.cursor)
         k.build_grid(s.fx, s.fy, s.f_alive, inv_cell, gw, gh, s.f_start, s.f_items, s.cursor)
         k.sense(t, s, fp, ip)
@@ -192,6 +218,8 @@ class World:
         k.move(s, fp, ip, basal)
         if mind or niche:
             st.after_move(s, fs, isp, basal)
+        if cfg.animals_on:
+            an.move_animals(t, s, self.fa, self.ia)
         k.build_grid(s.x, s.y, s.alive, inv_cell, gw, gh, s.a_start, s.a_items, s.cursor)
         k.collide(s, fp, ip)
         if cfg.carry_enabled:
@@ -263,9 +291,9 @@ class World:
         for name in k.SAVED_FIELDS:
             dst = getattr(s, name)
             if name not in arrays:
-                if name in k.HASH_DEFAULTS:
-                    # 이 필드가 생기기 전의 체크포인트. 기본값에서 시작하고, 기본값뿐이면 해시에 넣지 않으므로
-                    # 저장 때의 상태 해시와 그대로 견줄 수 있다(빠진 것으로 치지 않는다)
+                if name in k.HASH_DEFAULTS or name in k.ANIMAL_SAVED:
+                    # 이 필드가 생기기 전의 체크포인트. 기본값(동물은 빈 배열)에서 시작하고, 기본값뿐이거나 산 동물이
+                    # 없으면 해시에 넣지 않으므로 저장 때의 상태 해시와 그대로 견줄 수 있다(빠진 것으로 치지 않는다)
                     continue
                 if name not in NEW_SINCE_STAGE1:
                     raise ValueError(f"체크포인트에 {name}이 없다")
@@ -323,6 +351,13 @@ class World:
         for name, _, saved in k.FOOD_FIELDS:
             if saved:
                 v = getattr(s, name)[fa]
+                if name in k.HASH_DEFAULTS and (v == k.HASH_DEFAULTS[name]).all():
+                    continue
+                m.update(np.ascontiguousarray(v).tobytes())
+        aa = s.an_alive
+        if aa.any():    # 산 동물이 없으면 넣지 않는다(동물 장치를 안 쓰는 세계의 해시가 동물 배열이 생기기 전과 같게)
+            for name in k.ANIMAL_SAVED:
+                v = getattr(s, name)[aa]
                 if name in k.HASH_DEFAULTS and (v == k.HASH_DEFAULTS[name]).all():
                     continue
                 m.update(np.ascontiguousarray(v).tobytes())
@@ -405,11 +440,12 @@ class World:
         na, ea, nf, ef = k.totals(self.s)
         L = self.s.ledger
         soil = float(self.s.soil.sum())    # 땅에 쌓인 거름도 세계 안의 에너지다
+        animals = float(an.animal_energy(self.s))   # 동물 몸에 든 에너지도 세계 안의 에너지다
         expected = (L[k.L_SPAWN] + L[k.L_INJECT] - L[k.L_BASAL] - L[k.L_BRAIN]
                     - L[k.L_MOVE] - L[k.L_BIRTH] - L[k.L_LOST])
         return {
-            "agents": float(ea), "food": float(ef), "soil": soil, "expected": float(expected),
-            "residual": float(ea + ef + soil - expected),
+            "agents": float(ea), "food": float(ef), "soil": soil, "animals": animals,
+            "expected": float(expected), "residual": float(ea + ef + soil + animals - expected),
             "spawn": float(L[k.L_SPAWN]), "inject": float(L[k.L_INJECT]),
             "basal": float(L[k.L_BASAL]), "brain": float(L[k.L_BRAIN]),
             "move": float(L[k.L_MOVE]), "birth": float(L[k.L_BIRTH]),
