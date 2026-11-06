@@ -13,7 +13,7 @@ import numpy as np
 from numba import njit, prange
 
 from .config import (ACT_ATTACK, ACT_CARRY, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_THRUST, ACT_TURN, FIRST_MEALS, N_REWARD,
-                     N_TASTE_IN)
+                     N_TASTE_IN, TASTE_VAL, TASTE_VIS)
 from .rng import (S_BIRTH_ORDER, S_BIRTH_POS, S_FOOD, S_KIND, S_INIT_AGE, S_INIT_GENOME, S_INIT_POS, S_MUT_GENE,
                   S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, normal, u01)
 
@@ -643,7 +643,7 @@ def _see(obs, i, ch, nsec, ddx, ddy, d, rad, hi, fov, vrange, sgn):
 
 @njit(cache=True, parallel=True)
 def _sense_par(step, fp, ip, alive, x, y, heading, vx, vy, energy, age, touch, ate, obs,
-               fx, fy, f_alive, f_kind, f_holder, a_start, a_items, f_start, f_items):
+               fx, fy, f_alive, f_kind, f_holder, a_start, a_items, f_start, f_items, taste_m):
     # 주의: prange 안에서 상태 묶음을 거쳐 배열에 쓰면 numba가 그 쓰기를 조용히 버린다.
     # 병렬 커널은 반드시 배열을 직접 받는다.
     n = x.shape[0]
@@ -664,6 +664,8 @@ def _sense_par(step, fp, ip, alive, x, y, heading, vx, vy, energy, age, touch, a
     sl2 = fp[P_SMELL_LEN] * fp[P_SMELL_LEN]
     reach = int(math.ceil(vrange * inv_cell))
     base = 2 * nsec
+    t0 = ip[Q_TASTE_IN0]
+    taste = t0 >= 0 and t0 + N_TASTE_IN <= n_in
     for i in prange(n):
         if not alive[i]:
             continue
@@ -719,6 +721,19 @@ def _sense_par(step, fp, ip, alive, x, y, heading, vx, vy, energy, age, touch, a
                     if d2 > vr2:
                         continue
                     _see(obs, i, 1, nsec, ddx, ddy, math.sqrt(d2), a_rad, hi, fov, vrange, np.float32(1.0))
+        if taste:
+            # 맛 블록: 먹이 시야 칸을 그 모양(부호)의 기억으로 물들인다. 잡음 전 부호로 모양을 읽는다.
+            # 꺼져 있으면 위에서 0으로 비운 그대로 둔다
+            m_pos = taste_m[i, 0]
+            m_neg = taste_m[i, 1]
+            for sec in range(nsec):
+                v = obs[i, sec]
+                if v > 0.0:
+                    obs[i, t0 + TASTE_VIS + sec] = v * m_pos
+                elif v < 0.0:
+                    obs[i, t0 + TASTE_VIS + sec] = -v * m_neg
+            obs[i, t0 + TASTE_VAL + 0] = m_pos
+            obs[i, t0 + TASTE_VAL + 1] = m_neg
         if noise > 0.0:
             for k in range(base):
                 obs[i, k] += noise * normal(seed, S_NOISE, i * 64 + k, step)
@@ -741,7 +756,8 @@ def _sense_par(step, fp, ip, alive, x, y, heading, vx, vy, energy, age, touch, a
 @njit(cache=True)
 def sense(step, s, fp, ip):
     _sense_par(step, fp, ip, s.alive, s.x, s.y, s.heading, s.vx, s.vy, s.energy, s.age, s.touch,
-               s.ate, s.obs, s.fx, s.fy, s.f_alive, s.f_kind, s.f_holder, s.a_start, s.a_items, s.f_start, s.f_items)
+               s.ate, s.obs, s.fx, s.fy, s.f_alive, s.f_kind, s.f_holder, s.a_start, s.a_items, s.f_start, s.f_items,
+               s.taste_m)
 
 
 # ---- 뇌 ----

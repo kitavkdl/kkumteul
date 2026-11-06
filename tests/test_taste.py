@@ -189,3 +189,91 @@ def test_reset_body_clears_taste_and_meals():
     k._reset_body(w.s, j, 999, -1, 0, 0, w.step_no, 10.0, 10.0, 0.0, 1.0)
     assert (w.s.taste_m[j] == 0).all() and w.s.n_meal[j] == 0
     assert w.s.n_poison[j] == 0 and w.s.n_poison10[j] == 0
+
+
+# ---- 감각 맛 블록 ----
+from test_harsh import _sense_once  # noqa: E402
+from kkumteul.run import Runner  # noqa: E402
+
+
+def _sight(kind, m, *presets, **kw):
+    """혼자 있는 개체(heading 0) 왼쪽 앞에 kind 먹이 하나를 두고 감각만 부른다. (세계, obs 한 줄)."""
+    w = taste_world(*(presets or ("taste",)), init_agents=1, min_agents=0, food_inflow=0.0, **kw)
+    s = w.s
+    assert s.alive[0]
+    s.f_alive[:] = False                    # 처음 뿌린 먹이를 치운다(감각만 보므로 장부는 보지 않는다)
+    s.x[0], s.y[0], s.heading[0] = 100.0, 100.0, 0.0
+    _place(w, kind=kind, x=110.0, y=103.0)
+    s.taste_m[0] = m
+    _sense_once(w)
+    return w, s.obs[0].copy()
+
+
+def _seen(obs) -> int:
+    """먹이 시야 칸 중 값이 가장 큰 칸의 번호(먹이가 두 칸에 걸칠 수 있다). 그 칸은 0이 아니어야 한다."""
+    sec = int(np.argmax(np.abs(obs[:8])))
+    assert obs[sec] != 0.0
+    return sec
+
+
+def test_taste_vis_reads_memory_by_shape():
+    m = (-0.5, 0.3)
+    w, o = _sight(k.KIND_A, m)
+    t0 = w.cfg.taste_in0
+    vis, tv = o[:8], o[t0 + TASTE_VIS:t0 + TASTE_VIS + 8]
+    assert (vis >= 0).all() and vis[_seen(o)] > 0
+    assert tv == pytest.approx(vis * -0.5)                         # 먹이 없는 칸은 0
+    assert (tv[vis == 0] == 0).all() and (tv[vis > 0] < 0).all()
+    assert o[t0 + TASTE_VAL:t0 + TASTE_VAL + 2] == pytest.approx(m)
+    w, o = _sight(k.KIND_B, m)
+    vis, tv = o[:8], o[t0 + TASTE_VIS:t0 + TASTE_VIS + 8]
+    assert (vis <= 0).all() and vis[_seen(o)] < 0
+    assert tv == pytest.approx(-vis * 0.3)
+    assert (tv[vis == 0] == 0).all() and (tv[vis < 0] > 0).all()
+    assert o[t0 + TASTE_VAL:t0 + TASTE_VAL + 2] == pytest.approx(m)
+    w, o = _sight(k.KIND_A, (0.0, 0.0))     # 기억이 없으면 그 칸도 0
+    assert not o[t0:t0 + N_TASTE_IN].any() and o[_seen(o)] > 0
+
+
+def test_taste_vis_uses_sign_before_noise():
+    m = (0.7, -0.4)
+    for kind in (k.KIND_A, k.KIND_B):
+        w, clean = _sight(kind, m)
+        _, noisy = _sight(kind, m, "taste", vision_noise=5.0)
+        t0 = w.cfg.taste_in0
+        assert not np.array_equal(clean[:8], noisy[:8])            # 시야 칸은 잡음으로 달라진다
+        assert np.array_equal(clean[t0:t0 + N_TASTE_IN], noisy[t0:t0 + N_TASTE_IN])
+        assert clean[t0 + TASTE_VIS + _seen(clean)] != 0.0
+
+
+def test_taste_block_zero_when_off():
+    w, o = _sight(k.KIND_A, (0.5, 0.5), "taste_size")
+    t0 = w.cfg.taste_in0
+    assert o[_seen(o)] > 0 and not o[t0:t0 + N_TASTE_IN].any()
+    # 켠 채 한 번 감각해 칸을 채운 뒤, 기억은 두고 장치만 끄면 다음 감각에서 칸이 0이 된다
+    w, o = _sight(k.KIND_A, (0.5, 0.5))
+    assert o[t0 + TASTE_VIS + _seen(o)] != 0.0 and o[t0 + TASTE_VAL] == 0.5
+    w.ip[k.Q_TASTE_IN0] = -1
+    _sense_once(w)
+    assert (w.s.taste_m[0] == 0.5).all() and not w.s.obs[0, t0:t0 + N_TASTE_IN].any()
+
+
+def test_branch_old_checkpoint_into_taste(tmp_path):
+    r = Runner.new(tmp_path / "r", small("stage2", "kinds"))
+    r.loop(400, quiet=True)
+    r.close()
+    p = ckpt.latest(tmp_path / "r" / "checkpoints")
+    saved, _ = ckpt.load(p)
+    assert not saved.cfg.taste_enabled
+    w, _ = ckpt.load(p, saved.cfg.with_overrides(["preset=taste"]))
+    t0 = w.cfg.taste_in0
+    assert w.cfg.taste_enabled and w.ip[k.Q_TASTE_IN0] == t0
+    assert (w.s.taste_m == 0).all() and not w.s.Win[:, t0:, :].any()
+    w.run(20)                               # 먹어서 기억이 생기게 한다
+    s = w.s
+    m0, ids0 = s.taste_m.copy(), s.ids.copy()
+    w.step()                                # 감각은 먹기 전이라 감각 칸 = 그 스텝 들어올 때의 기억
+    same = s.alive & (s.ids == ids0)
+    assert same.sum() >= 10 and np.abs(m0[same]).max() > 0
+    assert np.array_equal(s.obs[same, t0 + TASTE_VAL:t0 + TASTE_VAL + 2], m0[same])
+    w.check_sane()
