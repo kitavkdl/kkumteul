@@ -971,6 +971,40 @@ def test_held_item_not_seen_by_holder():
     assert s.obs[a, :nsec].max() > 0.0 and s.obs[a, smell] > 0.0   # 손을 놓으면 보인다
 
 
+def _held_by_other_view(facing_viewer):
+    """보는 개체 b는 (100,100)에서 +x를 본다. 든 개체 a는 8 떨어진 곳에 b 시선에서 9도 위에 서고,
+    b 쪽(또는 반대쪽)을 본다. 든 알은 a 자리에 저장돼 있다. b의 시야 칸만 돌려준다."""
+    w = _carry_world(2)
+    s = w.s
+    a, b = (int(i) for i in np.flatnonzero(s.alive)[:2])
+    ang = np.deg2rad(9.0)
+    s.x[b], s.y[b], s.heading[b] = 100.0, 100.0, 0.0
+    s.x[a], s.y[a] = 100.0 + 8.0 * np.cos(ang), 100.0 + 8.0 * np.sin(ang)
+    s.heading[a] = ang + np.pi if facing_viewer else ang
+    j = _place(w, x=float(s.x[a]), y=float(s.y[a]))
+    hold(w, a, j)
+    _sense_once(w)
+    nsec = w.cfg.vision_sectors
+    assert w.cfg.vision_noise == 0.0 and nsec == 8 and w.cfg.vision_range == 16.0
+    return s.obs[b, :nsec].copy(), s.obs[b, nsec:2 * nsec].copy()
+
+
+def test_item_held_by_other_sits_at_holder_front():
+    # 남이 든 알은 든 개체 머리 앞(몸 반지름 + 알 반지름)에 있는 것으로 본다.
+    # 개체(반지름 1)는 거리 8에서 각 ±7.2도, 칸 너비 15도: 시선 위 9도면 칸 4~5를 덮는다(칸 4는 0~15도).
+    food, agent = _held_by_other_view(facing_viewer=True)
+    # 보는 쪽을 보는 개체: 알은 거리 6.5(반지름 0.5)로 칸 4만 덮고 더 가까워 칸 4의 몸을 가린다. 칸 5의 몸은 남는다
+    assert food[4] == pytest.approx(1.0 - 6.0 / 16.0, abs=1e-6)
+    assert agent[4] == 0.0
+    assert agent[5] == pytest.approx(1.0 - 7.0 / 16.0, abs=1e-6) and food[5] == 0.0
+    assert not np.delete(food, 4).any() and not np.delete(agent, 5).any()
+    food, agent = _held_by_other_view(facing_viewer=False)
+    # 등을 돌린 개체: 알은 몸 뒤(거리 9.5)라 몸에 가려져 먹이 칸에 잡히지 않는다
+    assert not food.any()
+    assert agent[4] == pytest.approx(1.0 - 7.0 / 16.0, abs=1e-6) and agent[5] == agent[4]
+    assert not np.delete(agent, [4, 5]).any()
+
+
 def test_carry_costs_more_to_move():
     # 같은 추력으로 한 스텝: 든 개체의 ΔL_MOVE == 빈손의 1.3배
     w = _carry_world(1)
