@@ -95,3 +95,97 @@ def test_inject_agent_starts_with_blank_taste():
     j = int(np.flatnonzero(w.s.ids == j_id)[0])
     assert (w.s.taste_m[j] == 0).all() and w.s.n_meal[j] == 0
     assert w.s.n_poison[j] == 0 and w.s.n_poison10[j] == 0
+
+
+# ---- 먹은 순간 갱신·잊기·계수기 ----
+from test_harsh import _place  # noqa: E402
+
+
+def _bad(w) -> int:
+    return 1 - k.good_kind(w.cfg.seed, w.step_no, w.cfg.kind_flip_period)
+
+
+def feed(w, i, kind, count=1) -> None:
+    """개체 i 자리에 kind 먹이 count알을 놓고 eat를 한 번 부른다(에너지는 2.0으로 다시 맞춘다)."""
+    s, cfg = w.s, w.cfg
+    s.energy[i] = 2.0                       # e_max에 닿아 먹지 않는 일이 없게(장부는 단언하지 않는다)
+    for _ in range(count):
+        _place(w, kind=kind, x=float(s.x[i]), y=float(s.y[i]))
+    k.build_grid(s.fx, s.fy, s.f_alive, 1.0 / cfg.cell, cfg.grid_w, cfg.grid_h, s.f_start, s.f_items, s.cursor)
+    k.eat(w.step_no, s, w.fp, w.ip)
+
+
+def lone_world(*presets) -> World:
+    w = taste_world(*presets, init_agents=1, min_agents=0, food_inflow=0.0)
+    w.s.energy[0] = 2.0
+    return w
+
+
+def test_eat_updates_memory_by_seen_shape():
+    # 잊기는 eat 첫머리라 eat를 부를 때마다 먼저 (1 - 0.002)배가 된다. 칸 = 1 if 종류 B else 0
+    w = lone_world("taste")
+    bad = _bad(w)
+    good = 1 - bad
+    slot = lambda kind: 1 if kind == k.KIND_B else 0  # noqa: E731
+    feed(w, 0, good)
+    assert w.s.taste_m[0, slot(good)] == pytest.approx(0.5)
+    feed(w, 0, bad)
+    assert w.s.taste_m[0, slot(bad)] == pytest.approx(-0.5)
+    assert w.s.taste_m[0, slot(good)] == pytest.approx(0.5 * 0.998)          # 다른 칸은 잊기만
+    feed(w, 0, bad)
+    assert w.s.taste_m[0, slot(bad)] == pytest.approx(-0.7495, abs=1e-6)     # −0.499 + 0.5 × (−1 + 0.499)
+    w.s.taste_m[0] = 0.0
+    feed(w, 0, k.KIND_CORPSE)
+    assert w.s.taste_m[0, 0] == pytest.approx(0.5) and w.s.taste_m[0, 1] == 0.0   # 사체는 + 모양 칸
+
+
+def test_full_agent_still_forgets():
+    w = lone_world("taste")
+    w.s.taste_m[0] = (0.8, -0.6)
+    w.s.energy[0] = w.cfg.e_max
+    _place(w, kind=1 - _bad(w), x=float(w.s.x[0]), y=float(w.s.y[0]))
+    s, cfg = w.s, w.cfg
+    k.build_grid(s.fx, s.fy, s.f_alive, 1.0 / cfg.cell, cfg.grid_w, cfg.grid_h, s.f_start, s.f_items, s.cursor)
+    k.eat(w.step_no, s, w.fp, w.ip)        # 배불러 먹지는 않는다
+    assert s.n_meal[0] == 0 and s.ate[0] == 0.0
+    assert s.taste_m[0] == pytest.approx((0.8 * 0.998, -0.6 * 0.998))
+
+
+def test_forgetting_per_step():
+    w = lone_world("taste")
+    w.s.taste_m[0] = (0.8, -0.6)
+    w.run(100)                              # 먹이 없는 세계(food_inflow=0)
+    assert w.s.alive[0] and w.s.n_meal[0] == 0
+    assert w.s.taste_m[0] == pytest.approx((0.8 * 0.998 ** 100, -0.6 * 0.998 ** 100), rel=1e-5)
+
+
+def test_taste_off_leaves_memory_and_counts_meals():
+    w = lone_world("taste_size")
+    feed(w, 0, _bad(w))
+    assert (w.s.taste_m == 0).all() and w.s.n_meal[0] == 1 and w.s.n_poison[0] == 1 and w.s.n_poison10[0] == 1
+
+
+def test_first_ten_meals_counted_exactly():
+    w = lone_world("taste")
+    bad = _bad(w)
+    for _ in range(9):
+        feed(w, 0, 1 - bad)
+    feed(w, 0, bad, count=3)               # 한 번의 eat에 독 셋(에너지는 음수가 되지만 eat만 부르므로 죽지 않는다)
+    assert (w.s.n_meal[0], w.s.n_poison[0], w.s.n_poison10[0]) == (12, 3, 1)
+
+
+def test_taste_eat_ledger_closes():
+    w = taste_world("taste")
+    w.run(1500)
+    assert rel_residual(w) < 1e-9
+
+
+def test_reset_body_clears_taste_and_meals():
+    # 죽은 칸을 새 개체가 다시 쓸 때 앞 주인의 기억과 끼니 수가 넘어가지 않는다
+    w = lone_world("taste")
+    j = int(np.flatnonzero(~w.s.alive)[0])
+    w.s.taste_m[j] = (0.5, -0.5)
+    w.s.n_meal[j], w.s.n_poison[j], w.s.n_poison10[j] = 7, 3, 2
+    k._reset_body(w.s, j, 999, -1, 0, 0, w.step_no, 10.0, 10.0, 0.0, 1.0)
+    assert (w.s.taste_m[j] == 0).all() and w.s.n_meal[j] == 0
+    assert w.s.n_poison[j] == 0 and w.s.n_poison10[j] == 0
