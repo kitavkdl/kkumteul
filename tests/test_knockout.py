@@ -98,3 +98,93 @@ def test_knockout_of_a_sense_that_is_off_changes_nothing():
     with ko.knockout(cfg, "hear", tag=0):
         w2.run(20)
     assert w1.state_hash() == w2.state_hash()
+
+
+# ---- 맛 블록 채널 ----
+def test_taste_channels_columns_and_rules():
+    c = small("stage2", "kinds", "taste")
+    t0 = c.taste_in0
+    assert ko.columns(c, "taste") == list(range(t0, t0 + 10))
+    assert ko.columns(c, "taste_vis") == list(range(t0, t0 + 8))
+    assert ko.columns(c, "taste_val") == [t0 + 8, t0 + 9]
+    assert ko.columns(c, "vision") == list(range(2 * c.vision_sectors)) + list(range(t0, t0 + 8))
+    # 장치를 끈 같은 크기 세계에서도 칸 목록은 같다
+    z = small("stage2", "kinds", "taste_size")
+    assert ko.columns(z, "vision") == ko.columns(c, "vision")
+    assert ko.columns(small("stage2"), "vision") == list(range(2 * 8))     # 맛 블록 없는 세계는 그대로
+    for ch in ("taste", "taste_vis", "taste_val"):
+        assert ko.OFF_RULES[ch] == ["taste_enabled=false"]
+        with pytest.raises(ValueError):
+            ko.columns(small("stage2"), ch)
+
+
+def _taste_world_two_tags():
+    cfg = small("stage2", "kinds", "taste", init_agents=60)
+    w = World(cfg)
+    s = w.s
+    live = np.flatnonzero(s.alive)
+    s.tag[live[::2]] = 0
+    s.tag[live[1::2]] = 1
+    s.taste_m[:] = 0.5
+    # 개체마다 바로 앞에 먹이 하나(보이는 먹이가 있어야 물든 시야 칸이 0이 아니다)
+    s.f_alive[:] = False
+    for n, i in enumerate(live):
+        s.x[i], s.y[i], s.heading[i] = 20.0 + (n % 10) * 20.0, 20.0 + (n // 10) * 20.0, 0.0
+        assert k._place_food(s, s.x[i] + 10.0, s.y[i] + 3.0, 1.0, k.KIND_A, 0, int(cfg.field_cap))
+        s.ledger[k.L_SPAWN] += 1.0
+    return cfg, w
+
+
+def test_taste_knockout_wipes_block():
+    cfg, w = _taste_world_two_tags()
+    s = w.s
+    t0 = cfg.taste_in0
+    blk = list(range(t0, t0 + 10))
+    ids0 = s.ids.copy()
+    with ko.knockout(cfg, "taste", tag=0):
+        w.step()
+    same = s.alive & (s.ids == ids0)
+    a, b = np.flatnonzero(same & (s.tag == 0)), np.flatnonzero(same & (s.tag == 1))
+    assert len(a) and len(b)
+    assert np.all(s.obs[np.ix_(a, blk)] == 0.0), "막은 쪽(tag 0)의 맛 블록 10칸은 0"
+    assert np.all(s.obs[np.ix_(b, [t0 + 8, t0 + 9])] == 0.5), "다른 쪽은 기억 값을 그대로 받는다"
+    assert np.abs(s.obs[np.ix_(b, blk)]).sum() > 0.0
+    assert np.abs(s.obs[np.ix_(a, list(range(8)))]).sum() > 0.0, "맛 블록만 막았으니 보통 시야는 남는다"
+
+
+def test_vision_knockout_also_wipes_tainted_sight():
+    cfg, w = _taste_world_two_tags()
+    s = w.s
+    t0 = cfg.taste_in0
+    ids0 = s.ids.copy()
+    with ko.knockout(cfg, "vision", tag=0):
+        w.step()
+    same = s.alive & (s.ids == ids0)
+    a, b = np.flatnonzero(same & (s.tag == 0)), np.flatnonzero(same & (s.tag == 1))
+    assert np.all(s.obs[np.ix_(a, list(range(2 * cfg.vision_sectors)))] == 0.0)
+    assert np.all(s.obs[np.ix_(a, list(range(t0, t0 + 8)))] == 0.0), "막은 쪽의 물든 시야 8칸도 0"
+    assert np.abs(s.obs[np.ix_(b, list(range(t0, t0 + 8)))]).sum() > 0.0, "다른 쪽의 물든 시야는 남는다"
+    assert np.all(s.obs[np.ix_(a, [t0 + 8, t0 + 9])] == 0.5), "기억 값 칸은 시야 막기가 건드리지 않는다"
+
+
+def test_split_base_overrides_reach_rules(monkeypatch, tmp_path):
+    from kkumteul import measure
+    cfg = small("stage2", "kinds", "taste_size")
+    assert not cfg.taste_enabled
+    side = {"path": "x", "step": 0, "genomes": {}, "cfg": cfg, "gen_mean": 0.0}
+    seen = []
+
+    def fake_assay(a, b, n, steps, reps, seed, neutral=False):
+        seen.append(a["cfg"])
+        return {"r_per_1000": {}, "final_counts": []}
+
+    monkeypatch.setattr(measure, "load_side", lambda p: side)
+    monkeypatch.setattr(measure, "assay_sides", fake_assay)
+    monkeypatch.setattr(ko, "_neutral", lambda *a, **kw: {})
+    monkeypatch.setattr(measure, "winner", lambda r: "")
+    monkeypatch.setattr(measure, "verdict", lambda *a, **kw: "")
+    ko.split(tmp_path / "c", "taste", rules=[], base_overrides=["taste_enabled=true"])
+    assert seen[0].taste_enabled
+    seen.clear()
+    ko.split(tmp_path / "c", "taste", rules=[])
+    assert not seen[0].taste_enabled

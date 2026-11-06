@@ -1,4 +1,4 @@
-"""한쪽 감각 막기: 생물이 어떤 감각(신호 듣기, 닮음, 남이 먹는 것 보기, 흔적, 시야)을 실제로 쓰는지 가른다.
+"""한쪽 감각 막기: 생물이 어떤 감각(신호 듣기, 닮음, 남이 먹는 것 보기, 흔적, 시야, 맛 기억)을 실제로 쓰는지 가른다.
 
 신호 세기 같은 형질의 추세는 그 감각을 쓴다는 증거가 못 된다(쓰이지 않는 가중치도 떠돈다).
 그래서 같은 생물을 두 벌로 만들어 한 벌(A, tag 0)만 그 감각을 못 받게 하고 겨루게 한다.
@@ -11,8 +11,12 @@
 - 그 감각이 없는 규칙(듣기·닮음·먹는 것 보기는 사회 감각을 끈 규칙, 흔적은 틈새를 끈 규칙)에서 같은 겨루기.
   두 벌이 똑같이 움직이므로 가를 수 없어야 한다.
 - 시야를 막은 쪽은 뻔히 져야 한다(이 장치가 제대로 막는지 보는 양성 대조).
+- 맛 블록(taste: 기억으로 물든 시야 8칸 + 기억 값 2칸, taste_vis, taste_val)은 맛 장치를 끈 규칙에서 같은 겨루기.
+  시야 막기는 크기가 맞는 세계에서 물든 시야 8칸도 함께 지운다.
+- 맛 장치를 켠 규칙에서 맛 블록을 막는 음성 대조는 체크포인트가 장치를 끈 규칙이면 뜻이 없다(칸이 이미 0이다).
+  그때는 `--set taste_enabled=true`로 체크포인트 규칙을 덮어쓴다.
 
-    python -m kkumteul.knockout split <체크포인트> --channel hear [--n 400 --steps 8000 --reps 6]
+    python -m kkumteul.knockout split <체크포인트> --channel hear [--n 400 --steps 8000 --reps 6] [--set 키=값 ...]
     python -m kkumteul.knockout describe <체크포인트> [--steps 500]
 
 describe는 겨루기 없이 신호를 내는 쪽과 듣는 쪽을 묘사한다(판정이 아니라 단서):
@@ -36,13 +40,15 @@ from . import kernels as k
 from . import measure
 from . import stages as st
 from .config import (ACT_SIG0, ACT_THRUST, ACT_TURN, IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL,
-                     N_INTERNAL, Config)
+                     N_INTERNAL, N_TASTE_IN, TASTE_VAL, TASTE_VIS, Config)
 
-CHANNELS = ("hear", "kin", "saweat", "social", "trail", "vision")
+CHANNELS = ("hear", "kin", "saweat", "social", "trail", "vision", "taste", "taste_vis", "taste_val")
 # 그 감각이 없는 규칙(대조). 시야는 양성 대조라 없앤 규칙이 없다
 OFF_RULES = {"hear": ["social_enabled=false"], "kin": ["social_enabled=false"],
              "saweat": ["social_enabled=false"], "social": ["social_enabled=false"],
-             "trail": ["niche_enabled=false"], "vision": None}
+             "trail": ["niche_enabled=false"], "vision": None,
+             "taste": ["taste_enabled=false"], "taste_vis": ["taste_enabled=false"],
+             "taste_val": ["taste_enabled=false"]}
 
 
 def _base(cfg: Config) -> int:
@@ -57,8 +63,17 @@ def columns(cfg: Config, channel: str) -> list[int]:
              "social": hear + [b + IN_KIN, b + IN_SAWEAT],
              "trail": list(range(b + IN_TRAIL, b + IN_TRAIL + 3)),
              "vision": list(range(2 * cfg.vision_sectors))}
-    if channel not in table:
+    if channel not in table and channel not in CHANNELS:
         raise ValueError(f"모르는 감각: {channel} (가능: {', '.join(CHANNELS)})")
+    # 맛 블록은 크기가 맞는 세계에만 있다. 장치가 꺼져 있어도 칸 목록은 같다(그 칸은 0일 뿐이다)
+    if cfg.n_in >= cfg.taste_in0 + N_TASTE_IN:
+        t0 = cfg.taste_in0
+        table["taste"] = list(range(t0, t0 + N_TASTE_IN))
+        table["taste_vis"] = list(range(t0 + TASTE_VIS, t0 + TASTE_VIS + cfg.vision_sectors))
+        table["taste_val"] = [t0 + TASTE_VAL, t0 + TASTE_VAL + 1]
+        table["vision"] = table["vision"] + table["taste_vis"]
+    if channel not in table:
+        raise ValueError(f"이 세계에는 {channel} 칸이 없다(맛 블록 크기가 아니다: preset=taste_size)")
     return table[channel]
 
 
@@ -101,15 +116,19 @@ def _neutral(side: dict, cfg: Config, n: int, steps: int, reps: int, seed: int) 
 
 
 def split(path: Path, channel: str, n: int = 400, steps: int = 8000, reps: int = 6, seed: int = 4000,
-          rules: list[str] | None = None, log=None) -> dict:
-    """같은 생물 두 벌, A(tag 0)만 channel을 막고 겨룬다. 체크포인트 규칙과 대조 규칙에서."""
+          rules: list[str] | None = None, log=None, base_overrides: list[str] | None = None) -> dict:
+    """같은 생물 두 벌, A(tag 0)만 channel을 막고 겨룬다. 체크포인트 규칙과 대조 규칙에서.
+    base_overrides를 주면 체크포인트 규칙을 그것으로 덮어쓴 설정을 체크포인트 규칙으로 쓴다(대조 규칙도 그 위에 얹는다)."""
     side = measure.load_side(path)
+    base = side["cfg"].with_overrides(base_overrides) if base_overrides else side["cfg"]
     out = {"ckpt": str(path), "step": side["step"], "channel": channel,
-           "columns": columns(side["cfg"], channel), "n_each": n, "steps": steps, "reps": reps}
-    plan = [("ckpt_rules", side["cfg"])]
+           "columns": columns(base, channel), "n_each": n, "steps": steps, "reps": reps}
+    if base_overrides:
+        out["base_overrides"] = base_overrides
+    plan = [("ckpt_rules", base)]
     off = OFF_RULES[channel] if rules is None else rules
     if off:
-        plan.append(("control_rules", side["cfg"].with_overrides(off)))
+        plan.append(("control_rules", base.with_overrides(off)))
         out["control_overrides"] = off
     a_label, b_label = f"막은 쪽({channel})이", "원래 쪽이"
     for name, cfg in plan:
@@ -227,12 +246,15 @@ def main(argv=None) -> int:
     p.add_argument("--reps", type=int, default=6)
     p.add_argument("--seed", type=int, default=4000)
     p.add_argument("--control", nargs="*", default=None, help="대조 규칙 덮어쓰기(주지 않으면 감각마다 정한 것)")
+    p.add_argument("--set", dest="base_set", action="append", default=None, metavar="키=값",
+                   help="체크포인트 규칙 덮어쓰기(여러 번 가능). 예: --set taste_enabled=true")
     d = sub.add_parser("describe")
     d.add_argument("ckpt", type=Path)
     d.add_argument("--steps", type=int, default=500)
     a = ap.parse_args(argv)
     if a.cmd == "split":
-        out = split(a.ckpt, a.channel, a.n, a.steps, a.reps, a.seed, a.control, log=sys.stderr)
+        out = split(a.ckpt, a.channel, a.n, a.steps, a.reps, a.seed, a.control, log=sys.stderr,
+                    base_overrides=a.base_set)
     else:
         out = describe(a.ckpt, a.steps)
     print(json.dumps(out, ensure_ascii=False, indent=1))
