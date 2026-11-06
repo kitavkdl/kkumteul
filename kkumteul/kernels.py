@@ -85,6 +85,25 @@ FOOD_FIELDS = [
     ("f_holder", np.int32, True),    # 이 물건을 든 개체 칸(-1이면 아무도 들지 않음)
     ("f_dropped", np.int8, True),    # 1이면 들판을 떠난 적 있는 물건(들 때 켜고, 내려놓아도 1로 남는다)
 ]
+# 동물(사냥감 등). 개체·먹이와 따로 늘 max_animals칸이고, 산 칸만 뜻이 있다
+ANIMAL_FIELDS = [
+    # (이름, dtype, 저장 여부)
+    ("an_alive", np.bool_, True),
+    ("an_kind", np.int8, True),       # 동물 종류(animals.ANIMAL_*)
+    ("an_x", np.float64, True),
+    ("an_y", np.float64, True),
+    ("an_heading", np.float64, True),
+    ("an_hp", np.float64, True),      # 남은 체력
+    ("an_energy", np.float64, True),  # 몸에 든 에너지(쓰러지면 고기가 된다). 장부에서는 세계 안의 에너지다
+    ("an_tx", np.float64, True),      # 떠도는 목적지
+    ("an_ty", np.float64, True),
+    ("an_timer", np.int32, True),     # 0보다 크면 목적지 둘레를 맴도는 중(남은 스텝), 0이면 목적지로 가는 중
+    ("an_rest", np.int32, True),      # 마지막으로 맞은 뒤 지난 스텝 수(prey_rest에서 멈춘다)
+    ("an_born", np.int64, True),      # 태어난 스텝(수명을 셀 때 쓴다)
+    ("an_natt", np.int32, False),     # 이번 스텝의 공격자 수
+    ("an_dmg", np.float64, False),    # 이번 스텝에 받은 피해
+]
+ANIMAL_SAVED = tuple(f[0] for f in ANIMAL_FIELDS if f[2])
 # ---- 먹이 종류 (f_kind) ----
 KIND_A = 0           # 시야에서 양수로 보이는 종류
 KIND_B = 1           # 시야에서 음수로 보이는 종류
@@ -105,10 +124,11 @@ OTHER_SCRATCH = ["a_start", "a_items", "f_start", "f_items", "cursor", "bbuf", "
 
 State = namedtuple(
     "State",
-    [f[0] for f in AGENT_FIELDS] + [f[0] for f in FOOD_FIELDS] + OTHER_SAVED + OTHER_SCRATCH,
+    [f[0] for f in AGENT_FIELDS] + [f[0] for f in FOOD_FIELDS] + [f[0] for f in ANIMAL_FIELDS]
+    + OTHER_SAVED + OTHER_SCRATCH,
 )
 SAVED_FIELDS = ([f[0] for f in AGENT_FIELDS if f[3]] + [f[0] for f in FOOD_FIELDS if f[2]]
-                + OTHER_SAVED)
+                + list(ANIMAL_SAVED) + OTHER_SAVED)
 
 # ---- counters 칸 ----
 C_NEXT_ID = 0
@@ -288,6 +308,8 @@ def alloc_state(cfg) -> State:
     nf = cfg.food_slots
     for name, dt, _ in FOOD_FIELDS:
         d[name] = np.zeros(nf, dtype=dt)
+    for name, dt, _ in ANIMAL_FIELDS:
+        d[name] = np.zeros(cfg.max_animals, dtype=dt)    # 모두 0: 산 동물이 없다
     ncell = cfg.grid_w * cfg.grid_h
     ext = cfg.ext_size
     d["counters"] = np.zeros(N_COUNTERS_EXT if ext else N_COUNTERS_BASE, dtype=np.int64)
