@@ -125,6 +125,13 @@ def _ratio(rows) -> float:
     return p / e if e else float("nan")
 
 
+def _nanmean(xs) -> float:
+    """nan을 뺀 평균. 비었거나 모두 nan이면 경고 없이 nan."""
+    a = np.asarray(list(xs), dtype=np.float64)
+    a = a[~np.isnan(a)]
+    return float(a.mean()) if len(a) else float("nan")
+
+
 def _placed(s, good: int) -> tuple[int, float]:
     """들판에 놓인 먹이(살아 있고 아무도 들지 않은 종류 A·B) 수와 그 가운데 지금 독인 종류의 비율."""
     on = s.f_alive & (s.f_holder < 0) & ((s.f_kind == k.KIND_A) | (s.f_kind == k.KIND_B))
@@ -173,8 +180,8 @@ def curve(cfg, genomes: dict, n: int, steps: int, seed: int, every: int = 250, l
                       "meals": sum(r["eaten"] for r in rows_) / max(1, rows_[-1]["pop"]), "pop": rows_[-1]["pop"]})
     later = spans[1:] or spans      # 첫 구간은 배우기 전이라 뺀다
     return {"spans": spans, "series": series,
-            "last_mean": float(np.nanmean([x["last"] for x in later])),
-            "right_mean": float(np.nanmean([x["right_end"] for x in later]))}
+            "last_mean": _nanmean(x["last"] for x in later),
+            "right_mean": _nanmean(x["right_end"] for x in later)}
 
 
 def after_flips(series: list, period: int, seed: int, win: int = 300) -> list[dict]:
@@ -203,8 +210,7 @@ def taste_verdict(rest: dict) -> dict:
     """판정 0을 세계마다 낸다. rest는 (lab, 맛 켬) → 바뀜별 rest 목록. 전체 통과 = 두 세계 모두 통과."""
     worlds = []
     for lab in (True, False):
-        on_rest, off_rest = (float(np.nanmean(rest[(lab, v)])) if rest.get((lab, v)) else float("nan")
-                             for v in (True, False))
+        on_rest, off_rest = (_nanmean(rest.get((lab, v), [])) for v in (True, False))
         ok = bool(on_rest < TASTE_PASS and abs(off_rest - TASTE_CTRL[0]) <= TASTE_CTRL[1])
         worlds.append({"lab": lab, "pass": ok, "on_rest": on_rest, "off_rest": off_rest})
     return {"pass": all(w["pass"] for w in worlds), "worlds": worlds}
@@ -351,10 +357,10 @@ def main():
                     x = curve(tcfg, gnm, n, steps, seed, every=100, lab=lab)
                     flips = after_flips(x["series"], tcfg.kind_flip_period, seed)
                     row = {"lab": lab, "taste": on, "seed": seed, "flips": flips,
-                           "first_mean": float(np.nanmean([f["first"] for f in flips])) if flips else float("nan"),
-                           "rest_mean": float(np.nanmean([f["rest"] for f in flips])) if flips else float("nan"),
+                           "first_mean": _nanmean(f["first"] for f in flips),
+                           "rest_mean": _nanmean(f["rest"] for f in flips),
                            "placed_mean": float(np.mean([r["placed"] for r in x["series"]])),
-                           "placed_poison_mean": float(np.nanmean([r["placed_poison"] for r in x["series"]])),
+                           "placed_poison_mean": _nanmean(r["placed_poison"] for r in x["series"]),
                            "series": x["series"]}
                     res["taste"].append(row)
                     rest.setdefault((lab, on), []).extend(f["rest"] for f in flips)

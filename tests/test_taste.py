@@ -1,4 +1,4 @@
-"""맛 기억 장치 시험: 설정·묶음, 저장 필드, 끄면 지우기.
+"""맛 기억 장치 시험: 설정·묶음·저장, 먹기 갱신·잊기, 감각 맛 블록, 물려주기·기록, 손 개체(양성 대조).
 
     python3 -m pytest -q tests/test_taste.py
 """
@@ -12,12 +12,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from test_stages import rel_residual, small  # noqa: E402,F401
-from kkumteul import checkpoint as ckpt  # noqa: E402,F401
+from test_harsh import _place, _sense_once  # noqa: E402
+from test_stages import rel_residual, small  # noqa: E402
+from kkumteul import checkpoint as ckpt  # noqa: E402
 from kkumteul import kernels as k  # noqa: E402
 from kkumteul import measure  # noqa: E402
-from kkumteul.config import (ACT_TURN, FIRST_MEALS, N_EXT_IN, N_STAGE_IN, N_TASTE_IN, TASTE_VAL,  # noqa: E402,F401
-                             TASTE_VIS, preset)
+from kkumteul.config import ACT_TURN, N_EXT_IN, N_STAGE_IN, N_TASTE_IN, TASTE_VAL, TASTE_VIS, preset  # noqa: E402
+from kkumteul.run import Runner  # noqa: E402
 from kkumteul.world import World  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,7 +62,7 @@ def test_taste_size_world_hash_pinned(presets):
     assert w.state_hash() == PINNED_TASTE_SIZE_HASH_300[presets]
 
 
-def test_taste_m_saved_and_old_checkpoint_reads_zero(tmp_path):
+def test_taste_m_saved_and_old_checkpoint_reads_zero():
     # 저장 → 읽기 → 같은 해시. 0이 아닌 기억은 해시에 들어간다. taste_m 없는 배열 묶음을 읽으면 0
     # (장치 끈 크기 세계에서 한다: 켠 세계는 먹으면서 기억이 0이 아니게 되어 h0가 기억 0 상태가 아니다)
     w = taste_world("taste_size")
@@ -101,9 +102,6 @@ def test_inject_agent_starts_with_blank_taste():
 
 
 # ---- 먹은 순간 갱신·잊기·계수기 ----
-from test_harsh import _place  # noqa: E402
-
-
 def _bad(w) -> int:
     return 1 - k.good_kind(w.cfg.seed, w.step_no, w.cfg.kind_flip_period)
 
@@ -195,10 +193,6 @@ def test_reset_body_clears_taste_and_meals():
 
 
 # ---- 감각 맛 블록 ----
-from test_harsh import _sense_once  # noqa: E402
-from kkumteul.run import Runner  # noqa: E402
-
-
 def _sight(kind, m, *presets, **kw):
     """혼자 있는 개체(heading 0) 왼쪽 앞에 kind 먹이 하나를 두고 감각만 부른다. (세계, obs 한 줄)."""
     w = taste_world(*(presets or ("taste",)), init_agents=1, min_agents=0, food_inflow=0.0, **kw)
@@ -289,26 +283,40 @@ PINNED_TASTE_HASH_300 = "2ae2c2b913c2fbb0f11899b3f25edbaccd260d4e6cf9eb5c54efc1a
 PARENT_M = (0.6, -0.4)
 
 
-def _parent_world(inherit, **kw) -> World:
-    """부모 하나만 산 세계(먹이 없음). 부모 기억 = PARENT_M."""
-    w = taste_world("taste", taste_inherit=inherit, init_agents=1, food_inflow=0.0, **kw)
+def _parent_world(inherit, size="taste", **kw) -> World:
+    """부모 하나만 산 세계(먹이 없음). 부모 기억 = PARENT_M. size는 맛 블록 크기 묶음(taste 또는 장치 끈 taste_size)."""
+    w = taste_world(size, taste_inherit=inherit, init_agents=1, food_inflow=0.0, **kw)
     assert w.s.alive[0] and w.s.alive.sum() == 1
     w.s.taste_m[0] = PARENT_M
     return w
 
 
-@pytest.mark.parametrize("inherit", [0.0, 1.0, 0.5])
-def test_natural_child_inherits(inherit):
-    w = _parent_world(inherit, min_agents=0)
+def _natural_child(w) -> int:
+    """부모(칸 0)가 자연 출생으로 새끼 하나를 낳게 하고 새끼 칸을 돌려준다."""
     s = w.s
     s.energy[0] = w.cfg.e_repro + 1.0
     s.age[0] = w.cfg.repro_min_age + 1
     s.act[0, k.ACT_REPRO] = 1.0             # 뇌가 번식을 고른 것으로 친다
     s.birth_step[0] = w.step_no - 1         # 태어난 그 스텝에는 번식하지 않는다
     assert k.process_births(w.step_no, s, w.fp, w.ip) == 1
-    j = int(np.flatnonzero(s.alive & (s.parent == s.ids[0]))[0])
-    assert s.taste_m[j] == pytest.approx((inherit * 0.6, inherit * -0.4))
-    assert s.taste_m[0] == pytest.approx(PARENT_M)          # 부모 기억은 그대로
+    return int(np.flatnonzero(s.alive & (s.parent == s.ids[0]))[0])
+
+
+@pytest.mark.parametrize("inherit", [0.0, 1.0, 0.5])
+def test_natural_child_inherits(inherit):
+    w = _parent_world(inherit, min_agents=0)
+    j = _natural_child(w)
+    assert w.s.taste_m[j] == pytest.approx((inherit * 0.6, inherit * -0.4))
+    assert w.s.taste_m[0] == pytest.approx(PARENT_M)        # 부모 기억은 그대로
+
+
+def test_natural_child_does_not_inherit_when_taste_off():
+    # 맛 장치를 끈 같은 크기 세계에서는 taste_inherit=1이어도 새끼가 부모 기억을 베끼지 않는다
+    w = _parent_world(1.0, size="taste_size", min_agents=0)
+    assert not w.cfg.taste_enabled and w.ip[k.Q_TASTE_IN0] == -1
+    j = _natural_child(w)
+    assert (w.s.taste_m[j] == 0).all()
+    assert w.s.taste_m[0] == pytest.approx(PARENT_M)
 
 
 def test_reseed_and_passive_children_start_blank():
@@ -463,8 +471,9 @@ def test_taste_verdict_per_world():
     assert hl.taste_verdict(rest)["pass"] is True
 
 
-def test_hand_taste_command_runs(tmp_path, monkeypatch):
-    # 맛 블록이 없는 옛 체크포인트를 맛 크기로 읽어 세계 둘 × 켬/끔을 아주 짧게 돌린다(배선·인자 길만 본다)
+def test_hand_taste_command_runs(tmp_path, monkeypatch, capsys):
+    # 맛 블록이 없는 옛 체크포인트를 맛 크기로 읽어 세계 둘 × 켬/끔을 짧게 돌린다(배선·인자·판정 길을 본다).
+    # 독을 50스텝마다 다시 정해 400스텝 안에 실제 바뀜이 생기게 한다(판정 값은 보지 않는다)
     hl = _hand_learner()
     r = Runner.new(tmp_path / "r", small("stage2", "kinds"))
     r.loop(400, quiet=True)
@@ -473,13 +482,16 @@ def test_hand_taste_command_runs(tmp_path, monkeypatch):
     out = tmp_path / "taste.json"
     monkeypatch.setenv("HAND_N", "4")
     monkeypatch.setenv("HAND_SEEDS", "1")
-    monkeypatch.delenv("HAND_SET", raising=False)
-    monkeypatch.setattr(sys, "argv", ["hand_learner.py", "taste", str(p), "200", str(out)])
+    monkeypatch.setenv("HAND_SET", "kind_flip_period=50")
+    monkeypatch.setattr(sys, "argv", ["hand_learner.py", "taste", str(p), "400", str(out)])
     hl.main()
     res = json.loads(out.read_text())
     runs = [(x["lab"], x["taste"]) for x in res["taste"]]
     assert runs == [(True, True), (True, False), (False, True), (False, False)]
-    assert all(len(x["series"]) == 2 and "placed_poison" in x["series"][0] for x in res["taste"])
+    assert all(len(x["series"]) == 4 and "placed_poison" in x["series"][0] for x in res["taste"])
+    assert any(x["flips"] for x in res["taste"])             # 바뀜이 있어 판정이 rest 값을 받는다
+    text = capsys.readouterr().out
+    assert "판정 0 LAB" in text and "판정 0 그대로" in text
     assert set(res["verdict0"]) == {"pass", "worlds"}
     assert [w["lab"] for w in res["verdict0"]["worlds"]] == [True, False]
     assert all(set(w) == {"lab", "pass", "on_rest", "off_rest"} for w in res["verdict0"]["worlds"])
