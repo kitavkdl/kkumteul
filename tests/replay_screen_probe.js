@@ -7,7 +7,7 @@
 // 1) 크롬 헤드리스를 띄운다(메모리 상한을 건다):
 //      chrome-headless-shell --remote-debugging-port=9333 --no-sandbox --allow-file-access-from-files --user-data-dir=<임시 폴더> about:blank
 //    playwright를 쓰면 `npx playwright install chromium-headless-shell`이 받아 둔다.
-// 2) node tests/replay_screen_probe.js <다시 보기 html> 9333 [장면 비율 0~1 ...]
+// 2) [SCENE=<장면 번호>] node tests/replay_screen_probe.js <다시 보기 html> 9333 [장면 비율 0~1 ...]
 //    "세계 전체"와 "가까이" 보기에서 각 장면의 사건별 호출 수와 시간 막대 설명(trackkey)을 JSON으로 찍는다.
 const fs = require("fs");
 const [, , file, port, ...fr] = process.argv;
@@ -18,7 +18,8 @@ const HOOK = `(() => {
   const P = CanvasRenderingContext2D.prototype, s0 = P.stroke, f0 = P.fill;
   window.__cnt = {};
   const bump = (k) => { window.__cnt[k] = (window.__cnt[k] || 0) + 1; };
-  P.stroke = function () { if (this.canvas.id === "rp-map") bump("s " + this.strokeStyle); return s0.apply(this, arguments); };
+  // 점선(맛 기억 고리, 시야, 먹이 자리 경계)은 "d "로 따로 센다. 캔버스는 rgb(…)도 #…로 바꿔 돌려주어 빛깔만으로는 실선 사건과 섞인다
+  P.stroke = function () { if (this.canvas.id === "rp-map") bump((this.getLineDash().length ? "d " : "s ") + this.strokeStyle); return s0.apply(this, arguments); };
   P.fill = function () { if (this.canvas.id === "rp-map") bump("f " + this.fillStyle); return f0.apply(this, arguments); };
 })();`;
 
@@ -42,7 +43,11 @@ async function main() {
     const ok = await ev(`!!(document.getElementById("rp-track") && document.getElementById("rp-track").getAttribute("aria-valuenow") !== null)`).catch(() => false);
     if (ok) break; await new Promise((r) => setTimeout(r, 500));
   }
-  const raf = `new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r))))`;
+  if (process.env.SCENE) {      // 장면 여럿 파일: SCENE=<번호>이면 그 장면 단추를 누르고 센다
+    await ev(`(document.querySelectorAll("#rp-scenes button")[${Number(process.env.SCENE)}].click(), 0)`);
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  const raf =`new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r))))`;
   const key = (k) => `document.getElementById("rp-track").dispatchEvent(new KeyboardEvent("keydown", {key: ${JSON.stringify(k)}, bubbles: true}))`;
   await ev(`(document.getElementById("rp-play").textContent === "멈춤" && document.getElementById("rp-play").click(), ${raf})`);
   await ev(key("End")); await ev(raf);
@@ -70,7 +75,9 @@ async function main() {
       }
       out.views[`${view} ${target}`] = { step, hit: cnt["s #e5534b"] || 0, gave: cnt["s #d8b25a"] || 0, eat: cnt["s #9fd8a8"] || 0,
         died: cnt["s #c3cacc"] || 0, born: cnt["f #e9e2c4"] || 0, strike: cnt["f #e08a3c"] || 0, held: cnt["f #cfe8a4"] || 0, ring,
-        prey: cnt["f #8fb7cc"] || 0, preyhp: cnt["s #e8ecec"] || 0, meat: cnt["f #c27a62"] || 0 };
+        prey: cnt["f #8fb7cc"] || 0, preyhp: cnt["s #e8ecec"] || 0, meat: cnt["f #c27a62"] || 0,
+        // 둘째 판: 뭉쳐 자기 흰빛 테두리(실선 #fbf6ea), 맛 기억 고리(점선 초록·붉음)
+        huddle: cnt["s #fbf6ea"] || 0, memPos: cnt["d #9fd8a8"] || 0, memNeg: cnt["d #e5534b"] || 0 };
     }
   }
   out.trackkey = await ev(`document.getElementById("rp-trackkey").textContent`);

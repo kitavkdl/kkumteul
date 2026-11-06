@@ -833,3 +833,106 @@ def test_command_line_takes_several_scenes(kinds_run, tmp_path):
     assert len(replay.read_scenes(out.read_text(encoding="utf-8"))) == 2
     with pytest.raises(SystemExit):
         replay.main(["--ckpt", c, "--ckpt", c, "--title", "x", "--out", str(out)])
+
+
+# ---------------------------------------------------------------- 둘째 판 화면의 계산(node)과 장면 설명
+def _screen(rep, tmp_path, name: str) -> dict:
+    out = tmp_path / name
+    out.write_text(replay.export_html(rep), encoding="utf-8")
+    run = subprocess.run([NODE, str(SCREEN_CHECK), str(out)], capture_output=True, text=True, timeout=300)
+    assert run.returncode == 0, run.stderr[-2000:]
+    return json.loads(run.stdout)
+
+
+def _rows_by_agent(rep):
+    """개체마다 (장면, 줄) 목록. 장면의 개체는 개체 표 번호 순이다."""
+    idx = rep.cols["idx"].astype(np.int64)
+    rows: dict[int, list] = {}
+    for f in range(rep.n_frames):
+        for p in range(int(rep.off[f]), int(rep.off[f + 1])):
+            rows.setdefault(int(idx[p]), []).append((f, p))
+    return rows
+
+
+@pytest.mark.skipif(NODE is None, reason="node가 없어 화면의 계산을 돌릴 수 없다")
+def test_screen_memory_lines_follow_the_taste_column(tmp_path):
+    """맛 기억 자막: 처음 보이는 기억이 출발점, 부호가 바뀐 뒤 크기가 0.25를 넘으면 한 줄(이력). 시험 안에서 따로 셈한다."""
+    cfg = small("stage2", "kinds", "taste", poison=0.3, kind_flip_period=150, taste_inherit=0.5, repro_min_age=40)
+    w = World(cfg)
+    rec = replay.Recorder(w, every=2)
+    rec.advance(400)
+    rep = rec.finish()
+    got = _screen(rep, tmp_path, "taste.html")
+    taste = rep.cols["taste"].astype(np.int64).reshape(-1, 2)
+    mark_at = 0.25 * 127
+    lines_total = inherited = 0
+    for n, rows in _rows_by_agent(rep).items():
+        mark, want = [0, 0], []
+        f0, p0 = rows[0]
+        for s in range(2):
+            if abs(taste[p0, s]) > mark_at:
+                mark[s] = 1 if taste[p0, s] > 0 else -1
+        for f, p in rows[1:]:
+            for s in range(2):
+                sg = 1 if taste[p, s] > 0 else -1
+                if abs(taste[p, s]) > mark_at and sg != mark[s]:
+                    want.append([f, s, sg])
+                    mark[s] = sg
+        assert got["agents"][n]["mem"] == want, n
+        natural = int(rep.agents["kind"][n]) == k.BIRTH_NATURAL
+        assert got["agents"][n]["inherit"] == (natural and bool((np.abs(taste[p0]) > 0.02 * 127).any())), n
+        lines_total += len(want)
+        inherited += got["agents"][n]["inherit"]
+    assert lines_total > 0 and inherited > 0, "기억이 바뀌거나 물려받은 개체가 없으면 시험이 자막을 못 가린다"
+
+
+@pytest.mark.skipif(NODE is None, reason="node가 없어 화면의 계산을 돌릴 수 없다")
+def test_screen_season_runs_and_huddlers(tmp_path):
+    cfg = ext_small("harsh", season_enabled=True, season_period=40, winter_len=20, autumn_len=8, autumn_mult=1.5,
+                    huddle_enabled=True, init_agents=400, world_w=96.0, world_h=96.0)
+    w = World(cfg)
+    rec = replay.Recorder(w, every=1)
+    rec.advance(90)
+    rep = rec.finish()
+    got = _screen(rep, tmp_path, "season.html")
+    s = rep.season.tolist()
+    runs, a = [], 0
+    for f in range(1, len(s) + 1):
+        if f == len(s) or s[f] != s[a]:
+            runs.append({"a": a, "b": f - 1, "s": s[a]})
+            a = f
+    assert got["seasonRuns"] == runs and {r["s"] for r in runs} >= {1, 2, 3}
+    hud = rep.cols["hud"]
+    want = [None] + [int((hud[int(rep.off[f]):int(rep.off[f + 1])] > 0).sum()) for f in range(1, rep.n_frames)]
+    assert got["huddlers"] == want, "장면 0은 모름(None), 나머지는 아끼는 개체 수"
+    assert any(want[f] for f in range(1, rep.n_frames) if s[f] == replay.SEASON_WINTER), \
+        "붙어 있는 개체가 없으면 시험이 장치를 못 가린다"
+    assert not any(want[f] for f in range(1, rep.n_frames) if s[f] != replay.SEASON_WINTER), "겨울 밖에서는 아끼지 않는다"
+
+
+@pytest.mark.skipif(NODE is None, reason="node가 없어 화면의 계산을 돌릴 수 없다")
+def test_screen_old_columns_are_absent_without_the_devices(kinds_run, tmp_path):
+    rep = replay.record(ckpt_of(kinds_run, 400), steps=40, every=2)
+    got = _screen(rep, tmp_path, "plain.html")
+    assert got["seasonRuns"] == [] and got["huddlers"] == [None] * rep.n_frames
+    assert all(a["mem"] == [] and not a["inherit"] for a in got["agents"])
+
+
+def test_scene_guide_line_goes_into_each_scene(kinds_run, tmp_path):
+    c = str(ckpt_of(kinds_run, 400))
+    out = tmp_path / "guide.html"
+    assert replay.main(["--ckpt", c + "::가::flip::독이 바뀐 뒤를 보세요 :: 둘째 칸", "--ckpt", c + "::나",
+                        "--steps", "20", "--out", str(out)]) == 0
+    html = out.read_text(encoding="utf-8")
+    assert replay.read_embedded(html, 0)[0]["guide"] == "독이 바뀐 뒤를 보세요 :: 둘째 칸"
+    assert replay.read_embedded(html, 1)[0]["guide"] is None
+    assert 'id="rp-scenes"' in html and 'id="rp-guide"' in html
+
+
+def test_intro_mentions_taste_memory_only_when_on():
+    plain = " ".join(replay.intro_sentences(small("stage2", "kinds")))
+    assert "기억" not in plain
+    mem = " ".join(replay.intro_sentences(small("stage2", "kinds", "taste")))
+    assert "기억합니다" in mem and "물려받습니다" not in mem
+    inh = " ".join(replay.intro_sentences(small("stage2", "kinds", "taste", taste_inherit=0.5)))
+    assert "물려받습니다" in inh

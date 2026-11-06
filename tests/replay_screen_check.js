@@ -32,6 +32,9 @@ for (let n = 0; n < D.nA; n++) {
     sorted: st.every((e, i) => i === 0 || st[i - 1].f <= e.f),
     texts: st.every((e) => typeof e.text === "string" && e.text.length > 0),
     inRange: st.every((e) => e.f >= 0 && e.f < D.nF),
+    // 맛 기억 자막(둘째 판): [장면, 칸, 부호]와 물려받음 줄
+    mem: st.filter((e) => e.type === "mem").map((e) => [e.f, e.slot, e.sign]),
+    inherit: st.some((e) => e.type === "inherit"),
   });
 }
 
@@ -71,4 +74,6 @@ process.stdout.write(JSON.stringify({
   frameOf: [D.start - 5, D.start, D.start + 1, D.start + D.every, D.start + D.every + 1, D.start + 10 * D.every * D.nF]
     .map((s) => KK.frameOf(D, s)),
   lifted: [KK.lift(0, 0, 0), KK.lift(10, 10, 120), KK.lift(250, 250, 250)],
+  seasonRuns: KK.seasonRuns(D),
+  huddlers: Array.from({ length: D.nF }, (_, f) => KK.huddlers(D, f)),
 }));

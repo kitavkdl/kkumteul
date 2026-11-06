@@ -142,6 +142,36 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
 #rp .rp-story .t-born .dot, #rp .rp-story .t-child .dot { background: var(--accent); }
 #rp .rp-story .t-died .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink); }
 #rp .rp-story .t-gave .dot { background: var(--warn); }
+#rp .rp-story .t-mem .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--accent); border-radius: 50%; }
+
+/* 장면 고르기(둘째 판): #rp 바깥 형제 요소라 장면을 바꿔도 지워지지 않는다 */
+#rp-scenes { max-width: 1180px; margin: 0 auto; padding-top: 14px; display: flex; flex-wrap: wrap; gap: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+#rp-scenes[hidden] { display: none; }
+#rp-scenes .lbl { font: 500 12px/1 var(--mono); letter-spacing: 0.08em; color: var(--dim); align-self: center; margin-right: 12px; }
+#rp-scenes button { font: 600 13.5px/1.2 var(--font); padding: 9px 14px; border: 1px solid var(--ink); border-radius: 0; margin-right: -1px;
+  background: transparent; color: var(--ink); cursor: pointer; }
+#rp-scenes button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+#rp-scenes button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#rp .rp-guide { margin: 0; font-weight: 650; font-size: 15px; max-width: 68ch; border-left: 3px solid var(--accent); padding-left: 10px; }
+
+/* 철: 겨울에는 관측 창 테두리에 차가운 띠(창 바탕은 그대로) */
+#rp .rp-glyph.season { width: 10px; height: 4px; }
+#rp .rp-glyph.s1 { background: var(--food); opacity: 0.6; }
+#rp .rp-glyph.s2 { background: #a8743f; }
+#rp .rp-glyph.s3 { background: #9cc3dd; }
+#rp .rp-stage.winter { box-shadow: 0 0 0 3px #9cc3dd; }
+#rp .rp-hud { font: 500 12.5px/1.2 var(--mono); color: var(--dim); }
+
+/* 맛 기억 막대: 가운데가 0, 오른쪽 +(먹을 만했다), 왼쪽 −(독이었다) */
+#rp .rp-taste { margin: 10px 0 0; display: grid; grid-template-columns: auto minmax(80px, 1fr) auto; gap: 4px 10px; align-items: center; font-size: 13px; }
+#rp .rp-taste .tb { height: 9px; background: var(--grid); position: relative; }
+#rp .rp-taste .tb::before { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--faint); }
+#rp .rp-taste .tb i { position: absolute; top: 0; bottom: 0; }
+#rp .rp-taste .tb i.pos { left: 50%; background: var(--food); }
+#rp .rp-taste .tb i.neg { right: 50%; background: var(--danger); }
+#rp .rp-taste .num { font: 500 12.5px/1.2 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim); min-width: 9ch; text-align: right; }
+#rp .rp-taste .verdict { grid-column: 1 / -1; color: var(--dim); font-size: 12.5px; margin: 0; }
 #rp .rp-story li.future button { opacity: 0.42; }
 #rp .rp-story li.now button { background: var(--wash); box-shadow: inset 2px 0 0 var(--accent); }
 #rp .rp-fine { font-size: 12.5px; color: var(--faint); margin: 8px 0 0; line-height: 1.5; }
@@ -187,10 +217,12 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
 @media (prefers-reduced-motion: reduce) { #rp .rp-flash.on { animation: none; } }
 </style>
 <!--/HEAD-->
+<nav id="rp-scenes" aria-label="장면 고르기" hidden></nav>
 <div id="rp">
   <div class="rp-head">
     <p class="rp-eyebrow" id="rp-eyebrow"><span>꿈틀 · 관측 기록</span></p>
     <h1 id="rp-title">세계</h1>
+    <p class="rp-guide" id="rp-guide" hidden></p>
     <p class="rp-intro" id="rp-intro"></p>
   </div>
 
@@ -240,6 +272,11 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
           <span id="rp-vital"></span>
           <span class="rp-energy" id="rp-energy" role="img" aria-label="에너지"><i id="rp-energy-fill"></i></span>
           <button type="button" class="rp-link" id="rp-jump" hidden></button>
+        </div>
+        <div class="rp-taste" id="rp-taste" hidden>
+          <span id="rp-tl0">동그라미</span><span class="tb"><i id="rp-tb0"></i></span><span class="num" id="rp-tn0"></span>
+          <span id="rp-tl1">마름모</span><span class="tb"><i id="rp-tb1"></i></span><span class="num" id="rp-tn1"></span>
+          <p class="verdict" id="rp-tv"></p>
         </div>
         <p class="rp-sofar" id="rp-sofar"></p>
         <ol class="rp-story" id="rp-story" aria-label="이 생물의 일생"></ol>
@@ -393,11 +430,38 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
     return D;
   };
 
+  // 맛 기억(둘째 판). 칸 0은 시야에서 +로 보이는 모든 것(동그라미, 사체 조각, 고기), 칸 1은 마름모(커널의 대응)
+  KK.MEM_MARK = 0.25;        // 일생 자막: 기억의 부호가 바뀐 뒤 크기가 이것을 넘으면 한 줄
+  KK.MEM_NAMES = ["동그라미", "마름모"];
+  KK.taste = function (D, p) { var t = D.A.fr_taste; return t ? [t[2 * p] / 127, t[2 * p + 1] / 127] : null; };
+  KK.signed = function (v) { return (v < 0 ? "−" : "+") + Math.abs(v).toFixed(2); };
+  KK.memText = function (m) { return KK.MEM_NAMES[0] + " " + KK.signed(m[0]) + ", " + KK.MEM_NAMES[1] + " " + KK.signed(m[1]); };
+  // 장면 f의 먹이 칸(fd_kind: 0 A, 1 B, 2 사체, 3 고기)이 읽히는 기억 칸
+  KK.memSlot = function (kd) { return kd === 1 ? 1 : 0; };
+
+  // 철(둘째 판). f_season: 0 계절 없음, 1 봄·여름, 2 가을, 3 겨울. 옛 파일에는 열이 없다
+  KK.SEASON = ["", "봄·여름", "가을", "겨울"];
+  KK.SEASON_NOTE = ["", "", "풀이 몰려 납니다", "풀이 줄고 몸이 에너지를 더 씁니다"];
+  KK.seasonRuns = function (D) {      // 같은 철이 이어지는 장면 구간 [{a, b, s}]
+    var s = D.A.f_season, out = [], a = 0, f;
+    if (!s || !D.meta.on.season || !D.nF) return out;
+    for (f = 1; f <= D.nF; f++) if (f === D.nF || s[f] !== s[a]) { out.push({ a: a, b: f - 1, s: s[a] }); a = f; }
+    return out;
+  };
+  // 뭉쳐 자기로 지금 기초 대사를 아끼는 개체 수. 장면 0은 모른다(그 값은 체크포인트에 저장되지 않아 늘 0)
+  KK.huddlers = function (D, f) {
+    var h = D.A.fr_hud, c = 0, p;
+    if (!h || f < 1) return null;
+    for (p = D.A.fr_off[f]; p < D.A.fr_off[f + 1]; p++) if (h[p] > 0) c++;
+    return c;
+  };
+
   // 한 개체의 일생 자막. 장면 순으로 늘어놓고, 같은 일이 이어지면 한 줄로 묶는다
   KK.story = function (D, n) {
     var A = D.A, raw = [], f, p, fl, i, e, asleep = false, nap = null;
     var kind = A.ag_kind[n], born = A.ag_born[n], died = A.ag_died[n], kinds = D.meta.on.kinds;
     var stepOf = function (fr) { return D.start + fr * D.every; };
+    var tasteOn = !!(D.meta.on.taste && A.fr_taste), mark = [0, 0], mem0 = null, m, k, sg;
     if (kind === BORN_BEFORE) {
       raw.push({ type: "before", rank: 0, f: 0, step: D.start });
     } else {
@@ -415,7 +479,26 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
         if ((fl & 16) && !asleep) { nap = { type: "sleep", rank: 6, f: f, step: stepOf(f), f2: -1 }; raw.push(nap); }
         if (!(fl & 16) && asleep && nap) { nap.f2 = f; nap = null; }
         asleep = (fl & 16) !== 0;
+        if (tasteOn) {
+          m = KK.taste(D, p);
+          if (!mem0) {         // 처음 보이는 장면: 물려받았거나 이미 지닌 기억. 여기서는 줄을 내지 않고 출발점으로 삼는다
+            mem0 = m;
+            for (k = 0; k < 2; k++) if (Math.abs(m[k]) > KK.MEM_MARK) mark[k] = m[k] > 0 ? 1 : -1;
+          } else {
+            for (k = 0; k < 2; k++) {
+              sg = m[k] > 0 ? 1 : -1;
+              if (Math.abs(m[k]) > KK.MEM_MARK && sg !== mark[k]) {      // 이력: 반대 부호로 다시 넘어야 다음 줄
+                raw.push({ type: "mem", rank: 7, f: f, step: stepOf(f), slot: k, sign: sg, was: mark[k], v: m[k] });
+                mark[k] = sg;
+              }
+            }
+          }
+        }
       }
+    }
+    // 스스로 태어난 개체가 0이 아닌 기억으로 처음 보이면 물려받은 것이다(처음 보이는 장면은 태어나고 1~every스텝 뒤)
+    if (tasteOn && mem0 && kind === 0 && (Math.abs(mem0[0]) > 0.02 || Math.abs(mem0[1]) > 0.02)) {
+      raw.push({ type: "inherit", rank: 0.5, f: D.first[n], step: stepOf(D.first[n]), m: mem0 });
     }
     for (i = D.kOff[n]; i < D.kOff[n + 1]; i++) {
       e = D.kIdx[i];
@@ -440,7 +523,14 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
     for (i = 0; i < out.length; i++) {
       e = out[i];
       var many = e.n > 1;
-      if (e.type === "before") e.text = "이 장면이 시작될 때 이미 " + KK.fmt(D.start - born) + "스텝을 살았다";
+      if (e.type === "before") {
+        e.text = "이 장면이 시작될 때 이미 " + KK.fmt(D.start - born) + "스텝을 살았다" + (tasteOn && mem0 ? " (기억: " + KK.memText(mem0) + ")" : "");
+      }
+      else if (e.type === "inherit") e.text = "어미에게서 기억을 물려받았다 (" + KK.memText(e.m) + ")";
+      else if (e.type === "mem") {
+        e.text = e.sign < 0 ? KK.MEM_NAMES[e.slot] + "가 " + (e.was > 0 ? "이제 " : "") + "독이라고 기억했다 (" + KK.signed(e.v) + ")"
+          : KK.MEM_NAMES[e.slot] + "를 " + (e.was < 0 ? "다시 " : "") + "먹을 만하다고 기억했다 (" + KK.signed(e.v) + ")";
+      }
       else if (e.type === "born") {
         e.text = kind === 0 ? "태어났다" + (e.who >= 0 ? " (어미 #" + Math.round(A.ag_id[e.who]) + ")" : "")
           : kind === 2 ? "세계가 비어 가서 새로 넣어졌다" : "세계에 놓였다";
@@ -519,1127 +609,1273 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
 
   // ===================== 화면 =====================
   var $ = function (id) { return document.getElementById(id); };
-  var meta = JSON.parse($("replay-meta").textContent);
-  var A = KK.decode(meta, $("replay-bin").textContent);
-  var D = KK.build(meta, A);
-  var nF = D.nF, WW = meta.w, WH = meta.h, cfg = meta.cfg, on = meta.on, every = meta.every;
-  var fmt = KK.fmt, TAU = 6.283185307179586;
-  var kx = WW / 65536, ky = WH / 65536;
-  var stepOf = function (f) { return meta.start + f * every; };
-  var clamp = function (v, a, b) { return v < a ? a : v > b ? b : v; };
-  var mod = function (v, m) { return ((v % m) + m) % m; };
-  var wrapW = function (d) { return d - WW * Math.round(d / WW); };
-  var wrapH = function (d) { return d - WH * Math.round(d / WH); };
-  var wrap16 = function (d) { return ((d + 98304) % 65536) - 32768; };
-  var wrap8 = function (d) { return ((d + 384) % 256) - 128; };
-  var reduce = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   var el = function (tag, cls, text) {
     var e = document.createElement(tag);
     if (cls) e.className = cls;
     if (text != null) e.textContent = text;
     return e;
   };
-  var shapeName = function (kind) { return kind === 1 ? "마름모" : "동그라미"; };
-  var pct = function (v) { return Math.round(v * 100) + "%"; };
-  var rate = function (v) { return v >= 0.001 ? v.toFixed(3) : v > 0 ? v.toPrecision(1).replace(/e-0?/, "e-") : "0"; };
+  // 헤드리스 확인용 탐침: 세대(장면을 띄운 차례)마다 그리기 반복 수와 해제한 수
+  var APP = root.KKUMTEUL_APP = { gen: 0, disposed: 0, ticks: {} };
 
-  // 관측 창의 색. 창은 밝은·어두운 테마 어디서나 어두운 바탕 하나로 둔다(어떤 핏줄 색이든 읽히게).
-  // 형광을 빼고 채도를 낮춘 계기 빛깔. 사건 빛깔은 tests/replay_screen_probe.js가 세므로 바꾸면 거기도 고친다.
-  var S = { stage: "#0c0f10", grid: "232,236,236", patch: "127,174,140", food: "#7fae8c", poison: "#a48fd0", corpse: "#7d8587", meat: "#c27a62", prey: "#8fb7cc",
-            eat: "#9fd8a8", bad: "#e5534b", born: "#e9e2c4", dead: "#c3cacc", give: "#d8b25a", ink: "#e8ecec", strike: "#e08a3c",
-            held: "#cfe8a4", sig: "55%,66%" };
-  var T = {};   // 쪽의 색 토큰(테마를 따른다)
-  function readTokens() {
-    var cs = getComputedStyle(document.documentElement);
-    ["ink", "dim", "faint", "line", "grid", "accent", "food", "poison", "danger", "warn", "series", "panel", "bg", "font", "mono"]
-      .forEach(function (k) { T[k] = cs.getPropertyValue("--" + k).trim(); });
-  }
+  // 장면 하나를 띄운다. 돌려주는 함수가 창·문서에 건 것과 그리기 반복을 거둔다
+  function app(metaText, binText, gen) {
+    var dead = false, raf = 0;
+    var meta = JSON.parse(metaText);
+    var A = KK.decode(meta, binText);
+    var D = KK.build(meta, A);
+    var nF = D.nF, WW = meta.w, WH = meta.h, cfg = meta.cfg, on = meta.on, every = meta.every;
+    var fmt = KK.fmt, TAU = 6.283185307179586;
+    var kx = WW / 65536, ky = WH / 65536;
+    var stepOf = function (f) { return meta.start + f * every; };
+    var clamp = function (v, a, b) { return v < a ? a : v > b ? b : v; };
+    var mod = function (v, m) { return ((v % m) + m) % m; };
+    var wrapW = function (d) { return d - WW * Math.round(d / WW); };
+    var wrapH = function (d) { return d - WH * Math.round(d / WH); };
+    var wrap16 = function (d) { return ((d + 98304) % 65536) - 32768; };
+    var wrap8 = function (d) { return ((d + 384) % 256) - 128; };
+    var reduce = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    var shapeName = function (kind) { return kind === 1 ? "마름모" : "동그라미"; };
+    var pct = function (v) { return Math.round(v * 100) + "%"; };
+    var rate = function (v) { return v >= 0.001 ? v.toFixed(3) : v > 0 ? v.toPrecision(1).replace(/e-0?/, "e-") : "0"; };
 
-  var colCache = new Array(D.nA);
-  function colorOf(n) {
-    var c = colCache[n];
-    if (!c) {
-      var v = KK.lift(A.ag_color[3 * n], A.ag_color[3 * n + 1], A.ag_color[3 * n + 2]);
-      c = colCache[n] = "rgb(" + v[0] + "," + v[1] + "," + v[2] + ")";
+    // 관측 창의 색. 창은 밝은·어두운 테마 어디서나 어두운 바탕 하나로 둔다(어떤 핏줄 색이든 읽히게).
+    // 형광을 빼고 채도를 낮춘 계기 빛깔. 사건 빛깔은 tests/replay_screen_probe.js가 세므로 바꾸면 거기도 고친다.
+    var S = { stage: "#0c0f10", grid: "232,236,236", patch: "127,174,140", food: "#7fae8c", poison: "#a48fd0", corpse: "#7d8587", meat: "#c27a62", prey: "#8fb7cc",
+              eat: "#9fd8a8", bad: "#e5534b", born: "#e9e2c4", dead: "#c3cacc", give: "#d8b25a", ink: "#e8ecec", strike: "#e08a3c",
+              held: "#cfe8a4", sig: "55%,66%", huddle: "#fbf6ea", memPos: "rgb(159,216,168)", memNeg: "rgb(229,83,75)" };
+    var T = {};   // 쪽의 색 토큰(테마를 따른다)
+    function readTokens() {
+      var cs = getComputedStyle(document.documentElement);
+      ["ink", "dim", "faint", "line", "grid", "accent", "food", "poison", "danger", "warn", "series", "panel", "bg", "font", "mono"]
+        .forEach(function (k) { T[k] = cs.getPropertyValue("--" + k).trim(); });
     }
-    return c;
-  }
-  function upper(arr, v) {      // arr[i] > v인 첫 자리
-    var lo = 0, hi = arr.length, m;
-    while (lo < hi) { m = (lo + hi) >> 1; if (arr[m] <= v) lo = m + 1; else hi = m; }
-    return lo;
-  }
-  function patchAt(f) {
-    var ps = meta.patches, i, out = null;
-    for (i = 0; i < ps.length && ps[i].frame <= f; i++) out = ps[i];
-    return out;
-  }
-  // 장면 사이를 이어 개체 n의 자리(세계 좌표)와 방향을 out에 적는다
-  function posAt(n, tt, out) {
-    var f = Math.floor(tt), a = tt - f;
-    if (f >= nF - 1) { f = nF - 1; a = 0; }
-    var p = KK.find(D, f, n);
-    if (p < 0) { out.ok = false; return out; }
-    var x = A.fr_x[p], y = A.fr_y[p], h = A.fr_head[p], q;
-    if (a > 0 && (q = KK.find(D, f + 1, n)) >= 0) {
-      x += wrap16(A.fr_x[q] - x) * a; y += wrap16(A.fr_y[q] - y) * a; h += wrap8(A.fr_head[q] - h) * a;
-    }
-    out.x = x * kx; out.y = y * ky; out.h = h * TAU / 256; out.p = p; out.ok = true;
-    return out;
-  }
-  function rowPos(p, out) { out.x = A.fr_x[p] * kx; out.y = A.fr_y[p] * ky; out.h = A.fr_head[p] * TAU / 256; out.p = p; out.ok = true; return out; }
 
-  // ---------- 그리기의 낱개 ----------
-  function drawCreature(g, X, Y, r, h, color, alpha, wig, asleep) {
-    var ux = Math.cos(h), uy = Math.sin(h), nx = -uy, ny = ux;
-    var fx = X + ux * r * 1.15, fy = Y + uy * r * 1.15;          // 앞 끝(뾰족)
-    var bx = X - ux * r * 0.85, by = Y - uy * r * 0.85;          // 뒤 끝
-    var L = r * 1.9;
-    g.globalAlpha = alpha; g.strokeStyle = color; g.fillStyle = color; g.lineCap = "butt"; g.lineJoin = "miter";
-    // 꼬리: 가는 선 하나. 움직일 때만 흔들린다(이 화면의 하찮미)
-    g.lineWidth = Math.max(1, r * 0.16);
-    g.beginPath(); g.moveTo(bx, by);
-    g.quadraticCurveTo(bx - ux * L * 0.5 + nx * wig * r * 1.1, by - uy * L * 0.5 + ny * wig * r * 1.1,
-                       bx - ux * L - nx * wig * r * 1.3, by - uy * L - ny * wig * r * 1.3);
-    g.stroke();
-    // 몸: 앞이 뾰족하고 뒤가 뭉툭한 방추형
-    g.beginPath(); g.moveTo(fx, fy);
-    g.quadraticCurveTo(X + nx * r * 0.95, Y + ny * r * 0.95, bx + nx * r * 0.28, by + ny * r * 0.28);
-    g.lineTo(bx - nx * r * 0.28, by - ny * r * 0.28);
-    g.quadraticCurveTo(X - nx * r * 0.95, Y - ny * r * 0.95, fx, fy);
-    g.closePath(); g.fill();
-    if (asleep && r > 7) {           // 자는 개체: 가까이서만 작은 z
-      g.globalAlpha = Math.min(1, alpha + 0.25); g.fillStyle = S.ink;
-      g.font = Math.round(r * 0.9) + "px " + (T.mono || "monospace"); g.textAlign = "left"; g.textBaseline = "alphabetic";
-      g.fillText("z", X + r * 0.9, Y - r * 0.7);
-    }
-    g.globalAlpha = 1;
-  }
-  function drawHeld(g, X, Y, r, h, alpha, px) {     // 든 알: 머리 앞에 작은 알
-    g.globalAlpha = alpha; g.fillStyle = S.held;
-    g.beginPath(); g.arc(X + Math.cos(h) * r * 1.45, Y + Math.sin(h) * r * 1.45, Math.max(r * 0.4, 1.2 * px), 0, TAU); g.fill();
-    g.globalAlpha = 1;
-  }
-  function drawFar(g, X, Y, r, h, color, alpha) {      // 멀리서: 네모 점과 짧은 꼬리
-    g.globalAlpha = alpha; g.fillStyle = color; g.strokeStyle = color; g.lineCap = "butt"; g.lineWidth = Math.max(1, r * 0.6);
-    g.beginPath(); g.moveTo(X, Y); g.lineTo(X - Math.cos(h) * r * 2.4, Y - Math.sin(h) * r * 2.4); g.stroke();
-    g.fillRect(X - r, Y - r, 2 * r, 2 * r);
-    g.globalAlpha = 1;
-  }
-  // 먹이의 모양을 지금 경로에 보탠다. 0·2 동그라미(A), 1·3 마름모(B), 4 사체 조각, 5 고기(네모)
-  function foodPath(g, X, Y, r, b) {
-    if (b === 5) {
-      var q = r * 0.9;
-      g.rect(X - q, Y - q, 2 * q, 2 * q);
-    } else if (b === 4) {
-      var c = r * 0.95;
-      g.moveTo(X - c, Y + c * 0.7); g.lineTo(X + c * 0.15, Y - c); g.lineTo(X + c, Y + c * 0.55); g.closePath();
-    } else if (b === 1 || b === 3) {
-      var d = r * 1.28;
-      g.moveTo(X, Y - d); g.lineTo(X + d, Y); g.lineTo(X, Y + d); g.lineTo(X - d, Y); g.closePath();
-    } else {
-      g.moveTo(X + r, Y); g.arc(X, Y, r, 0, TAU);
-    }
-  }
-  // 사건 표시. ag는 0(방금)에서 1(사라짐)
-  function drawEvent(g, X, Y, ty, ag, br, px) {
-    var base = Math.max(br * 1.5, 4 * px), grow = Math.max(br * 2.4, 7 * px), k, r1, r2, an, q;
-    g.globalAlpha = 1 - ag; g.lineCap = "butt";
-    if (ty === EV.good || ty === EV.poison) {
-      g.strokeStyle = ty === EV.good ? S.eat : S.bad;
-      g.lineWidth = (ty === EV.good ? 1.2 : 2) * px;
-      g.beginPath(); g.arc(X, Y, base + grow * ag, 0, TAU); g.stroke();
-    } else if (ty === EV.born) {       // 태어남: 옅은 네모 칸과 퍼지는 네모 테
-      g.fillStyle = S.born; g.globalAlpha = (1 - ag) * 0.22;
-      q = base * (1.1 - ag * 0.5);
-      g.beginPath(); g.rect(X - q, Y - q, 2 * q, 2 * q); g.fill();
-      g.globalAlpha = 1 - ag; g.strokeStyle = S.born; g.lineWidth = 1.2 * px;
-      q = base * 0.7 + grow * 1.1 * ag;
-      g.beginPath(); g.rect(X - q, Y - q, 2 * q, 2 * q); g.stroke();
-    } else if (ty === EV.died) {
-      var d = Math.max(br * 1.15, 4.5 * px);
-      g.strokeStyle = S.dead; g.lineWidth = 1.4 * px;
-      g.beginPath(); g.moveTo(X - d, Y - d); g.lineTo(X + d, Y + d); g.moveTo(X + d, Y - d); g.lineTo(X - d, Y + d); g.stroke();
-    } else if (ty === EV.gave) {
-      g.strokeStyle = S.give; g.lineWidth = 1.4 * px;
-      r1 = base + grow * ag * 0.8; r2 = r1 + 4.5 * px;
-      g.beginPath();
-      for (k = 0; k < 4; k++) {
-        an = 0.785 + k * 1.5708;
-        g.moveTo(X + Math.cos(an) * r1, Y + Math.sin(an) * r1); g.lineTo(X + Math.cos(an) * r2, Y + Math.sin(an) * r2);
+    var colCache = new Array(D.nA);
+    function colorOf(n) {
+      var c = colCache[n];
+      if (!c) {
+        var v = KK.lift(A.ag_color[3 * n], A.ag_color[3 * n + 1], A.ag_color[3 * n + 2]);
+        c = colCache[n] = "rgb(" + v[0] + "," + v[1] + "," + v[2] + ")";
       }
+      return c;
+    }
+    function upper(arr, v) {      // arr[i] > v인 첫 자리
+      var lo = 0, hi = arr.length, m;
+      while (lo < hi) { m = (lo + hi) >> 1; if (arr[m] <= v) lo = m + 1; else hi = m; }
+      return lo;
+    }
+    function patchAt(f) {
+      var ps = meta.patches, i, out = null;
+      for (i = 0; i < ps.length && ps[i].frame <= f; i++) out = ps[i];
+      return out;
+    }
+    // 장면 사이를 이어 개체 n의 자리(세계 좌표)와 방향을 out에 적는다
+    function posAt(n, tt, out) {
+      var f = Math.floor(tt), a = tt - f;
+      if (f >= nF - 1) { f = nF - 1; a = 0; }
+      var p = KK.find(D, f, n);
+      if (p < 0) { out.ok = false; return out; }
+      var x = A.fr_x[p], y = A.fr_y[p], h = A.fr_head[p], q;
+      if (a > 0 && (q = KK.find(D, f + 1, n)) >= 0) {
+        x += wrap16(A.fr_x[q] - x) * a; y += wrap16(A.fr_y[q] - y) * a; h += wrap8(A.fr_head[q] - h) * a;
+      }
+      out.x = x * kx; out.y = y * ky; out.h = h * TAU / 256; out.p = p; out.ok = true;
+      return out;
+    }
+    function rowPos(p, out) { out.x = A.fr_x[p] * kx; out.y = A.fr_y[p] * ky; out.h = A.fr_head[p] * TAU / 256; out.p = p; out.ok = true; return out; }
+
+    // ---------- 그리기의 낱개 ----------
+    function drawCreature(g, X, Y, r, h, color, alpha, wig, asleep) {
+      var ux = Math.cos(h), uy = Math.sin(h), nx = -uy, ny = ux;
+      var fx = X + ux * r * 1.15, fy = Y + uy * r * 1.15;          // 앞 끝(뾰족)
+      var bx = X - ux * r * 0.85, by = Y - uy * r * 0.85;          // 뒤 끝
+      var L = r * 1.9;
+      g.globalAlpha = alpha; g.strokeStyle = color; g.fillStyle = color; g.lineCap = "butt"; g.lineJoin = "miter";
+      // 꼬리: 가는 선 하나. 움직일 때만 흔들린다(이 화면의 하찮미)
+      g.lineWidth = Math.max(1, r * 0.16);
+      g.beginPath(); g.moveTo(bx, by);
+      g.quadraticCurveTo(bx - ux * L * 0.5 + nx * wig * r * 1.1, by - uy * L * 0.5 + ny * wig * r * 1.1,
+                         bx - ux * L - nx * wig * r * 1.3, by - uy * L - ny * wig * r * 1.3);
       g.stroke();
-    } else if (ty === EV.hit) {
-      g.strokeStyle = S.bad; g.lineWidth = 1.4 * px;
-      r1 = base * 0.95; r2 = r1 + grow * (0.25 + ag * 0.6);
-      g.beginPath();
-      for (k = 0; k < 6; k++) {
-        an = k * 1.0472 + 0.3;
-        g.moveTo(X + Math.cos(an) * r1, Y + Math.sin(an) * r1); g.lineTo(X + Math.cos(an) * r2, Y + Math.sin(an) * r2);
+      // 몸: 앞이 뾰족하고 뒤가 뭉툭한 방추형
+      g.beginPath(); g.moveTo(fx, fy);
+      g.quadraticCurveTo(X + nx * r * 0.95, Y + ny * r * 0.95, bx + nx * r * 0.28, by + ny * r * 0.28);
+      g.lineTo(bx - nx * r * 0.28, by - ny * r * 0.28);
+      g.quadraticCurveTo(X - nx * r * 0.95, Y - ny * r * 0.95, fx, fy);
+      g.closePath(); g.fill();
+      if (asleep && r > 7) {           // 자는 개체: 가까이서만 작은 z
+        g.globalAlpha = Math.min(1, alpha + 0.25); g.fillStyle = S.ink;
+        g.font = Math.round(r * 0.9) + "px " + (T.mono || "monospace"); g.textAlign = "left"; g.textBaseline = "alphabetic";
+        g.fillText("z", X + r * 0.9, Y - r * 0.7);
       }
-      g.stroke();
+      g.globalAlpha = 1;
     }
-    g.globalAlpha = 1;
-  }
-  // 고른 개체 표시: 네 모서리 괄호와 번호
-  function drawBrackets(g, X, Y, q, px) {
-    var k = Math.max(4 * px, q * 0.45);
-    g.beginPath();
-    g.moveTo(X - q, Y - q + k); g.lineTo(X - q, Y - q); g.lineTo(X - q + k, Y - q);
-    g.moveTo(X + q - k, Y - q); g.lineTo(X + q, Y - q); g.lineTo(X + q, Y - q + k);
-    g.moveTo(X + q, Y + q - k); g.lineTo(X + q, Y + q); g.lineTo(X + q - k, Y + q);
-    g.moveTo(X - q + k, Y + q); g.lineTo(X - q, Y + q); g.lineTo(X - q, Y + q - k);
-    g.stroke();
-  }
-  // 관측 창의 눈금선(세계 좌표에 붙는다)과 축척 막대
-  function drawGrid(g, cw, ch, cam, px) {
-    var s = cam.s, step = niceStep(110 * px / s), hw = cw / 2, hh = ch / 2, x, y, X, Y, k;
-    if (step * s < 24 * px) return 0;
-    g.fillStyle = "rgba(" + S.grid + ",0.07)";
-    x = Math.floor((cam.x - hw / s) / step) * step;
-    for (; x <= cam.x + hw / s; x += step) { X = Math.round(hw + (x - cam.x) * s); g.fillRect(X, 0, px, ch); }
-    y = Math.floor((cam.y - hh / s) / step) * step;
-    for (; y <= cam.y + hh / s; y += step) { Y = Math.round(hh + (y - cam.y) * s); g.fillRect(0, Y, cw, px); }
-    return step;
-  }
-  function drawScale(g, cw, ch, step, s, px) {
-    var L = Math.round(step * s), x0 = 14 * px, y0 = ch - 62 * px;
-    g.fillStyle = "rgba(" + S.grid + ",0.75)";
-    g.fillRect(x0, y0, L, px); g.fillRect(x0, y0 - 4 * px, px, 9 * px); g.fillRect(x0 + L - px, y0 - 4 * px, px, 9 * px);
-    g.font = 11 * px + "px " + (T.mono || "monospace"); g.textAlign = "left"; g.textBaseline = "middle";
-    g.fillText(fmt(step), x0 + L + 6 * px, y0);
-  }
-
-  // ---------- 장면 하나를 그린다 (뒤에 실시간 화면도 이 함수를 쓴다) ----------
-  // g: 2D 문맥, cw·ch: 캔버스 크기(픽셀), cam: {x, y, s}(세계 좌표의 가운데와 세계 한 칸의 픽셀 수),
-  // tt: 장면 번호(소수면 두 장면 사이를 잇는다), o: {sel, px, time, wiggle, mini}
-  var foodBuf = [new Float32Array(4096), new Float32Array(4096), new Float32Array(4096), new Float32Array(4096), new Float32Array(1024),
-                 new Float32Array(1024)];
-  var foodN = [0, 0, 0, 0, 0, 0];
-  var RING = Math.max(3, Math.round(16 / every));       // 고리가 남는 장면 수
-  var sigW = A.fr_sig && A.fr_idx.length ? Math.round(A.fr_sig.length / A.fr_idx.length) : 0;
-  function drawScene(g, cw, ch, cam, tt, o) {
-    var f = Math.floor(tt), a = tt - f;
-    if (f >= nF - 1) { f = nF - 1; a = 0; }
-    if (f < 0) { f = 0; a = 0; }
-    var s = cam.s, cx = cam.x, cy = cam.y, hw = cw / 2, hh = ch / 2, px = o.px || 1, mini = !!o.mini;
-    var i, j, b, n, X, Y, buf;
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    g.globalAlpha = 1;
-    g.fillStyle = S.stage; g.fillRect(0, 0, cw, ch);
-    var gridStep = mini ? 0 : drawGrid(g, cw, ch, cam, px);
-
-    // 먹이가 뭉쳐 나는 자리: 아주 옅은 바탕과 점선 경계
-    var pt = patchAt(f);
-    if (pt) {
-      var pr = pt.sigma * 2.3 * s;
-      for (i = 0; i < pt.pts.length; i++) {
-        X = hw + wrapW(pt.pts[i][0] - cx) * s; Y = hh + wrapH(pt.pts[i][1] - cy) * s;
-        if (X < -pr || X > cw + pr || Y < -pr || Y > ch + pr) continue;
-        var gr = g.createRadialGradient(X, Y, 0, X, Y, pr);
-        gr.addColorStop(0, "rgba(" + S.patch + ",0.10)"); gr.addColorStop(1, "rgba(" + S.patch + ",0)");
-        g.fillStyle = gr; g.fillRect(X - pr, Y - pr, 2 * pr, 2 * pr);
-        if (!mini) {
-          g.strokeStyle = "rgba(" + S.patch + ",0.32)"; g.lineWidth = px; g.setLineDash([3 * px, 5 * px]);
-          g.beginPath(); g.arc(X, Y, pt.sigma * 1.6 * s, 0, TAU); g.stroke(); g.setLineDash([]);
-        }
+    function drawHeld(g, X, Y, r, h, alpha, px) {     // 든 알: 머리 앞에 작은 알
+      g.globalAlpha = alpha; g.fillStyle = S.held;
+      g.beginPath(); g.arc(X + Math.cos(h) * r * 1.45, Y + Math.sin(h) * r * 1.45, Math.max(r * 0.4, 1.2 * px), 0, TAU); g.fill();
+      g.globalAlpha = 1;
+    }
+    function drawFar(g, X, Y, r, h, color, alpha) {      // 멀리서: 네모 점과 짧은 꼬리
+      g.globalAlpha = alpha; g.fillStyle = color; g.strokeStyle = color; g.lineCap = "butt"; g.lineWidth = Math.max(1, r * 0.6);
+      g.beginPath(); g.moveTo(X, Y); g.lineTo(X - Math.cos(h) * r * 2.4, Y - Math.sin(h) * r * 2.4); g.stroke();
+      g.fillRect(X - r, Y - r, 2 * r, 2 * r);
+      g.globalAlpha = 1;
+    }
+    // 먹이의 모양을 지금 경로에 보탠다. 0·2 동그라미(A), 1·3 마름모(B), 4 사체 조각, 5 고기(네모)
+    function foodPath(g, X, Y, r, b) {
+      if (b === 5) {
+        var q = r * 0.9;
+        g.rect(X - q, Y - q, 2 * q, 2 * q);
+      } else if (b === 4) {
+        var c = r * 0.95;
+        g.moveTo(X - c, Y + c * 0.7); g.lineTo(X + c * 0.15, Y - c); g.lineTo(X + c, Y + c * 0.55); g.closePath();
+      } else if (b === 1 || b === 3) {
+        var d = r * 1.28;
+        g.moveTo(X, Y - d); g.lineTo(X + d, Y); g.lineTo(X, Y + d); g.lineTo(X - d, Y); g.closePath();
+      } else {
+        g.moveTo(X + r, Y); g.arc(X, Y, r, 0, TAU);
       }
     }
-
-    // 먹이: 종류 A는 동그라미, B는 마름모. 지금 독인 종류는 보라. 사체 조각은 회색, 고기는 붉은 갈색 네모
-    var good = A.f_good[f], kinds = on.kinds, fr = cfg.food_radius * s * 1.15, far = fr < 1.7 * px;
-    var hi = upper(A.fd_in, f), m = fr + 3 * px, kd;
-    foodN[0] = foodN[1] = foodN[2] = foodN[3] = foodN[4] = foodN[5] = 0;
-    for (j = 0; j < hi; j++) {
-      if (A.fd_out[j] <= f) continue;
-      X = hw + wrapW(A.fd_x[j] * kx - cx) * s; Y = hh + wrapH(A.fd_y[j] * ky - cy) * s;
-      if (X < -m || X > cw + m || Y < -m || Y > ch + m) continue;
-      kd = A.fd_kind[j];
-      b = kd === 3 ? 5 : kd === 2 ? 4 : (kinds && kd !== good ? 2 : 0) + (kd === 1 ? 1 : 0);
-      n = foodN[b]; buf = foodBuf[b];
-      if (2 * n + 2 > buf.length) { var nb = new Float32Array(buf.length * 2); nb.set(buf); foodBuf[b] = buf = nb; }
-      buf[2 * n] = X; buf[2 * n + 1] = Y; foodN[b] = n + 1;
-    }
-    for (b = 0; b < 6; b++) {
-      n = foodN[b];
-      if (!n) continue;
-      buf = foodBuf[b];
-      g.fillStyle = b === 5 ? S.meat : b === 4 ? S.corpse : b >= 2 ? S.poison : S.food;
-      if (far) {       // 세계 전체 보기: 옅은 점으로 낮춘다
-        var q = Math.max(1.5 * px, fr * 1.7);
-        g.globalAlpha = mini ? 0.5 : 0.66;
-        for (i = 0; i < n; i++) g.fillRect(buf[2 * i] - q / 2, buf[2 * i + 1] - q / 2, q, q);
-        g.globalAlpha = 1;
-        continue;
-      }
-      var rr = Math.max(fr, 2.4 * px);
-      g.beginPath();
-      for (i = 0; i < n; i++) foodPath(g, buf[2 * i], buf[2 * i + 1], rr, b);
-      g.fill();
-      if ((b === 2 || b === 3) && rr > 3.2 * px) {      // 독은 가운데가 뚫려 있다(색 말고도 가를 수 있게)
-        g.fillStyle = S.stage;
+    // 사건 표시. ag는 0(방금)에서 1(사라짐)
+    function drawEvent(g, X, Y, ty, ag, br, px) {
+      var base = Math.max(br * 1.5, 4 * px), grow = Math.max(br * 2.4, 7 * px), k, r1, r2, an, q;
+      g.globalAlpha = 1 - ag; g.lineCap = "butt";
+      if (ty === EV.good || ty === EV.poison) {
+        g.strokeStyle = ty === EV.good ? S.eat : S.bad;
+        g.lineWidth = (ty === EV.good ? 1.2 : 2) * px;
+        g.beginPath(); g.arc(X, Y, base + grow * ag, 0, TAU); g.stroke();
+      } else if (ty === EV.born) {       // 태어남: 옅은 네모 칸과 퍼지는 네모 테
+        g.fillStyle = S.born; g.globalAlpha = (1 - ag) * 0.22;
+        q = base * (1.1 - ag * 0.5);
+        g.beginPath(); g.rect(X - q, Y - q, 2 * q, 2 * q); g.fill();
+        g.globalAlpha = 1 - ag; g.strokeStyle = S.born; g.lineWidth = 1.2 * px;
+        q = base * 0.7 + grow * 1.1 * ag;
+        g.beginPath(); g.rect(X - q, Y - q, 2 * q, 2 * q); g.stroke();
+      } else if (ty === EV.died) {
+        var d = Math.max(br * 1.15, 4.5 * px);
+        g.strokeStyle = S.dead; g.lineWidth = 1.4 * px;
+        g.beginPath(); g.moveTo(X - d, Y - d); g.lineTo(X + d, Y + d); g.moveTo(X + d, Y - d); g.lineTo(X - d, Y + d); g.stroke();
+      } else if (ty === EV.gave) {
+        g.strokeStyle = S.give; g.lineWidth = 1.4 * px;
+        r1 = base + grow * ag * 0.8; r2 = r1 + 4.5 * px;
         g.beginPath();
-        for (i = 0; i < n; i++) { g.moveTo(buf[2 * i] + rr * 0.34, buf[2 * i + 1]); g.arc(buf[2 * i], buf[2 * i + 1], rr * 0.34, 0, TAU); }
+        for (k = 0; k < 4; k++) {
+          an = 0.785 + k * 1.5708;
+          g.moveTo(X + Math.cos(an) * r1, Y + Math.sin(an) * r1); g.lineTo(X + Math.cos(an) * r2, Y + Math.sin(an) * r2);
+        }
+        g.stroke();
+      } else if (ty === EV.hit) {
+        g.strokeStyle = S.bad; g.lineWidth = 1.4 * px;
+        r1 = base * 0.95; r2 = r1 + grow * (0.25 + ag * 0.6);
+        g.beginPath();
+        for (k = 0; k < 6; k++) {
+          an = k * 1.0472 + 0.3;
+          g.moveTo(X + Math.cos(an) * r1, Y + Math.sin(an) * r1); g.lineTo(X + Math.cos(an) * r2, Y + Math.sin(an) * r2);
+        }
+        g.stroke();
+      }
+      g.globalAlpha = 1;
+    }
+    // 고른 개체 표시: 네 모서리 괄호와 번호
+    function drawBrackets(g, X, Y, q, px) {
+      var k = Math.max(4 * px, q * 0.45);
+      g.beginPath();
+      g.moveTo(X - q, Y - q + k); g.lineTo(X - q, Y - q); g.lineTo(X - q + k, Y - q);
+      g.moveTo(X + q - k, Y - q); g.lineTo(X + q, Y - q); g.lineTo(X + q, Y - q + k);
+      g.moveTo(X + q, Y + q - k); g.lineTo(X + q, Y + q); g.lineTo(X + q - k, Y + q);
+      g.moveTo(X - q + k, Y + q); g.lineTo(X - q, Y + q); g.lineTo(X - q, Y + q - k);
+      g.stroke();
+    }
+    // 관측 창의 눈금선(세계 좌표에 붙는다)과 축척 막대
+    function drawGrid(g, cw, ch, cam, px) {
+      var s = cam.s, step = niceStep(110 * px / s), hw = cw / 2, hh = ch / 2, x, y, X, Y, k;
+      if (step * s < 24 * px) return 0;
+      g.fillStyle = "rgba(" + S.grid + ",0.07)";
+      x = Math.floor((cam.x - hw / s) / step) * step;
+      for (; x <= cam.x + hw / s; x += step) { X = Math.round(hw + (x - cam.x) * s); g.fillRect(X, 0, px, ch); }
+      y = Math.floor((cam.y - hh / s) / step) * step;
+      for (; y <= cam.y + hh / s; y += step) { Y = Math.round(hh + (y - cam.y) * s); g.fillRect(0, Y, cw, px); }
+      return step;
+    }
+    function drawScale(g, cw, ch, step, s, px) {
+      var L = Math.round(step * s), x0 = 14 * px, y0 = ch - 62 * px;
+      g.fillStyle = "rgba(" + S.grid + ",0.75)";
+      g.fillRect(x0, y0, L, px); g.fillRect(x0, y0 - 4 * px, px, 9 * px); g.fillRect(x0 + L - px, y0 - 4 * px, px, 9 * px);
+      g.font = 11 * px + "px " + (T.mono || "monospace"); g.textAlign = "left"; g.textBaseline = "middle";
+      g.fillText(fmt(step), x0 + L + 6 * px, y0);
+    }
+
+    // ---------- 장면 하나를 그린다 (뒤에 실시간 화면도 이 함수를 쓴다) ----------
+    // g: 2D 문맥, cw·ch: 캔버스 크기(픽셀), cam: {x, y, s}(세계 좌표의 가운데와 세계 한 칸의 픽셀 수),
+    // tt: 장면 번호(소수면 두 장면 사이를 잇는다), o: {sel, px, time, wiggle, mini}
+    var foodBuf = [new Float32Array(4096), new Float32Array(4096), new Float32Array(4096), new Float32Array(4096), new Float32Array(1024),
+                   new Float32Array(1024)];
+    var foodN = [0, 0, 0, 0, 0, 0];
+    var RING = Math.max(3, Math.round(16 / every));       // 고리가 남는 장면 수
+    var sigW = A.fr_sig && A.fr_idx.length ? Math.round(A.fr_sig.length / A.fr_idx.length) : 0;
+    var hud = on.huddle && A.fr_hud ? A.fr_hud : null;          // 둘째 판의 열. 옛 파일·꺼진 세계에는 없다
+    var memOn = !!(on.taste && A.fr_taste);
+    function drawScene(g, cw, ch, cam, tt, o) {
+      var f = Math.floor(tt), a = tt - f;
+      if (f >= nF - 1) { f = nF - 1; a = 0; }
+      if (f < 0) { f = 0; a = 0; }
+      var s = cam.s, cx = cam.x, cy = cam.y, hw = cw / 2, hh = ch / 2, px = o.px || 1, mini = !!o.mini;
+      var i, j, b, n, X, Y, buf;
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.globalAlpha = 1;
+      g.fillStyle = S.stage; g.fillRect(0, 0, cw, ch);
+      var gridStep = mini ? 0 : drawGrid(g, cw, ch, cam, px);
+
+      // 먹이가 뭉쳐 나는 자리: 아주 옅은 바탕과 점선 경계
+      var pt = patchAt(f);
+      if (pt) {
+        var pr = pt.sigma * 2.3 * s;
+        for (i = 0; i < pt.pts.length; i++) {
+          X = hw + wrapW(pt.pts[i][0] - cx) * s; Y = hh + wrapH(pt.pts[i][1] - cy) * s;
+          if (X < -pr || X > cw + pr || Y < -pr || Y > ch + pr) continue;
+          var gr = g.createRadialGradient(X, Y, 0, X, Y, pr);
+          gr.addColorStop(0, "rgba(" + S.patch + ",0.10)"); gr.addColorStop(1, "rgba(" + S.patch + ",0)");
+          g.fillStyle = gr; g.fillRect(X - pr, Y - pr, 2 * pr, 2 * pr);
+          if (!mini) {
+            g.strokeStyle = "rgba(" + S.patch + ",0.32)"; g.lineWidth = px; g.setLineDash([3 * px, 5 * px]);
+            g.beginPath(); g.arc(X, Y, pt.sigma * 1.6 * s, 0, TAU); g.stroke(); g.setLineDash([]);
+          }
+        }
+      }
+
+      // 먹이: 종류 A는 동그라미, B는 마름모. 지금 독인 종류는 보라. 사체 조각은 회색, 고기는 붉은 갈색 네모
+      var good = A.f_good[f], kinds = on.kinds, fr = cfg.food_radius * s * 1.15, far = fr < 1.7 * px;
+      var hi = upper(A.fd_in, f), m = fr + 3 * px, kd;
+      foodN[0] = foodN[1] = foodN[2] = foodN[3] = foodN[4] = foodN[5] = 0;
+      for (j = 0; j < hi; j++) {
+        if (A.fd_out[j] <= f) continue;
+        X = hw + wrapW(A.fd_x[j] * kx - cx) * s; Y = hh + wrapH(A.fd_y[j] * ky - cy) * s;
+        if (X < -m || X > cw + m || Y < -m || Y > ch + m) continue;
+        kd = A.fd_kind[j];
+        b = kd === 3 ? 5 : kd === 2 ? 4 : (kinds && kd !== good ? 2 : 0) + (kd === 1 ? 1 : 0);
+        n = foodN[b]; buf = foodBuf[b];
+        if (2 * n + 2 > buf.length) { var nb = new Float32Array(buf.length * 2); nb.set(buf); foodBuf[b] = buf = nb; }
+        buf[2 * n] = X; buf[2 * n + 1] = Y; foodN[b] = n + 1;
+      }
+      for (b = 0; b < 6; b++) {
+        n = foodN[b];
+        if (!n) continue;
+        buf = foodBuf[b];
+        g.fillStyle = b === 5 ? S.meat : b === 4 ? S.corpse : b >= 2 ? S.poison : S.food;
+        if (far) {       // 세계 전체 보기: 옅은 점으로 낮춘다
+          var q = Math.max(1.5 * px, fr * 1.7);
+          g.globalAlpha = mini ? 0.5 : 0.66;
+          for (i = 0; i < n; i++) g.fillRect(buf[2 * i] - q / 2, buf[2 * i + 1] - q / 2, q, q);
+          g.globalAlpha = 1;
+          continue;
+        }
+        var rr = Math.max(fr, 2.4 * px);
+        g.beginPath();
+        for (i = 0; i < n; i++) foodPath(g, buf[2 * i], buf[2 * i + 1], rr, b);
         g.fill();
-      }
-    }
-
-    // 사냥감: 반지름 prey_radius의 채운 원, 체력은 테두리 호(꽉 차면 온전)
-    if (on.prey && A.an_off) {
-      var ar = Math.max(cfg.prey_radius * s, (mini ? 2 : 3) * px);
-      for (i = A.an_off[f]; i < A.an_off[f + 1]; i++) {
-        X = hw + wrapW(A.an_x[i] * kx - cx) * s; Y = hh + wrapH(A.an_y[i] * ky - cy) * s;
-        if (X < -ar - 3 * px || X > cw + ar + 3 * px || Y < -ar - 3 * px || Y > ch + ar + 3 * px) continue;
-        g.globalAlpha = 0.85; g.fillStyle = S.prey;
-        g.beginPath(); g.arc(X, Y, ar, 0, TAU); g.fill();
-        g.globalAlpha = 1;
-        if (!mini) {
-          g.strokeStyle = S.ink; g.lineWidth = 1.6 * px; g.lineCap = "butt";
-          g.beginPath(); g.arc(X, Y, ar + 1.6 * px, -Math.PI / 2, -Math.PI / 2 + TAU * A.an_hp[i] / 255); g.stroke();
+        if ((b === 2 || b === 3) && rr > 3.2 * px) {      // 독은 가운데가 뚫려 있다(색 말고도 가를 수 있게)
+          g.fillStyle = S.stage;
+          g.beginPath();
+          for (i = 0; i < n; i++) { g.moveTo(buf[2 * i] + rr * 0.34, buf[2 * i + 1]); g.arc(buf[2 * i], buf[2 * i + 1], rr * 0.34, 0, TAU); }
+          g.fill();
         }
       }
-    }
 
-    // 고른 개체의 시야
-    var sel = o.sel, sp = scratch;
-    if (!mini && sel >= 0 && posAt(sel, tt, sp).ok) {
-      X = hw + wrapW(sp.x - cx) * s; Y = hh + wrapH(sp.y - cy) * s;
-      g.beginPath(); g.moveTo(X, Y);
-      g.arc(X, Y, cfg.vision_range * s, sp.h - cfg.vision_fov / 2, sp.h + cfg.vision_fov / 2);
-      g.closePath();
-      g.fillStyle = "rgba(" + S.grid + ",0.05)"; g.fill();
-      g.strokeStyle = "rgba(" + S.grid + ",0.28)"; g.lineWidth = px; g.setLineDash([2 * px, 4 * px]); g.stroke(); g.setLineDash([]);
-    }
-
-    // 개체: 머리와 꼬리. 색은 핏줄, 크기는 에너지, 자는 개체는 흐리게
-    var p0 = A.fr_off[f], p1 = A.fr_off[f + 1], q0 = a > 0 ? A.fr_off[f + 1] : 0, q1 = a > 0 ? A.fr_off[f + 2] : 0;
-    var br = cfg.agent_radius * s, minR = (mini ? 1.5 : 2.3) * px, time = o.time || 0, sig = sigW >= 2 ? A.fr_sig : null;
-    var selX = 0, selY = 0, selR = 0, selOn = false, p, x, y, h, mv, dx, dy, r, fl, asleep, ang, wig, mg;
-    for (p = p0; p < p1; p++) {
-      n = A.fr_idx[p]; x = A.fr_x[p]; y = A.fr_y[p]; h = A.fr_head[p]; mv = 0;
-      if (a > 0) {
-        while (q0 < q1 && A.fr_idx[q0] < n) q0++;
-        if (q0 < q1 && A.fr_idx[q0] === n) {
-          dx = wrap16(A.fr_x[q0] - x); dy = wrap16(A.fr_y[q0] - y);
-          mv = (Math.abs(dx) * kx + Math.abs(dy) * ky) / every;
-          x += dx * a; y += dy * a; h += wrap8(A.fr_head[q0] - h) * a;
-        }
-      }
-      X = hw + wrapW(x * kx - cx) * s; Y = hh + wrapH(y * ky - cy) * s;
-      r = Math.max(br * (0.72 + 0.46 * A.fr_energy[p] / 255), minR);
-      if (X < -4 * r || X > cw + 4 * r || Y < -4 * r || Y > ch + 4 * r) continue;
-      fl = A.fr_flags[p]; asleep = (fl & 16) !== 0; ang = h * TAU / 256;
-      if (sig && !mini) {         // 신호: 세게 내는 개체 둘레에 신호 빛깔의 고리
-        mg = Math.max(Math.abs(sig[sigW * p]), Math.abs(sig[sigW * p + 1])) / 127;
-        if (mg > SIG_MIN) {
-          g.globalAlpha = 0.15 + 0.55 * (mg - SIG_MIN) / (1 - SIG_MIN);
-          g.strokeStyle = "hsl(" + Math.round(mod(Math.atan2(sig[sigW * p + 1], sig[sigW * p]) / TAU, 1) * 360) + "," + S.sig + ")";
-          g.lineWidth = 1.1 * px;
-          g.beginPath(); g.arc(X, Y, r * (2 + 0.35 * Math.sin(time * 0.006 + n)), 0, TAU); g.stroke();
+      // 사냥감: 반지름 prey_radius의 채운 원, 체력은 테두리 호(꽉 차면 온전)
+      if (on.prey && A.an_off) {
+        var ar = Math.max(cfg.prey_radius * s, (mini ? 2 : 3) * px);
+        for (i = A.an_off[f]; i < A.an_off[f + 1]; i++) {
+          X = hw + wrapW(A.an_x[i] * kx - cx) * s; Y = hh + wrapH(A.an_y[i] * ky - cy) * s;
+          if (X < -ar - 3 * px || X > cw + ar + 3 * px || Y < -ar - 3 * px || Y > ch + ar + 3 * px) continue;
+          g.globalAlpha = 0.85; g.fillStyle = S.prey;
+          g.beginPath(); g.arc(X, Y, ar, 0, TAU); g.fill();
           g.globalAlpha = 1;
+          if (!mini) {
+            g.strokeStyle = S.ink; g.lineWidth = 1.6 * px; g.lineCap = "butt";
+            g.beginPath(); g.arc(X, Y, ar + 1.6 * px, -Math.PI / 2, -Math.PI / 2 + TAU * A.an_hp[i] / 255); g.stroke();
+          }
         }
       }
-      if (mini) { g.fillStyle = colorOf(n); g.globalAlpha = asleep ? 0.45 : 1; g.fillRect(X - r, Y - r, 2 * r, 2 * r); g.globalAlpha = 1; }
-      else if (r < 3.4 * px) drawFar(g, X, Y, r, ang, colorOf(n), asleep ? 0.45 : 1);
-      else {
-        wig = asleep || !o.wiggle ? 0 : Math.sin(time * 0.012 + n * 1.9) * Math.min(1, mv * 1.8) * 0.5;
-        drawCreature(g, X, Y, r, ang, colorOf(n), asleep ? 0.45 : 1, wig, asleep);
-      }
-      if ((fl & 128) && !mini) drawHeld(g, X, Y, r, ang, asleep ? 0.45 : 1, px);   // 든 알
-      if (n === sel) { selX = X; selY = Y; selR = r; selOn = true; }
-    }
 
-    // 사건: 먹음(초록 고리), 독(붉은 고리), 태어남(밝은 고리), 죽음(흐려지는 ×), 건넴, 공격
-    if (!mini) {
-      var ev = D.ev, lo = Math.max(0, f - 2 * RING + 1), age, ty, life;
-      for (j = lo; j <= f; j++) {
-        age = tt - j;
-        for (i = ev.off[j]; i < ev.off[j + 1]; i++) {
-          ty = ev.type[i]; life = ty === EV.died ? 2 * RING : RING;
-          if (age >= life) continue;
-          X = hw + wrapW(ev.x[i] * kx - cx) * s; Y = hh + wrapH(ev.y[i] * ky - cy) * s;
-          if (X < -60 * px || X > cw + 60 * px || Y < -60 * px || Y > ch + 60 * px) continue;
-          drawEvent(g, X, Y, ty, age / life, br, px);
+      // 고른 개체의 시야
+      var sel = o.sel, sp = scratch;
+      if (!mini && sel >= 0 && posAt(sel, tt, sp).ok) {
+        X = hw + wrapW(sp.x - cx) * s; Y = hh + wrapH(sp.y - cy) * s;
+        g.beginPath(); g.moveTo(X, Y);
+        g.arc(X, Y, cfg.vision_range * s, sp.h - cfg.vision_fov / 2, sp.h + cfg.vision_fov / 2);
+        g.closePath();
+        g.fillStyle = "rgba(" + S.grid + ",0.05)"; g.fill();
+        g.strokeStyle = "rgba(" + S.grid + ",0.28)"; g.lineWidth = px; g.setLineDash([2 * px, 4 * px]); g.stroke(); g.setLineDash([]);
+        // 맛 기억: 시야 안의 먹이를 이 개체의 기억으로 칠한다(점선 고리, 먹음·독 고리는 실선). 진하기 = 기억의 크기
+        if (memOn && !far) {
+          var tm = KK.taste(D, sp.p), vr = cfg.vision_range, hf = cfg.vision_fov / 2, rr2 = Math.max(fr, 2.4 * px) * 2.1, fx, fy, dd, mm;
+          g.lineWidth = 1.4 * px; g.setLineDash([2.5 * px, 2.5 * px]);
+          for (j = 0; j < hi; j++) {
+            if (A.fd_out[j] <= f) continue;
+            fx = wrapW(A.fd_x[j] * kx - sp.x); fy = wrapH(A.fd_y[j] * ky - sp.y); dd = Math.hypot(fx, fy);
+            if (dd > vr || dd < 1e-6 || Math.abs(mod(Math.atan2(fy, fx) - sp.h + Math.PI, TAU) - Math.PI) > hf) continue;
+            mm = tm[KK.memSlot(A.fd_kind[j])];
+            if (Math.abs(mm) < 0.05) continue;
+            X = hw + wrapW(A.fd_x[j] * kx - cx) * s; Y = hh + wrapH(A.fd_y[j] * ky - cy) * s;
+            g.globalAlpha = 0.3 + 0.7 * Math.min(1, Math.abs(mm));
+            g.strokeStyle = mm > 0 ? S.memPos : S.memNeg;
+            g.beginPath(); g.arc(X, Y, rr2, 0, TAU); g.stroke();
+          }
+          g.setLineDash([]); g.globalAlpha = 1;
         }
       }
-      // 각본의 운석
-      var sc = meta.scenario, st, d;
-      if (sc && sc.strikes) {
-        for (i = 0; i < sc.strikes.length; i++) {
-          st = sc.strikes[i]; d = tt - st.frame;
-          if (d < 0 || d >= 3 * RING) continue;
-          d /= 3 * RING;
-          X = hw + wrapW(st.x - cx) * s; Y = hh + wrapH(st.y - cy) * s;
-          g.globalAlpha = (1 - d) * 0.42; g.fillStyle = S.strike;
-          g.beginPath(); g.arc(X, Y, st.radius * s * Math.min(1, 0.25 + d * 3), 0, TAU); g.fill();
-          g.globalAlpha = 1 - d; g.strokeStyle = S.strike; g.lineWidth = 1.4 * px;
-          g.beginPath(); g.arc(X, Y, st.radius * s, 0, TAU);
-          g.moveTo(X - st.radius * s * 1.2, Y); g.lineTo(X - st.radius * s * 0.8, Y); g.moveTo(X + st.radius * s * 0.8, Y); g.lineTo(X + st.radius * s * 1.2, Y);
-          g.moveTo(X, Y - st.radius * s * 1.2); g.lineTo(X, Y - st.radius * s * 0.8); g.moveTo(X, Y + st.radius * s * 0.8); g.lineTo(X, Y + st.radius * s * 1.2);
-          g.stroke();
-          g.globalAlpha = 1;
+
+      // 개체: 머리와 꼬리. 색은 핏줄, 크기는 에너지, 자는 개체는 흐리게
+      var p0 = A.fr_off[f], p1 = A.fr_off[f + 1], q0 = a > 0 ? A.fr_off[f + 1] : 0, q1 = a > 0 ? A.fr_off[f + 2] : 0;
+      var br = cfg.agent_radius * s, minR = (mini ? 1.5 : 2.3) * px, time = o.time || 0, sig = sigW >= 2 ? A.fr_sig : null;
+      var selX = 0, selY = 0, selR = 0, selOn = false, p, x, y, h, mv, dx, dy, r, fl, asleep, ang, wig, mg;
+      for (p = p0; p < p1; p++) {
+        n = A.fr_idx[p]; x = A.fr_x[p]; y = A.fr_y[p]; h = A.fr_head[p]; mv = 0;
+        if (a > 0) {
+          while (q0 < q1 && A.fr_idx[q0] < n) q0++;
+          if (q0 < q1 && A.fr_idx[q0] === n) {
+            dx = wrap16(A.fr_x[q0] - x); dy = wrap16(A.fr_y[q0] - y);
+            mv = (Math.abs(dx) * kx + Math.abs(dy) * ky) / every;
+            x += dx * a; y += dy * a; h += wrap8(A.fr_head[q0] - h) * a;
+          }
         }
+        X = hw + wrapW(x * kx - cx) * s; Y = hh + wrapH(y * ky - cy) * s;
+        r = Math.max(br * (0.72 + 0.46 * A.fr_energy[p] / 255), minR);
+        if (X < -4 * r || X > cw + 4 * r || Y < -4 * r || Y > ch + 4 * r) continue;
+        fl = A.fr_flags[p]; asleep = (fl & 16) !== 0; ang = h * TAU / 256;
+        if (sig && !mini) {         // 신호: 세게 내는 개체 둘레에 신호 빛깔의 고리
+          mg = Math.max(Math.abs(sig[sigW * p]), Math.abs(sig[sigW * p + 1])) / 127;
+          if (mg > SIG_MIN) {
+            g.globalAlpha = 0.15 + 0.55 * (mg - SIG_MIN) / (1 - SIG_MIN);
+            g.strokeStyle = "hsl(" + Math.round(mod(Math.atan2(sig[sigW * p + 1], sig[sigW * p]) / TAU, 1) * 360) + "," + S.sig + ")";
+            g.lineWidth = 1.1 * px;
+            g.beginPath(); g.arc(X, Y, r * (2 + 0.35 * Math.sin(time * 0.006 + n)), 0, TAU); g.stroke();
+            g.globalAlpha = 1;
+          }
+        }
+        if (hud && !mini && f > 0 && hud[p] > 0) {     // 뭉쳐 자기: 지금 기초 대사를 아끼는 개체에 흰빛 테두리(진하기 = 아끼는 비율)
+          g.globalAlpha = 0.2 + 0.65 * hud[p] / 255; g.strokeStyle = S.huddle; g.lineWidth = 1.6 * px;
+          g.beginPath(); g.arc(X, Y, r * 1.6, 0, TAU); g.stroke(); g.globalAlpha = 1;
+        }
+        if (mini) { g.fillStyle = colorOf(n); g.globalAlpha = asleep ? 0.45 : 1; g.fillRect(X - r, Y - r, 2 * r, 2 * r); g.globalAlpha = 1; }
+        else if (r < 3.4 * px) drawFar(g, X, Y, r, ang, colorOf(n), asleep ? 0.45 : 1);
+        else {
+          wig = asleep || !o.wiggle ? 0 : Math.sin(time * 0.012 + n * 1.9) * Math.min(1, mv * 1.8) * 0.5;
+          drawCreature(g, X, Y, r, ang, colorOf(n), asleep ? 0.45 : 1, wig, asleep);
+        }
+        if ((fl & 128) && !mini) drawHeld(g, X, Y, r, ang, asleep ? 0.45 : 1, px);   // 든 알
+        if (n === sel) { selX = X; selY = Y; selR = r; selOn = true; }
       }
-    }
-    if (selOn) {
-      g.strokeStyle = S.ink; g.lineWidth = (mini ? 1.2 : 1) * px;
-      var sq = mini ? 4 * px : selR * 1.7 + 4 * px;
-      drawBrackets(g, selX, selY, sq, px);
+
+      // 사건: 먹음(초록 고리), 독(붉은 고리), 태어남(밝은 고리), 죽음(흐려지는 ×), 건넴, 공격
       if (!mini) {
-        g.fillStyle = S.ink; g.font = 11 * px + "px " + (T.mono || "monospace"); g.textAlign = "left"; g.textBaseline = "alphabetic";
-        g.fillText("#" + idOf(sel), selX + sq + 4 * px, selY - sq + 9 * px);
+        var ev = D.ev, lo = Math.max(0, f - 2 * RING + 1), age, ty, life;
+        for (j = lo; j <= f; j++) {
+          age = tt - j;
+          for (i = ev.off[j]; i < ev.off[j + 1]; i++) {
+            ty = ev.type[i]; life = ty === EV.died ? 2 * RING : RING;
+            if (age >= life) continue;
+            X = hw + wrapW(ev.x[i] * kx - cx) * s; Y = hh + wrapH(ev.y[i] * ky - cy) * s;
+            if (X < -60 * px || X > cw + 60 * px || Y < -60 * px || Y > ch + 60 * px) continue;
+            drawEvent(g, X, Y, ty, age / life, br, px);
+          }
+        }
+        // 각본의 운석
+        var sc = meta.scenario, st, d;
+        if (sc && sc.strikes) {
+          for (i = 0; i < sc.strikes.length; i++) {
+            st = sc.strikes[i]; d = tt - st.frame;
+            if (d < 0 || d >= 3 * RING) continue;
+            d /= 3 * RING;
+            X = hw + wrapW(st.x - cx) * s; Y = hh + wrapH(st.y - cy) * s;
+            g.globalAlpha = (1 - d) * 0.42; g.fillStyle = S.strike;
+            g.beginPath(); g.arc(X, Y, st.radius * s * Math.min(1, 0.25 + d * 3), 0, TAU); g.fill();
+            g.globalAlpha = 1 - d; g.strokeStyle = S.strike; g.lineWidth = 1.4 * px;
+            g.beginPath(); g.arc(X, Y, st.radius * s, 0, TAU);
+            g.moveTo(X - st.radius * s * 1.2, Y); g.lineTo(X - st.radius * s * 0.8, Y); g.moveTo(X + st.radius * s * 0.8, Y); g.lineTo(X + st.radius * s * 1.2, Y);
+            g.moveTo(X, Y - st.radius * s * 1.2); g.lineTo(X, Y - st.radius * s * 0.8); g.moveTo(X, Y + st.radius * s * 0.8); g.lineTo(X, Y + st.radius * s * 1.2);
+            g.stroke();
+            g.globalAlpha = 1;
+          }
+        }
       }
+      if (selOn) {
+        g.strokeStyle = S.ink; g.lineWidth = (mini ? 1.2 : 1) * px;
+        var sq = mini ? 4 * px : selR * 1.7 + 4 * px;
+        drawBrackets(g, selX, selY, sq, px);
+        if (!mini) {
+          g.fillStyle = S.ink; g.font = 11 * px + "px " + (T.mono || "monospace"); g.textAlign = "left"; g.textBaseline = "alphabetic";
+          g.fillText("#" + idOf(sel), selX + sq + 4 * px, selY - sq + 9 * px);
+        }
+      }
+      if (gridStep) drawScale(g, cw, ch, gridStep, s, px);
     }
-    if (gridStep) drawScale(g, cw, ch, gridStep, s, px);
-  }
-  var scratch = { x: 0, y: 0, h: 0, p: -1, ok: false };
-  var SIG_MIN = meta.sig_min || 0.5;   // 이 기록에서 가장 센 신호 5%만 고리를 단다(replay.py _sig_min)
+    var scratch = { x: 0, y: 0, h: 0, p: -1, ok: false };
+    var SIG_MIN = meta.sig_min || 0.5;   // 이 기록에서 가장 센 신호 5%만 고리를 단다(replay.py _sig_min)
 
-  // ---------- 상태 ----------
-  var SPEEDS = [0.5, 1, 3, 10], STEPS_PER_SEC = 15, WIN = 300, HAND = 12;
-  var t = 0, playing = false, ended = false, speedIx = 1, dirty = true, snap = true, lastNow = 0;
-  var sel = -1, story = [], life = null, mode = "follow";
-  var cv = $("rp-map"), g = cv.getContext("2d"), mcv = $("rp-minicv"), mgx = mcv.getContext("2d");
-  var dpr = 1, cw = 300, ch = 300, fitS = 1;
-  var cam = { x: WW / 2, y: WH / 2, s: 1 }, tgt = { x: 0, y: 0, s: 1 }, mcam = { x: WW / 2, y: WH / 2, s: 1 };
-  var spanDef = Math.min(WW, 3.2 * cfg.vision_range), span = spanDef, spanMin = Math.min(WW, 12 * cfg.agent_radius);
-  var fp = { x: 0, y: 0, h: 0, p: -1, ok: false }, focusNote = "", toastUntil = 0, toastText = "", capShown = "";
-  var stars = meta.stars || [];
+    // ---------- 상태 ----------
+    var SPEEDS = [0.5, 1, 3, 10], STEPS_PER_SEC = 15, WIN = 300, HAND = 12;
+    var t = 0, playing = false, ended = false, speedIx = 1, dirty = true, snap = true, lastNow = 0;
+    var sel = -1, story = [], life = null, mode = "follow";
+    var cv = $("rp-map"), g = cv.getContext("2d"), mcv = $("rp-minicv"), mgx = mcv.getContext("2d");
+    var dpr = 1, cw = 300, ch = 300, fitS = 1;
+    var cam = { x: WW / 2, y: WH / 2, s: 1 }, tgt = { x: 0, y: 0, s: 1 }, mcam = { x: WW / 2, y: WH / 2, s: 1 };
+    var spanDef = Math.min(WW, 3.2 * cfg.vision_range), span = spanDef, spanMin = Math.min(WW, 12 * cfg.agent_radius);
+    var fp = { x: 0, y: 0, h: 0, p: -1, ok: false }, focusNote = "", toastUntil = 0, toastText = "", capShown = "";
+    var stars = meta.stars || [];
+    var seasons = KK.seasonRuns(D);        // 같은 철이 이어지는 장면 구간(계절 없는 세계는 빈 목록)
 
-  function fitSpan() { return cw / fitS; }
-  function focusPos(tt) {
-    if (sel < 0) { focusNote = ""; return null; }
-    if (posAt(sel, tt, fp).ok) { focusNote = ""; return fp; }
-    var f = Math.min(nF - 1, Math.floor(tt)), fs = D.first[sel];
-    if (fs >= 0 && f < fs) {
-      var par = A.ag_parent[sel];
-      if (par >= 0 && posAt(par, tt, fp).ok) { focusNote = "아직 태어나지 않았습니다. 어미를 따라갑니다."; return fp; }
-      focusNote = "아직 태어나지 않았습니다. 여기서 태어납니다.";
-      return rowPos(KK.find(D, fs, sel), fp);
+    function fitSpan() { return cw / fitS; }
+    function focusPos(tt) {
+      if (sel < 0) { focusNote = ""; return null; }
+      if (posAt(sel, tt, fp).ok) { focusNote = ""; return fp; }
+      var f = Math.min(nF - 1, Math.floor(tt)), fs = D.first[sel];
+      if (fs >= 0 && f < fs) {
+        var par = A.ag_parent[sel];
+        if (par >= 0 && posAt(par, tt, fp).ok) { focusNote = "아직 태어나지 않았습니다. 어미를 따라갑니다."; return fp; }
+        focusNote = "아직 태어나지 않았습니다. 여기서 태어납니다.";
+        return rowPos(KK.find(D, fs, sel), fp);
+      }
+      if (D.last[sel] >= 0) { focusNote = "여기서 죽었습니다."; return rowPos(KK.find(D, D.last[sel], sel), fp); }
+      focusNote = "";
+      return null;
     }
-    if (D.last[sel] >= 0) { focusNote = "여기서 죽었습니다."; return rowPos(KK.find(D, D.last[sel], sel), fp); }
-    focusNote = "";
-    return null;
-  }
-  function updateCamera(dt) {
-    if (mode === "world") { tgt.x = WW / 2; tgt.y = WH / 2; tgt.s = fitS; focusNote = ""; }
-    else {
-      tgt.s = cw / span;
-      var q = mode === "follow" ? focusPos(t) : null;
-      if (mode !== "follow") focusNote = "";
-      if (q) { tgt.x = q.x; tgt.y = q.y; } else { tgt.x = cam.x; tgt.y = cam.y; }
+    function updateCamera(dt) {
+      if (mode === "world") { tgt.x = WW / 2; tgt.y = WH / 2; tgt.s = fitS; focusNote = ""; }
+      else {
+        tgt.s = cw / span;
+        var q = mode === "follow" ? focusPos(t) : null;
+        if (mode !== "follow") focusNote = "";
+        if (q) { tgt.x = q.x; tgt.y = q.y; } else { tgt.x = cam.x; tgt.y = cam.y; }
+      }
+      var k = snap ? 1 : 1 - Math.exp(-dt / 140);
+      var dx = wrapW(tgt.x - cam.x), dy = wrapH(tgt.y - cam.y), ds = tgt.s - cam.s;
+      if (snap || Math.abs(dx) + Math.abs(dy) > 0.002 || Math.abs(ds) > cam.s * 0.0005) {
+        cam.x = mod(cam.x + dx * k, WW); cam.y = mod(cam.y + dy * k, WH); cam.s += ds * k;
+        dirty = true;
+      }
+      snap = false;
     }
-    var k = snap ? 1 : 1 - Math.exp(-dt / 140);
-    var dx = wrapW(tgt.x - cam.x), dy = wrapH(tgt.y - cam.y), ds = tgt.s - cam.s;
-    if (snap || Math.abs(dx) + Math.abs(dy) > 0.002 || Math.abs(ds) > cam.s * 0.0005) {
-      cam.x = mod(cam.x + dx * k, WW); cam.y = mod(cam.y + dy * k, WH); cam.s += ds * k;
+    function setMode(m) {
+      if (m === "free" && mode === "world") span = fitSpan();
+      mode = m;
+      $("rp-near").setAttribute("aria-pressed", m === "follow" ? "true" : "false");
+      $("rp-far").setAttribute("aria-pressed", m === "world" ? "true" : "false");
+      $("rp-near").textContent = m === "free" ? "따라가기" : "가까이";
+      $("rp-mini").hidden = m === "world";
+      sizeMini();
       dirty = true;
     }
-    snap = false;
-  }
-  function setMode(m) {
-    if (m === "free" && mode === "world") span = fitSpan();
-    mode = m;
-    $("rp-near").setAttribute("aria-pressed", m === "follow" ? "true" : "false");
-    $("rp-far").setAttribute("aria-pressed", m === "world" ? "true" : "false");
-    $("rp-near").textContent = m === "free" ? "따라가기" : "가까이";
-    $("rp-mini").hidden = m === "world";
-    sizeMini();
-    dirty = true;
-  }
-  function sizeMini() {
-    var m = mcv.getBoundingClientRect();
-    if (m.width < 2) return;
-    var w = Math.round(m.width * dpr), h = Math.round(m.height * dpr);
-    if (mcv.width !== w) mcv.width = w;
-    if (mcv.height !== h) mcv.height = h;
-  }
-  function setSpan(v) {
-    if (v >= fitSpan() * 0.97) { span = spanDef; setMode("world"); return; }
-    span = clamp(v, spanMin, fitSpan());
-    if (mode === "world") setMode(sel >= 0 ? "follow" : "free");
-    dirty = true;
-  }
+    function sizeMini() {
+      var m = mcv.getBoundingClientRect();
+      if (m.width < 2) return;
+      var w = Math.round(m.width * dpr), h = Math.round(m.height * dpr);
+      if (mcv.width !== w) mcv.width = w;
+      if (mcv.height !== h) mcv.height = h;
+    }
+    function setSpan(v) {
+      if (v >= fitSpan() * 0.97) { span = spanDef; setMode("world"); return; }
+      span = clamp(v, spanMin, fitSpan());
+      if (mode === "world") setMode(sel >= 0 ? "follow" : "free");
+      dirty = true;
+    }
 
-  // ---------- 그리기 돌리기 ----------
-  var miniTick = 0;
-  function render(now) {
-    drawScene(g, cw, ch, cam, t, { sel: sel, px: dpr, time: now, wiggle: playing && !reduce });
-    if (mode !== "world" && mcv.width > 0 && (miniTick++ % 3 === 0 || !playing)) {
-      var w = mcv.width, h = mcv.height;
-      mcam.s = Math.min(w / WW, h / WH);
-      drawScene(mgx, w, h, mcam, Math.floor(t), { sel: sel, px: dpr, mini: true });
-      var vw = cw / cam.s * mcam.s, vh = ch / cam.s * mcam.s, X = cam.x * mcam.s, Y = cam.y * mcam.s, ox, oy;
-      mgx.strokeStyle = "rgba(" + S.grid + ",0.85)"; mgx.lineWidth = dpr;
-      for (ox = -1; ox <= 1; ox++) for (oy = -1; oy <= 1; oy++) mgx.strokeRect(X - vw / 2 + ox * WW * mcam.s, Y - vh / 2 + oy * WH * mcam.s, vw, vh);
+    // ---------- 그리기 돌리기 ----------
+    var miniTick = 0;
+    function render(now) {
+      drawScene(g, cw, ch, cam, t, { sel: sel, px: dpr, time: now, wiggle: playing && !reduce });
+      if (mode !== "world" && mcv.width > 0 && (miniTick++ % 3 === 0 || !playing)) {
+        var w = mcv.width, h = mcv.height;
+        mcam.s = Math.min(w / WW, h / WH);
+        drawScene(mgx, w, h, mcam, Math.floor(t), { sel: sel, px: dpr, mini: true });
+        var vw = cw / cam.s * mcam.s, vh = ch / cam.s * mcam.s, X = cam.x * mcam.s, Y = cam.y * mcam.s, ox, oy;
+        mgx.strokeStyle = "rgba(" + S.grid + ",0.85)"; mgx.lineWidth = dpr;
+        for (ox = -1; ox <= 1; ox++) for (oy = -1; oy <= 1; oy++) mgx.strokeRect(X - vw / 2 + ox * WW * mcam.s, Y - vh / 2 + oy * WH * mcam.s, vw, vh);
+      }
     }
-  }
-  function caption(now) {
-    var text = now < toastUntil ? toastText : (mode === "follow" ? focusNote : "");
-    var key = (now < toastUntil ? "t:" : "n:") + text;
-    if (key === capShown) return;
-    capShown = key;
-    var c = $("rp-cap");
-    c.hidden = !text; c.textContent = text;
-    c.className = "rp-cap" + (now < toastUntil ? " toast" : "");
-  }
-  function toast(text, flash) {
-    toastText = text; toastUntil = performance.now() + 3200; capShown = "";
-    if (flash && !reduce) { var fl = $("rp-flash"); fl.classList.remove("on"); void fl.offsetWidth; fl.classList.add("on"); }
-  }
-  function crossed(f0, f1) {       // 재생 머리가 장면 f0에서 f1로 넘어갈 때 알릴 일
-    var i, e, sc = meta.scenario;
-    for (i = 0; i < meta.flips.length; i++) {
-      e = meta.flips[i];
-      if (e.frame > f0 && e.frame <= f1) toast("독이 바뀌었습니다. 이제 " + shapeName(e.good === 0 ? 1 : 0) + "가 독입니다.", true);
+    function caption(now) {
+      var text = now < toastUntil ? toastText : (mode === "follow" ? focusNote : "");
+      var key = (now < toastUntil ? "t:" : "n:") + text;
+      if (key === capShown) return;
+      capShown = key;
+      var c = $("rp-cap");
+      c.hidden = !text; c.textContent = text;
+      c.className = "rp-cap" + (now < toastUntil ? " toast" : "");
     }
-    if (sc) {
+    function toast(text, flash) {
+      toastText = text; toastUntil = performance.now() + 3200; capShown = "";
+      if (flash && !reduce) { var fl = $("rp-flash"); fl.classList.remove("on"); void fl.offsetWidth; fl.classList.add("on"); }
+    }
+    function crossed(f0, f1) {       // 재생 머리가 장면 f0에서 f1로 넘어갈 때 알릴 일
+      var i, e, sc = meta.scenario;
+      for (i = 0; i < meta.flips.length; i++) {
+        e = meta.flips[i];
+        if (e.frame > f0 && e.frame <= f1) toast("독이 바뀌었습니다. 이제 " + shapeName(e.good === 0 ? 1 : 0) + "가 독입니다.", true);
+      }
+      for (i = 0; i < seasons.length; i++) {      // 철이 바뀌는 순간
+        e = seasons[i];
+        if (e.a > f0 && e.a <= f1) toast(e.s === 1 ? "봄이 왔습니다." : KK.SEASON[e.s] + "이 왔습니다. " + KK.SEASON_NOTE[e.s] + ".", true);
+      }
+      if (sc) {
+        for (i = 0; i < sc.changes.length; i++) {
+          e = sc.changes[i];
+          if (e.frame > f0 && e.frame <= f1) toast("각본이 세계를 바꿨습니다: " + Object.keys(e.values).map(function (k) { return k + " = " + e.values[k]; }).join(", "));
+        }
+        for (i = 0; i < sc.strikes.length; i++) {
+          e = sc.strikes[i];
+          if (e.frame > f0 && e.frame <= f1) toast("운석이 떨어졌습니다." + (e.killed ? " " + fmt(e.killed) + "마리가 죽었습니다." : ""));
+        }
+      }
+      // 주인공이 죽으면 조금 뒤에 자식(없으면 가까이 있던 개체)으로 넘어간다
+      if (mode === "follow" && sel >= 0 && A.ag_died[sel] >= 0 && D.last[sel] >= 0) {
+        var thr = D.last[sel] + HAND;
+        if (f0 < thr && f1 >= thr && f1 < nF - 1) {
+          var nx = successor(sel, f1);
+          if (nx.n >= 0) {
+            toast(nx.kid ? "주인공이 죽었습니다. 자식 #" + idOf(nx.n) + "을 따라갑니다." : "주인공이 죽었습니다. 가까이 있던 #" + idOf(nx.n) + "을 따라갑니다.");
+            select(nx.n, {});
+          }
+        }
+      }
+    }
+    function successor(n, f) {
+      var i, c, best = -1, p, row = KK.find(D, D.last[n], n), d, bd = Infinity;
+      for (i = D.kOff[n]; i < D.kOff[n + 1]; i++) {
+        c = D.kIdx[i];
+        if (D.first[c] >= 0 && D.first[c] <= f && D.last[c] >= f && (best < 0 || D.last[c] > D.last[best])) best = c;
+      }
+      if (best >= 0) return { n: best, kid: true };
+      for (p = A.fr_off[f]; p < A.fr_off[f + 1]; p++) {
+        d = Math.abs(wrap16(A.fr_x[p] - A.fr_x[row])) + Math.abs(wrap16(A.fr_y[p] - A.fr_y[row]));
+        if (d < bd) { bd = d; best = A.fr_idx[p]; }
+      }
+      return { n: best, kid: false };
+    }
+    function tick(now) {
+      if (dead) return;          // 장면을 바꿔 해제된 세대의 반복은 여기서 끝난다
+      APP.ticks[gen] = (APP.ticks[gen] || 0) + 1;
+      var dt = Math.min(120, now - (lastNow || now));
+      lastNow = now;
+      if (playing) {
+        var prev = t;
+        t = Math.min(nF - 1, t + dt / 1000 * STEPS_PER_SEC * SPEEDS[speedIx] / every);
+        if (Math.floor(t) > Math.floor(prev)) crossed(Math.floor(prev), Math.floor(t));
+        if (t >= nF - 1) { ended = true; setPlaying(false); }
+        dirty = true;
+      }
+      updateCamera(dt);
+      if (now < toastUntil + 400 || focusNote || capShown) caption(now);
+      if (dirty) { dirty = false; render(now); frameUI(false, now); }
+      if (!dead) raf = requestAnimationFrame(tick);
+    }
+    function setPlaying(v) {
+      if (v && ended) { t = 0; ended = false; snap = true; }
+      playing = v;
+      $("rp-play").textContent = v ? "멈춤" : ended ? "처음부터" : "재생";
+      dirty = true; uiReset();
+    }
+    function seek(v) {
+      t = clamp(v, 0, nF - 1); ended = false; snap = true; dirty = true; uiReset();
+      if (!playing) $("rp-play").textContent = "재생";
+    }
+
+    // ---------- 고르기 ----------
+    function idOf(n) { return String(Math.round(A.ag_id[n])); }
+    function buildLife(n) {
+      var fs = D.first[n], fe = D.last[n];
+      if (fs < 0) return null;
+      var len = fe - fs + 1, cg = new Uint16Array(len), cp = new Uint16Array(len), a = 0, b = 0, f, p, fl, kf = [], i;
+      for (f = fs; f <= fe; f++) {
+        p = KK.find(D, f, n); fl = p >= 0 ? A.fr_flags[p] : 0;
+        a += fl & 3; b += (fl >> 2) & 3; cg[f - fs] = a; cp[f - fs] = b;
+      }
+      for (i = D.kOff[n]; i < D.kOff[n + 1]; i++) kf.push(KK.frameOf(D, A.ag_born[D.kIdx[i]] + 1));
+      kf.sort(function (x, y) { return x - y; });
+      return { fs: fs, fe: fe, good: cg, poison: cp, kids: kf };
+    }
+    function select(n, o) {
+      o = o || {};
+      sel = n; story = KK.story(D, n); life = buildLife(n);
+      if (o.jump && D.first[n] >= 0) { var f = Math.floor(t); if (f < D.first[n] || f > D.last[n]) seek(D.first[n]); }
+      if (mode !== "world" || o.near) setMode("follow");
+      cardStatic(); storyList();
+      var chips = $("rp-stars").children, i;
+      for (i = 0; i < chips.length; i++) chips[i].setAttribute("aria-pressed", stars[i] && stars[i].agent === n ? "true" : "false");
+      uiReset(); dirty = true;
+    }
+    function cardStatic() {
+      var n = sel, star = null, i, facts = $("rp-facts"), fc = $("rp-face").getContext("2d");
+      for (i = 0; i < stars.length; i++) if (stars[i].agent === n) star = stars[i];
+      $("rp-name").textContent = "개체 #" + idOf(n);
+      $("rp-why").textContent = star ? star.why + " · " + fmt(star.n) + star.unit : "지도에서 고른 생물";
+      facts.textContent = "";
+      facts.appendChild(el("span", "", "세대 " + fmt(A.ag_gen[n])));
+      facts.appendChild(el("span", "", "뇌 " + A.ag_hidden[n] + "개"));
+      if (on.mind) facts.appendChild(el("span", "", "학습률 " + rate(A.ag_eta[n])));
+      var par = A.ag_parent[n];
+      if (par >= 0) {
+        var b = el("button", "rp-link", "어미 #" + idOf(par));
+        b.type = "button";
+        b.addEventListener("click", function () { select(par, { jump: true, near: true }); });
+        facts.appendChild(b);
+      }
+      fc.setTransform(1, 0, 0, 1, 0, 0);
+      fc.fillStyle = S.stage; fc.fillRect(0, 0, 120, 120);
+      drawCreature(fc, 70, 54, 24, -0.5, colorOf(n), 1, 0.35, false);
+    }
+    function storyList() {
+      var ol = $("rp-story"), born = A.ag_born[sel];
+      ol.textContent = "";
+      story.forEach(function (e) {
+        var li = el("li", "t-" + e.type), b = el("button");
+        b.type = "button";
+        b.appendChild(el("span", "age", fmt(Math.max(0, e.step - born))));
+        b.appendChild(el("span", "dot"));
+        b.appendChild(el("span", "", e.text));
+        b.addEventListener("click", function () { seek(e.f); setMode("follow"); });
+        li.appendChild(b); ol.appendChild(li);
+      });
+      storyNow = -2;
+    }
+    var storyNow = -2;
+    function storyUI(f) {
+      var ol = $("rp-story"), items = ol.children, i, now = -1;
+      for (i = 0; i < story.length; i++) if (story[i].f <= f) now = i; else break;
+      if (now === storyNow) return;
+      storyNow = now;
+      for (i = 0; i < items.length; i++) {
+        items[i].classList.toggle("future", i > now);
+        items[i].classList.toggle("now", i === now);
+      }
+      if (now >= 0 && items[now]) ol.scrollTop = Math.max(0, items[now].offsetTop - ol.clientHeight / 2 + items[now].offsetHeight / 2);
+    }
+    function cardUI(f) {
+      if (sel < 0) return;
+      var p = KK.find(D, f, sel), born = A.ag_born[sel], died = A.ag_died[sel], fs = D.first[sel], jump = $("rp-jump"), to = -1;
+      $("rp-energy").hidden = p < 0;
+      if (p >= 0) {
+        $("rp-vital").textContent = "나이 " + fmt(stepOf(f) - born) + "스텝" + ((A.fr_flags[p] & 16) ? " · 자는 중" : "") + " · 에너지";
+        $("rp-energy-fill").style.width = Math.round(A.fr_energy[p] / 2.55) + "%";
+      } else if (fs >= 0 && f < fs) {
+        $("rp-vital").textContent = "아직 태어나지 않았습니다. " + fmt(stepOf(fs) - stepOf(f)) + "스텝 뒤에 태어납니다.";
+        jump.textContent = "태어나는 순간으로"; to = fs;
+      } else if (fs >= 0) {
+        $("rp-vital").textContent = "나이 " + fmt(died - born) + "스텝에 " + (CAUSE[A.ag_cause[sel]] || "죽었다").replace("었다", "었습니다").replace("았다", "았습니다") + ".";
+        jump.textContent = "마지막 순간으로"; to = Math.max(fs, D.last[sel] - Math.round(60 / every));
+      } else {
+        $("rp-vital").textContent = "장면과 장면 사이에만 살아서 지도에는 보이지 않습니다.";
+      }
+      jump.hidden = to < 0;
+      jump.onclick = to < 0 ? null : function () { seek(to); setMode("follow"); };
+      var gd = 0, ps = 0, kd = 0, i;
+      if (life && f >= life.fs) {
+        i = Math.min(f, life.fe) - life.fs; gd = life.good[i]; ps = life.poison[i];
+        for (i = 0; i < life.kids.length && life.kids[i] <= f; i++) kd++;
+      }
+      $("rp-sofar").textContent = "여기까지 " + (on.kinds ? "좋은 먹이 " + gd + " · 독 " + ps : "먹이 " + gd) + " · 새끼 " + kd;
+      tasteUI(f, p);
+    }
+    // 맛 기억 막대 둘과, 지금 독인 모양을 기억이 맞게 가리는지 한 단어
+    function tasteUI(f, p) {
+      var box = $("rp-taste");
+      box.hidden = !memOn || p < 0;
+      if (box.hidden) return;
+      var m = KK.taste(D, p), k, b, v;
+      for (k = 0; k < 2; k++) {
+        v = clamp(m[k], -1, 1); b = $("rp-tb" + k);
+        b.className = v >= 0 ? "pos" : "neg"; b.style.width = Math.round(Math.abs(v) * 50) + "%";
+        $("rp-tn" + k).textContent = Math.abs(v) < 0.1 ? "모름 " + KK.signed(v) : (v > 0 ? "먹을 만했다 " : "독이었다 ") + KK.signed(v);
+      }
+      var note = "동그라미 칸에는 사체 조각·고기를 먹은 결과도 들어갑니다.";
+      if (on.kinds) {
+        var bad = A.f_good[f] === 0 ? 1 : 0, d = m[1 - bad] - m[bad];
+        note = "지금 독은 " + shapeName(bad) + " → 기억이 " + (Math.abs(d) < 0.15 ? "모름(두 기억의 차이가 작음)" : d > 0 ? "맞음" : "틀림") + ". " + note;
+      }
+      $("rp-tv").textContent = note;
+    }
+
+    // ---------- 장면이 바뀔 때 고치는 글과 숫자 ----------
+    var uiF = -1, uiHeavyF = -1, uiAt = 0, uiGood = -1, tiles = {}, uiSeason = -1, seasonKey = null, hudEl = null;
+    function uiReset() { uiF = -1; uiHeavyF = -1; }
+    function frameUI(force, now) {
+      var f = Math.min(nF - 1, Math.floor(t + 1e-6));
+      drawTrack();
+      if (f !== uiF || force) { uiF = f; lightUI(f); }
+      if ((f !== uiHeavyF || force) && (force || !playing || (now || 0) - uiAt > 130)) {
+        uiHeavyF = f; uiAt = now || 0;
+        numbersUI(f); cardUI(f); storyUI(f);
+      }
+    }
+    function lightUI(f) {
+      $("rp-step").textContent = fmt(stepOf(f)) + "스텝";
+      var popEl = $("rp-pop");
+      popEl.textContent = "개체 ";
+      popEl.appendChild(el("b", "", fmt(A.fr_off[f + 1] - A.fr_off[f])));
+      popEl.appendChild(document.createTextNode("마리"));
+      var good = A.f_good[f];
+      if (on.kinds && good !== uiGood) {
+        uiGood = good;
+        $("rp-g-good").className = "rp-glyph good " + (good === 1 ? "diamond" : "circle");
+        $("rp-g-bad").className = "rp-glyph bad " + (good === 1 ? "circle" : "diamond");
+        $("rp-t-good").textContent = shapeName(good) + "는 먹이";
+        $("rp-t-bad").textContent = shapeName(good === 0 ? 1 : 0) + "는 독";
+      }
+      if (seasonKey) {
+        var se = A.f_season[f];
+        if (se !== uiSeason) {
+          uiSeason = se;
+          seasonKey.g.className = "rp-glyph season s" + se;
+          seasonKey.t.textContent = se === 1 ? "봄·여름" : KK.SEASON[se] + " — " + KK.SEASON_NOTE[se];
+          $("rp-stage").classList.toggle("winter", se === 3);
+        }
+        if (hudEl) {
+          var hc = KK.huddlers(D, f);
+          hudEl.hidden = se !== 3;
+          hudEl.textContent = se === 3 ? "붙어서 덜 쓰는 개체 " + (hc == null ? "모름" : fmt(hc) + "마리") : "";
+        }
+      }
+      $("rp-track").setAttribute("aria-valuenow", f);
+      $("rp-track").setAttribute("aria-valuetext", fmt(stepOf(f)) + "스텝");
+    }
+    function tile(key, label) {
+      var d = el("div", "rp-tile"), o = { k: el("div", "k", label), v: el("div", "v"), s: el("div", "s") };
+      d.appendChild(o.k); d.appendChild(o.v); d.appendChild(o.s);
+      $("rp-tiles").appendChild(d); tiles[key] = o;
+    }
+    function numbersUI(f) {
+      var seg = KK.segOf(D, f), st = KK.windowStats(D, f, WIN, seg.a);
+      var prev = seg.prev && seg.prev.b >= seg.prev.a ? KK.rangeStats(D, seg.prev.a, seg.prev.b) : null;
+      var v = KK.verdict(st, on.kinds, prev), vd = $("rp-verdict"), pe = st.eaten ? st.poisoned / st.eaten : 0;
+      $("rp-nowstep").textContent = "최근 " + fmt(st.steps) + "스텝";
+      vd.textContent = "";
+      if (on.kinds) {
+        vd.appendChild(document.createTextNode("먹은 것 가운데 독 " + (st.eaten ? pct(pe) : "–") + " · 눈 감고 먹어도 " + pct(st.blind) + " → "));
+        vd.appendChild(el("strong", "", v.text));
+        if (v.more) vd.appendChild(document.createTextNode(". " + (v.tone === "shape"
+          ? "독이 바뀌었는데도 " + shapeName(pe > st.blind ? (A.f_good[f] === 0 ? 1 : 0) : A.f_good[f]) + "를 그대로 더 잘 먹습니다." : v.more)));
+        $("rp-bar-eat").style.width = pct(pe); $("rp-bar-blind").style.width = pct(st.blind);
+        $("rp-num-eat").textContent = st.eaten ? pct(pe) : "–"; $("rp-num-blind").textContent = pct(st.blind);
+        $("rp-vfine").textContent = "최근 " + fmt(st.steps) + "스텝 동안 먹은 " + fmt(st.eaten) + "끼로 셌습니다(독이 바뀐 순간을 넘어 섞지 않습니다). “눈 감고 먹으면”은 그때 세계에 놓인 먹이 가운데 독의 비율입니다. 둘의 차이가 "
+          + Math.round(KK.MARGIN * 100) + "%p 안이면 가려 먹지 않는다고 적고, 독이 바뀌기 앞 구간과 견주어 독을 가리는지 모양을 가리는지 가릅니다.";
+      } else {
+        vd.appendChild(document.createTextNode("최근 " + fmt(st.steps) + "스텝 동안 "));
+        vd.appendChild(el("strong", "", fmt(st.eaten) + "끼"));
+        vd.appendChild(document.createTextNode("를 먹었습니다."));
+      }
+      var pop = A.fr_off[f + 1] - A.fr_off[f], step = stepOf(f), i, og = null;
+      for (i = 0; i < meta.orig.length && meta.orig[i][0] <= step; i++) og = meta.orig[i];
+      tiles.pop.v.textContent = fmt(pop) + "마리";
+      tiles.pop.s.textContent = og ? "원래 기록 " + fmt(og[1]) + "마리" : "";
+      tiles.food.v.textContent = fmt(A.f_food[f]) + "알";
+      tiles.food.s.textContent = on.kinds ? "그 가운데 독 " + pct(A.f_blind[f]) : "";
+      tiles.brain.v.textContent = D.hid[f].toFixed(1) + "개";
+      tiles.brain.s.textContent = on.mind ? "학습률 " + rate(D.eta[f]) : "";
+      if (tiles.gift) { tiles.gift.v.textContent = fmt(st.gifts) + "번"; tiles.gift.s.textContent = "최근 " + fmt(st.steps) + "스텝"; }
+      if (tiles.atk) { tiles.atk.v.textContent = fmt(st.attacks) + "번"; tiles.atk.s.textContent = "최근 " + fmt(st.steps) + "스텝"; }
+    }
+
+    // ---------- 시간 막대 ----------
+    var track = $("rp-track"), tcv = $("rp-trackcv"), tg = tcv.getContext("2d"), scrub = false, PADX = 9;
+    var segs = [], spans = [], SEASON_COL = ["", "", "#a8743f", "#9cc3dd"];
+    (function () {
+      var cuts = [0], i, fr;
+      for (i = 0; i < meta.flips.length; i++) { fr = meta.flips[i].frame; if (fr > 0 && fr < nF - 1) cuts.push(fr); }
+      cuts.push(nF - 1);
+      for (i = 0; i + 1 < cuts.length; i++) segs.push({ a: cuts[i], b: cuts[i + 1], good: A.f_good[Math.min(nF - 1, cuts[i])] });
+      var sc = meta.scenario;
+      if (!sc) return;
+      var cur = {}, k, act, from = -1;
+      var isOn = function () { for (var q in sc.base) if (q in cur && cur[q] !== sc.base[q]) return true; return false; };
+      for (k in sc.at_start) cur[k] = sc.at_start[k];
+      if (isOn()) from = 0;
       for (i = 0; i < sc.changes.length; i++) {
-        e = sc.changes[i];
-        if (e.frame > f0 && e.frame <= f1) toast("각본이 세계를 바꿨습니다: " + Object.keys(e.values).map(function (k) { return k + " = " + e.values[k]; }).join(", "));
+        for (k in sc.changes[i].values) cur[k] = sc.changes[i].values[k];
+        act = isOn(); fr = Math.min(nF - 1, sc.changes[i].frame);
+        if (act && from < 0) from = fr;
+        if (!act && from >= 0) { spans.push([from, fr]); from = -1; }
       }
-      for (i = 0; i < sc.strikes.length; i++) {
-        e = sc.strikes[i];
-        if (e.frame > f0 && e.frame <= f1) toast("운석이 떨어졌습니다." + (e.killed ? " " + fmt(e.killed) + "마리가 죽었습니다." : ""));
-      }
-    }
-    // 주인공이 죽으면 조금 뒤에 자식(없으면 가까이 있던 개체)으로 넘어간다
-    if (mode === "follow" && sel >= 0 && A.ag_died[sel] >= 0 && D.last[sel] >= 0) {
-      var thr = D.last[sel] + HAND;
-      if (f0 < thr && f1 >= thr && f1 < nF - 1) {
-        var nx = successor(sel, f1);
-        if (nx.n >= 0) {
-          toast(nx.kid ? "주인공이 죽었습니다. 자식 #" + idOf(nx.n) + "을 따라갑니다." : "주인공이 죽었습니다. 가까이 있던 #" + idOf(nx.n) + "을 따라갑니다.");
-          select(nx.n, {});
+      if (from >= 0) spans.push([from, nF - 1]);
+    })();
+    function drawTrack() {
+      var w = tcv.width, h = tcv.height, px = dpr, x0 = PADX * px, L = w - 2 * PADX * px, i, e, xa, xb;
+      if (!w) return;
+      var X = function (f) { return x0 + L * f / Math.max(1, nF - 1); };
+      var yBand = 4 * px, hBand = 12 * px, yRail = 27 * px, yLife = 36 * px;
+      tg.setTransform(1, 0, 0, 1, 0, 0);
+      tg.clearRect(0, 0, w, h);
+      if (on.kinds) {      // 띠: 그 구간에 독인 모양
+        for (i = 0; i < segs.length; i++) {
+          e = segs[i]; xa = X(e.a); xb = X(e.b);
+          tg.globalAlpha = i % 2 ? 0.16 : 0.27; tg.fillStyle = T.poison;
+          tg.fillRect(xa + (i ? px : 0), yBand, xb - xa - (i ? px : 0), hBand);
+          tg.globalAlpha = 1;
+          if (xb - xa > 16 * px) { tg.beginPath(); foodPath(tg, xa + 9 * px, yBand + hBand / 2, 3.3 * px, e.good === 0 ? 3 : 2); tg.fill(); }
         }
       }
-    }
-  }
-  function successor(n, f) {
-    var i, c, best = -1, p, row = KK.find(D, D.last[n], n), d, bd = Infinity;
-    for (i = D.kOff[n]; i < D.kOff[n + 1]; i++) {
-      c = D.kIdx[i];
-      if (D.first[c] >= 0 && D.first[c] <= f && D.last[c] >= f && (best < 0 || D.last[c] > D.last[best])) best = c;
-    }
-    if (best >= 0) return { n: best, kid: true };
-    for (p = A.fr_off[f]; p < A.fr_off[f + 1]; p++) {
-      d = Math.abs(wrap16(A.fr_x[p] - A.fr_x[row])) + Math.abs(wrap16(A.fr_y[p] - A.fr_y[row]));
-      if (d < bd) { bd = d; best = A.fr_idx[p]; }
-    }
-    return { n: best, kid: false };
-  }
-  function tick(now) {
-    var dt = Math.min(120, now - (lastNow || now));
-    lastNow = now;
-    if (playing) {
-      var prev = t;
-      t = Math.min(nF - 1, t + dt / 1000 * STEPS_PER_SEC * SPEEDS[speedIx] / every);
-      if (Math.floor(t) > Math.floor(prev)) crossed(Math.floor(prev), Math.floor(t));
-      if (t >= nF - 1) { ended = true; setPlaying(false); }
-      dirty = true;
-    }
-    updateCamera(dt);
-    if (now < toastUntil + 400 || focusNote || capShown) caption(now);
-    if (dirty) { dirty = false; render(now); frameUI(false, now); }
-    requestAnimationFrame(tick);
-  }
-  function setPlaying(v) {
-    if (v && ended) { t = 0; ended = false; snap = true; }
-    playing = v;
-    $("rp-play").textContent = v ? "멈춤" : ended ? "처음부터" : "재생";
-    dirty = true; uiReset();
-  }
-  function seek(v) {
-    t = clamp(v, 0, nF - 1); ended = false; snap = true; dirty = true; uiReset();
-    if (!playing) $("rp-play").textContent = "재생";
-  }
-
-  // ---------- 고르기 ----------
-  function idOf(n) { return String(Math.round(A.ag_id[n])); }
-  function buildLife(n) {
-    var fs = D.first[n], fe = D.last[n];
-    if (fs < 0) return null;
-    var len = fe - fs + 1, cg = new Uint16Array(len), cp = new Uint16Array(len), a = 0, b = 0, f, p, fl, kf = [], i;
-    for (f = fs; f <= fe; f++) {
-      p = KK.find(D, f, n); fl = p >= 0 ? A.fr_flags[p] : 0;
-      a += fl & 3; b += (fl >> 2) & 3; cg[f - fs] = a; cp[f - fs] = b;
-    }
-    for (i = D.kOff[n]; i < D.kOff[n + 1]; i++) kf.push(KK.frameOf(D, A.ag_born[D.kIdx[i]] + 1));
-    kf.sort(function (x, y) { return x - y; });
-    return { fs: fs, fe: fe, good: cg, poison: cp, kids: kf };
-  }
-  function select(n, o) {
-    o = o || {};
-    sel = n; story = KK.story(D, n); life = buildLife(n);
-    if (o.jump && D.first[n] >= 0) { var f = Math.floor(t); if (f < D.first[n] || f > D.last[n]) seek(D.first[n]); }
-    if (mode !== "world" || o.near) setMode("follow");
-    cardStatic(); storyList();
-    var chips = $("rp-stars").children, i;
-    for (i = 0; i < chips.length; i++) chips[i].setAttribute("aria-pressed", stars[i] && stars[i].agent === n ? "true" : "false");
-    uiReset(); dirty = true;
-  }
-  function cardStatic() {
-    var n = sel, star = null, i, facts = $("rp-facts"), fc = $("rp-face").getContext("2d");
-    for (i = 0; i < stars.length; i++) if (stars[i].agent === n) star = stars[i];
-    $("rp-name").textContent = "개체 #" + idOf(n);
-    $("rp-why").textContent = star ? star.why + " · " + fmt(star.n) + star.unit : "지도에서 고른 생물";
-    facts.textContent = "";
-    facts.appendChild(el("span", "", "세대 " + fmt(A.ag_gen[n])));
-    facts.appendChild(el("span", "", "뇌 " + A.ag_hidden[n] + "개"));
-    if (on.mind) facts.appendChild(el("span", "", "학습률 " + rate(A.ag_eta[n])));
-    var par = A.ag_parent[n];
-    if (par >= 0) {
-      var b = el("button", "rp-link", "어미 #" + idOf(par));
-      b.type = "button";
-      b.addEventListener("click", function () { select(par, { jump: true, near: true }); });
-      facts.appendChild(b);
-    }
-    fc.setTransform(1, 0, 0, 1, 0, 0);
-    fc.fillStyle = S.stage; fc.fillRect(0, 0, 120, 120);
-    drawCreature(fc, 70, 54, 24, -0.5, colorOf(n), 1, 0.35, false);
-  }
-  function storyList() {
-    var ol = $("rp-story"), born = A.ag_born[sel];
-    ol.textContent = "";
-    story.forEach(function (e) {
-      var li = el("li", "t-" + e.type), b = el("button");
-      b.type = "button";
-      b.appendChild(el("span", "age", fmt(Math.max(0, e.step - born))));
-      b.appendChild(el("span", "dot"));
-      b.appendChild(el("span", "", e.text));
-      b.addEventListener("click", function () { seek(e.f); setMode("follow"); });
-      li.appendChild(b); ol.appendChild(li);
-    });
-    storyNow = -2;
-  }
-  var storyNow = -2;
-  function storyUI(f) {
-    var ol = $("rp-story"), items = ol.children, i, now = -1;
-    for (i = 0; i < story.length; i++) if (story[i].f <= f) now = i; else break;
-    if (now === storyNow) return;
-    storyNow = now;
-    for (i = 0; i < items.length; i++) {
-      items[i].classList.toggle("future", i > now);
-      items[i].classList.toggle("now", i === now);
-    }
-    if (now >= 0 && items[now]) ol.scrollTop = Math.max(0, items[now].offsetTop - ol.clientHeight / 2 + items[now].offsetHeight / 2);
-  }
-  function cardUI(f) {
-    if (sel < 0) return;
-    var p = KK.find(D, f, sel), born = A.ag_born[sel], died = A.ag_died[sel], fs = D.first[sel], jump = $("rp-jump"), to = -1;
-    $("rp-energy").hidden = p < 0;
-    if (p >= 0) {
-      $("rp-vital").textContent = "나이 " + fmt(stepOf(f) - born) + "스텝" + ((A.fr_flags[p] & 16) ? " · 자는 중" : "") + " · 에너지";
-      $("rp-energy-fill").style.width = Math.round(A.fr_energy[p] / 2.55) + "%";
-    } else if (fs >= 0 && f < fs) {
-      $("rp-vital").textContent = "아직 태어나지 않았습니다. " + fmt(stepOf(fs) - stepOf(f)) + "스텝 뒤에 태어납니다.";
-      jump.textContent = "태어나는 순간으로"; to = fs;
-    } else if (fs >= 0) {
-      $("rp-vital").textContent = "나이 " + fmt(died - born) + "스텝에 " + (CAUSE[A.ag_cause[sel]] || "죽었다").replace("었다", "었습니다").replace("았다", "았습니다") + ".";
-      jump.textContent = "마지막 순간으로"; to = Math.max(fs, D.last[sel] - Math.round(60 / every));
-    } else {
-      $("rp-vital").textContent = "장면과 장면 사이에만 살아서 지도에는 보이지 않습니다.";
-    }
-    jump.hidden = to < 0;
-    jump.onclick = to < 0 ? null : function () { seek(to); setMode("follow"); };
-    var gd = 0, ps = 0, kd = 0, i;
-    if (life && f >= life.fs) {
-      i = Math.min(f, life.fe) - life.fs; gd = life.good[i]; ps = life.poison[i];
-      for (i = 0; i < life.kids.length && life.kids[i] <= f; i++) kd++;
-    }
-    $("rp-sofar").textContent = "여기까지 " + (on.kinds ? "좋은 먹이 " + gd + " · 독 " + ps : "먹이 " + gd) + " · 새끼 " + kd;
-  }
-
-  // ---------- 장면이 바뀔 때 고치는 글과 숫자 ----------
-  var uiF = -1, uiHeavyF = -1, uiAt = 0, uiGood = -1, tiles = {};
-  function uiReset() { uiF = -1; uiHeavyF = -1; }
-  function frameUI(force, now) {
-    var f = Math.min(nF - 1, Math.floor(t + 1e-6));
-    drawTrack();
-    if (f !== uiF || force) { uiF = f; lightUI(f); }
-    if ((f !== uiHeavyF || force) && (force || !playing || (now || 0) - uiAt > 130)) {
-      uiHeavyF = f; uiAt = now || 0;
-      numbersUI(f); cardUI(f); storyUI(f);
-    }
-  }
-  function lightUI(f) {
-    $("rp-step").textContent = fmt(stepOf(f)) + "스텝";
-    var popEl = $("rp-pop");
-    popEl.textContent = "개체 ";
-    popEl.appendChild(el("b", "", fmt(A.fr_off[f + 1] - A.fr_off[f])));
-    popEl.appendChild(document.createTextNode("마리"));
-    var good = A.f_good[f];
-    if (on.kinds && good !== uiGood) {
-      uiGood = good;
-      $("rp-g-good").className = "rp-glyph good " + (good === 1 ? "diamond" : "circle");
-      $("rp-g-bad").className = "rp-glyph bad " + (good === 1 ? "circle" : "diamond");
-      $("rp-t-good").textContent = shapeName(good) + "는 먹이";
-      $("rp-t-bad").textContent = shapeName(good === 0 ? 1 : 0) + "는 독";
-    }
-    $("rp-track").setAttribute("aria-valuenow", f);
-    $("rp-track").setAttribute("aria-valuetext", fmt(stepOf(f)) + "스텝");
-  }
-  function tile(key, label) {
-    var d = el("div", "rp-tile"), o = { k: el("div", "k", label), v: el("div", "v"), s: el("div", "s") };
-    d.appendChild(o.k); d.appendChild(o.v); d.appendChild(o.s);
-    $("rp-tiles").appendChild(d); tiles[key] = o;
-  }
-  function numbersUI(f) {
-    var seg = KK.segOf(D, f), st = KK.windowStats(D, f, WIN, seg.a);
-    var prev = seg.prev && seg.prev.b >= seg.prev.a ? KK.rangeStats(D, seg.prev.a, seg.prev.b) : null;
-    var v = KK.verdict(st, on.kinds, prev), vd = $("rp-verdict"), pe = st.eaten ? st.poisoned / st.eaten : 0;
-    $("rp-nowstep").textContent = "최근 " + fmt(st.steps) + "스텝";
-    vd.textContent = "";
-    if (on.kinds) {
-      vd.appendChild(document.createTextNode("먹은 것 가운데 독 " + (st.eaten ? pct(pe) : "–") + " · 눈 감고 먹어도 " + pct(st.blind) + " → "));
-      vd.appendChild(el("strong", "", v.text));
-      if (v.more) vd.appendChild(document.createTextNode(". " + (v.tone === "shape"
-        ? "독이 바뀌었는데도 " + shapeName(pe > st.blind ? (A.f_good[f] === 0 ? 1 : 0) : A.f_good[f]) + "를 그대로 더 잘 먹습니다." : v.more)));
-      $("rp-bar-eat").style.width = pct(pe); $("rp-bar-blind").style.width = pct(st.blind);
-      $("rp-num-eat").textContent = st.eaten ? pct(pe) : "–"; $("rp-num-blind").textContent = pct(st.blind);
-      $("rp-vfine").textContent = "최근 " + fmt(st.steps) + "스텝 동안 먹은 " + fmt(st.eaten) + "끼로 셌습니다(독이 바뀐 순간을 넘어 섞지 않습니다). “눈 감고 먹으면”은 그때 세계에 놓인 먹이 가운데 독의 비율입니다. 둘의 차이가 "
-        + Math.round(KK.MARGIN * 100) + "%p 안이면 가려 먹지 않는다고 적고, 독이 바뀌기 앞 구간과 견주어 독을 가리는지 모양을 가리는지 가릅니다.";
-    } else {
-      vd.appendChild(document.createTextNode("최근 " + fmt(st.steps) + "스텝 동안 "));
-      vd.appendChild(el("strong", "", fmt(st.eaten) + "끼"));
-      vd.appendChild(document.createTextNode("를 먹었습니다."));
-    }
-    var pop = A.fr_off[f + 1] - A.fr_off[f], step = stepOf(f), i, og = null;
-    for (i = 0; i < meta.orig.length && meta.orig[i][0] <= step; i++) og = meta.orig[i];
-    tiles.pop.v.textContent = fmt(pop) + "마리";
-    tiles.pop.s.textContent = og ? "원래 기록 " + fmt(og[1]) + "마리" : "";
-    tiles.food.v.textContent = fmt(A.f_food[f]) + "알";
-    tiles.food.s.textContent = on.kinds ? "그 가운데 독 " + pct(A.f_blind[f]) : "";
-    tiles.brain.v.textContent = D.hid[f].toFixed(1) + "개";
-    tiles.brain.s.textContent = on.mind ? "학습률 " + rate(D.eta[f]) : "";
-    if (tiles.gift) { tiles.gift.v.textContent = fmt(st.gifts) + "번"; tiles.gift.s.textContent = "최근 " + fmt(st.steps) + "스텝"; }
-    if (tiles.atk) { tiles.atk.v.textContent = fmt(st.attacks) + "번"; tiles.atk.s.textContent = "최근 " + fmt(st.steps) + "스텝"; }
-  }
-
-  // ---------- 시간 막대 ----------
-  var track = $("rp-track"), tcv = $("rp-trackcv"), tg = tcv.getContext("2d"), scrub = false, PADX = 9;
-  var segs = [], spans = [];
-  (function () {
-    var cuts = [0], i, fr;
-    for (i = 0; i < meta.flips.length; i++) { fr = meta.flips[i].frame; if (fr > 0 && fr < nF - 1) cuts.push(fr); }
-    cuts.push(nF - 1);
-    for (i = 0; i + 1 < cuts.length; i++) segs.push({ a: cuts[i], b: cuts[i + 1], good: A.f_good[Math.min(nF - 1, cuts[i])] });
-    var sc = meta.scenario;
-    if (!sc) return;
-    var cur = {}, k, act, from = -1;
-    var isOn = function () { for (var q in sc.base) if (q in cur && cur[q] !== sc.base[q]) return true; return false; };
-    for (k in sc.at_start) cur[k] = sc.at_start[k];
-    if (isOn()) from = 0;
-    for (i = 0; i < sc.changes.length; i++) {
-      for (k in sc.changes[i].values) cur[k] = sc.changes[i].values[k];
-      act = isOn(); fr = Math.min(nF - 1, sc.changes[i].frame);
-      if (act && from < 0) from = fr;
-      if (!act && from >= 0) { spans.push([from, fr]); from = -1; }
-    }
-    if (from >= 0) spans.push([from, nF - 1]);
-  })();
-  function drawTrack() {
-    var w = tcv.width, h = tcv.height, px = dpr, x0 = PADX * px, L = w - 2 * PADX * px, i, e, xa, xb;
-    if (!w) return;
-    var X = function (f) { return x0 + L * f / Math.max(1, nF - 1); };
-    var yBand = 4 * px, hBand = 12 * px, yRail = 27 * px, yLife = 36 * px;
-    tg.setTransform(1, 0, 0, 1, 0, 0);
-    tg.clearRect(0, 0, w, h);
-    if (on.kinds) {      // 띠: 그 구간에 독인 모양
-      for (i = 0; i < segs.length; i++) {
-        e = segs[i]; xa = X(e.a); xb = X(e.b);
-        tg.globalAlpha = i % 2 ? 0.16 : 0.27; tg.fillStyle = T.poison;
-        tg.fillRect(xa + (i ? px : 0), yBand, xb - xa - (i ? px : 0), hBand);
+      // 철: 가을(갈색)·겨울(옅은 파랑). 먹이 종류 띠가 있으면 그 아래 가는 띠, 없으면 띠 자리를 쓴다
+      var sy = on.kinds ? yBand + hBand + 5 * px : yBand, sh = on.kinds ? 3 * px : hBand;
+      for (i = 0; i < seasons.length; i++) {
+        e = seasons[i];
+        if (e.s < 2) continue;
+        tg.globalAlpha = e.s === 3 ? 0.75 : 0.6; tg.fillStyle = SEASON_COL[e.s];
+        xa = X(e.a); tg.fillRect(xa, sy, Math.max(2 * px, X(Math.min(nF - 1, e.b + 1)) - xa), sh);
         tg.globalAlpha = 1;
-        if (xb - xa > 16 * px) { tg.beginPath(); foodPath(tg, xa + 9 * px, yBand + hBand / 2, 3.3 * px, e.good === 0 ? 3 : 2); tg.fill(); }
       }
-    }
-    tg.fillStyle = T.warn;
-    for (i = 0; i < spans.length; i++) tg.fillRect(X(spans[i][0]), yBand + hBand + px, Math.max(2 * px, X(spans[i][1]) - X(spans[i][0])), 3 * px);
-    if (meta.scenario) for (i = 0; i < meta.scenario.strikes.length; i++) {
-      xa = X(Math.min(nF - 1, meta.scenario.strikes[i].frame));
-      tg.beginPath(); tg.moveTo(xa - 4 * px, yBand - 3 * px); tg.lineTo(xa + 4 * px, yBand - 3 * px); tg.lineTo(xa, yBand + 3 * px); tg.closePath(); tg.fill();
-    }
-    tg.fillStyle = T.line; tg.fillRect(x0, yRail - px, L, 2 * px);
-    tg.fillStyle = T.accent; tg.fillRect(x0, yRail - px, X(t) - x0, 2 * px);
-    tg.fillStyle = T.ink;
-    for (i = 1; i < segs.length; i++) tg.fillRect(Math.round(X(segs[i].a)) - px / 2, yBand - 2 * px, px, yRail + 5 * px - yBand);
-    if (sel >= 0 && D.first[sel] >= 0) {     // 고른 개체가 산 동안과 그 사이의 끼니
-      xa = X(D.first[sel]); xb = X(D.last[sel]);
-      tg.fillStyle = T.faint; tg.fillRect(xa, yLife, Math.max(2 * px, xb - xa), 2 * px);
-      for (i = 0; i < story.length; i++) {
-        e = story[i];
-        if (e.type === "good") tg.fillStyle = T.food; else if (e.type === "poison") tg.fillStyle = T.danger;
-        else if (e.type === "child") tg.fillStyle = T.accent; else continue;
-        tg.fillRect(Math.round(X(e.f)) - px, yLife - (e.type === "child" ? 5 : 3) * px, 2 * px, (e.type === "child" ? 12 : 8) * px);
+      tg.fillStyle = T.warn;
+      for (i = 0; i < spans.length; i++) tg.fillRect(X(spans[i][0]), yBand + hBand + px, Math.max(2 * px, X(spans[i][1]) - X(spans[i][0])), 3 * px);
+      if (meta.scenario) for (i = 0; i < meta.scenario.strikes.length; i++) {
+        xa = X(Math.min(nF - 1, meta.scenario.strikes[i].frame));
+        tg.beginPath(); tg.moveTo(xa - 4 * px, yBand - 3 * px); tg.lineTo(xa + 4 * px, yBand - 3 * px); tg.lineTo(xa, yBand + 3 * px); tg.closePath(); tg.fill();
       }
+      tg.fillStyle = T.line; tg.fillRect(x0, yRail - px, L, 2 * px);
+      tg.fillStyle = T.accent; tg.fillRect(x0, yRail - px, X(t) - x0, 2 * px);
+      tg.fillStyle = T.ink;
+      for (i = 1; i < segs.length; i++) tg.fillRect(Math.round(X(segs[i].a)) - px / 2, yBand - 2 * px, px, yRail + 5 * px - yBand);
+      if (sel >= 0 && D.first[sel] >= 0) {     // 고른 개체가 산 동안과 그 사이의 끼니
+        xa = X(D.first[sel]); xb = X(D.last[sel]);
+        tg.fillStyle = T.faint; tg.fillRect(xa, yLife, Math.max(2 * px, xb - xa), 2 * px);
+        for (i = 0; i < story.length; i++) {
+          e = story[i];
+          if (e.type === "good") tg.fillStyle = T.food; else if (e.type === "poison") tg.fillStyle = T.danger;
+          else if (e.type === "child") tg.fillStyle = T.accent; else continue;
+          tg.fillRect(Math.round(X(e.f)) - px, yLife - (e.type === "child" ? 5 : 3) * px, 2 * px, (e.type === "child" ? 12 : 8) * px);
+        }
+      }
+      xa = X(t);
+      tg.fillStyle = T.ink; tg.fillRect(xa - px, 0, 2 * px, h);
+      tg.fillStyle = T.bg; tg.fillRect(xa - 5 * px, yRail - 6 * px, 10 * px, 12 * px);
+      tg.fillStyle = T.ink; tg.fillRect(xa - 3 * px, yRail - 4 * px, 6 * px, 8 * px);
     }
-    xa = X(t);
-    tg.fillStyle = T.ink; tg.fillRect(xa - px, 0, 2 * px, h);
-    tg.fillStyle = T.bg; tg.fillRect(xa - 5 * px, yRail - 6 * px, 10 * px, 12 * px);
-    tg.fillStyle = T.ink; tg.fillRect(xa - 3 * px, yRail - 4 * px, 6 * px, 8 * px);
-  }
-  function trackTo(e) {
-    var r = track.getBoundingClientRect();
-    seek(clamp((e.clientX - r.left - PADX) / Math.max(1, r.width - 2 * PADX), 0, 1) * (nF - 1));
-  }
-  var capture = function (node, e) { try { node.setPointerCapture(e.pointerId); } catch (err) { /* 붙잡지 못해도 끌기는 된다 */ } };
-  track.addEventListener("pointerdown", function (e) { capture(track, e); scrub = true; trackTo(e); });
-  track.addEventListener("pointermove", function (e) { if (scrub) trackTo(e); });
-  track.addEventListener("pointerup", function () { scrub = false; });
-  track.addEventListener("pointercancel", function () { scrub = false; });
-  track.addEventListener("keydown", function (e) {
-    var d = e.key === "ArrowRight" || e.key === "ArrowUp" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowDown" ? -1 : 0;
-    if (d) { seek(Math.floor(t) + d * (e.shiftKey ? 25 : 1)); e.preventDefault(); }
-    else if (e.key === "Home") { seek(0); e.preventDefault(); }
-    else if (e.key === "End") { seek(nF - 1); e.preventDefault(); }
-    else if (e.key === " " || e.key === "Enter") { setPlaying(!playing); e.preventDefault(); }
-  });
-  $("rp-play").addEventListener("click", function () { setPlaying(!playing); });
-  $("rp-speed").addEventListener("click", function () {
-    speedIx = (speedIx + 1) % SPEEDS.length;
-    $("rp-speed").textContent = SPEEDS[speedIx] + "×";
-  });
+    function trackTo(e) {
+      var r = track.getBoundingClientRect();
+      seek(clamp((e.clientX - r.left - PADX) / Math.max(1, r.width - 2 * PADX), 0, 1) * (nF - 1));
+    }
+    var capture = function (node, e) { try { node.setPointerCapture(e.pointerId); } catch (err) { /* 붙잡지 못해도 끌기는 된다 */ } };
+    track.addEventListener("pointerdown", function (e) { capture(track, e); scrub = true; trackTo(e); });
+    track.addEventListener("pointermove", function (e) { if (scrub) trackTo(e); });
+    track.addEventListener("pointerup", function () { scrub = false; });
+    track.addEventListener("pointercancel", function () { scrub = false; });
+    track.addEventListener("keydown", function (e) {
+      var d = e.key === "ArrowRight" || e.key === "ArrowUp" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowDown" ? -1 : 0;
+      if (d) { seek(Math.floor(t) + d * (e.shiftKey ? 25 : 1)); e.preventDefault(); }
+      else if (e.key === "Home") { seek(0); e.preventDefault(); }
+      else if (e.key === "End") { seek(nF - 1); e.preventDefault(); }
+      else if (e.key === " " || e.key === "Enter") { setPlaying(!playing); e.preventDefault(); }
+    });
+    $("rp-play").addEventListener("click", function () { setPlaying(!playing); });
+    $("rp-speed").addEventListener("click", function () {
+      speedIx = (speedIx + 1) % SPEEDS.length;
+      $("rp-speed").textContent = SPEEDS[speedIx] + "×";
+    });
 
-  // ---------- 지도 만지기: 끌기, 두 손가락 확대, 개체 누르기 ----------
-  var ptrs = {}, nPtr = 0, drag = null, pinch0 = 0, span0 = 0;
-  function pdist() {
-    var k = Object.keys(ptrs);
-    return k.length < 2 ? 0 : Math.hypot(ptrs[k[0]].x - ptrs[k[1]].x, ptrs[k[0]].y - ptrs[k[1]].y);
-  }
-  cv.addEventListener("pointerdown", function (e) {
-    capture(cv, e);
-    ptrs[e.pointerId] = { x: e.clientX, y: e.clientY }; nPtr++;
-    if (nPtr === 1) drag = { x: e.clientX, y: e.clientY, moved: false };
-    else if (nPtr === 2) { pinch0 = pdist(); span0 = mode === "world" ? fitSpan() : span; if (drag) drag.moved = true; }
-  });
-  cv.addEventListener("pointermove", function (e) {
-    var p = ptrs[e.pointerId];
-    if (!p) return;
-    var dx = e.clientX - p.x, dy = e.clientY - p.y;
-    p.x = e.clientX; p.y = e.clientY;
-    if (nPtr >= 2) { var d = pdist(); if (pinch0 > 0 && d > 0) setSpan(span0 * pinch0 / d); return; }
-    if (!drag) return;
-    if (!drag.moved) {
-      if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) < 7) return;
-      drag.moved = true;
-      if (mode !== "free") setMode("free");
+    // ---------- 지도 만지기: 끌기, 두 손가락 확대, 개체 누르기 ----------
+    var ptrs = {}, nPtr = 0, drag = null, pinch0 = 0, span0 = 0;
+    function pdist() {
+      var k = Object.keys(ptrs);
+      return k.length < 2 ? 0 : Math.hypot(ptrs[k[0]].x - ptrs[k[1]].x, ptrs[k[0]].y - ptrs[k[1]].y);
     }
-    cam.x = mod(cam.x - dx * dpr / cam.s, WW); cam.y = mod(cam.y - dy * dpr / cam.s, WH);
-    dirty = true;
-  });
-  function endPtr(e) {
-    if (!ptrs[e.pointerId]) return;
-    delete ptrs[e.pointerId]; nPtr--;
-    if (nPtr > 0) return;
-    if (drag && !drag.moved && e.type === "pointerup") tap(e);
-    drag = null;
-  }
-  cv.addEventListener("pointerup", endPtr);
-  cv.addEventListener("pointercancel", endPtr);
-  function tap(e) {
-    var r = cv.getBoundingClientRect(), f = clamp(Math.round(t), 0, nF - 1), p, d, bd, best = -1;
-    var wx = cam.x + ((e.clientX - r.left) * dpr - cw / 2) / cam.s, wy = cam.y + ((e.clientY - r.top) * dpr - ch / 2) / cam.s;
-    bd = Math.max(1.6 * cfg.agent_radius, 26 * dpr / cam.s);
-    for (p = A.fr_off[f]; p < A.fr_off[f + 1]; p++) {
-      d = Math.hypot(wrapW(A.fr_x[p] * kx - wx), wrapH(A.fr_y[p] * ky - wy));
-      if (d < bd) { bd = d; best = A.fr_idx[p]; }
-    }
-    if (best >= 0) select(best, { near: true });
-  }
-  cv.addEventListener("wheel", function (e) {
-    if (!e.ctrlKey && !e.metaKey) return;         // 그냥 굴리면 쪽이 넘어가게 둔다
-    e.preventDefault();
-    setSpan((mode === "world" ? fitSpan() : span) * Math.exp(e.deltaY * 0.01));
-  }, { passive: false });
-  $("rp-zin").addEventListener("click", function () { if (mode === "world") setMode(sel >= 0 ? "follow" : "free"); else setSpan(span / 1.6); });
-  $("rp-zout").addEventListener("click", function () { if (mode !== "world") setSpan(span * 1.6); });
-  $("rp-near").addEventListener("click", function () { if (sel >= 0) setMode("follow"); });
-  $("rp-far").addEventListener("click", function () { setMode("world"); });
-  $("rp-mini").addEventListener("click", function () { setMode("world"); });
-
-  // ---------- 읽는 법 ----------
-  function legend() {
-    var box = $("rp-legend"), items = [];
-    var add = function (title, note, draw) { items.push([title, note, draw]); };
-    var demo = "rgb(244,178,92)";
-    add("생물", "색은 핏줄, 크기는 에너지. 뾰족한 쪽이 앞입니다", function (c) { drawCreature(c, 52, 46, 14, -0.45, demo, 1, 0.4, false); });
-    if (on.mind) add("자는 생물", "흐리게 보이고, 가까이서는 z가 뜹니다", function (c) { drawCreature(c, 46, 50, 14, -0.45, demo, 0.45, 0, true); });
-    if (on.kinds) {
-      add("먹이와 독", "초록은 먹이, 보라는 독. 어느 모양이 독인지는 바뀝니다", function (c) {
-        c.fillStyle = S.food; c.beginPath(); foodPath(c, 28, 44, 11, 0); c.fill();
-        c.fillStyle = S.poison; c.beginPath(); foodPath(c, 61, 44, 11, 3); c.fill();
-        c.fillStyle = S.stage; c.beginPath(); c.arc(61, 44, 3.8, 0, TAU); c.fill();     // 독은 가운데가 뚫려 있다
-      });
-    } else {
-      add("먹이", "먹으면 에너지를 얻습니다", function (c) { c.fillStyle = S.food; c.beginPath(); foodPath(c, 44, 44, 12, 0); c.fill(); });
-    }
-    add("사체 조각", "죽은 생물이 남긴 먹이. 늘 먹을 수 있습니다", function (c) { c.fillStyle = S.corpse; c.beginPath(); foodPath(c, 44, 44, 13, 4); c.fill(); });
-    if (on.prey) {
-      add("사냥감", "생물보다 큰 동물. 둘레의 흰 호는 남은 체력이고, 여럿이 함께 쳐야 쓰러집니다", function (c) {
-        c.globalAlpha = 0.85; c.fillStyle = S.prey; c.beginPath(); c.arc(44, 44, 16, 0, TAU); c.fill(); c.globalAlpha = 1;
-        c.strokeStyle = S.ink; c.lineWidth = 2.5; c.beginPath(); c.arc(44, 44, 18.5, -Math.PI / 2, -Math.PI / 2 + TAU * 0.7); c.stroke();
-      });
-      add("고기", "쓰러진 사냥감이 남긴 먹이. 늘 먹을 수 있고, 먹이보다 빨리 상합니다", function (c) { c.fillStyle = S.meat; c.beginPath(); foodPath(c, 44, 44, 13, 5); c.fill(); });
-    }
-    if (on.carry) add("든 알", "생물이 들고 다니는 먹이. 머리 앞의 작은 알로 보이고, 내려놓으면 그 자리에 다시 놓입니다", function (c) {
-      drawCreature(c, 40, 48, 14, -0.45, demo, 1, 0, false); drawHeld(c, 40, 48, 14, -0.45, 1, 2);
+    cv.addEventListener("pointerdown", function (e) {
+      capture(cv, e);
+      ptrs[e.pointerId] = { x: e.clientX, y: e.clientY }; nPtr++;
+      if (nPtr === 1) drag = { x: e.clientX, y: e.clientY, moved: false };
+      else if (nPtr === 2) { pinch0 = pdist(); span0 = mode === "world" ? fitSpan() : span; if (drag) drag.moved = true; }
     });
-    add("먹은 순간", "초록 고리", function (c) { drawEvent(c, 44, 44, EV.good, 0.35, 6, 2); });
-    if (on.kinds) add("독을 먹은 순간", "붉은 고리", function (c) { drawEvent(c, 44, 44, EV.poison, 0.35, 6, 2); });
-    add("태어남", "밝은 네모", function (c) { drawEvent(c, 44, 44, EV.born, 0.3, 6, 2); });
-    add("죽음", "흐려지는 ×", function (c) { drawEvent(c, 44, 44, EV.died, 0.1, 9, 2); });
-    if (on.social) {
-      add("신호", "이 기록에서 가장 세게 내는 5%(세기 " + SIG_MIN.toFixed(2) + " 넘음)의 둘레에 고리. 세게 낸다는 표시일 뿐, 뜻이 있거나 누가 알아듣는다는 표시는 아닙니다(그건 한쪽만 못 듣게 하고 겨뤄서 가립니다). 빛깔은 두 신호의 비율입니다", function (c) {
-        drawCreature(c, 46, 46, 9, -0.45, demo, 1, 0, false);
-        c.strokeStyle = "hsl(190," + S.sig + ")"; c.lineWidth = 2; c.globalAlpha = 0.8; c.beginPath(); c.arc(44, 44, 24, 0, TAU); c.stroke(); c.globalAlpha = 1;
-      });
-      add("에너지 건넴", "곁의 생물에게 나눠 준 순간", function (c) { drawEvent(c, 44, 44, EV.gave, 0.3, 6, 2); });
-    }
-    if (on.conflict) add("공격", "맞은 생물에 붉은 가시", function (c) { drawEvent(c, 44, 44, EV.hit, 0.3, 6, 2); });
-    add("시야", "고른 생물이 보는 범위", function (c) {
-      c.beginPath(); c.moveTo(20, 62); c.arc(20, 62, 56, -1.25, -0.2); c.closePath();
-      c.fillStyle = "rgba(" + S.grid + ",0.08)"; c.fill(); c.strokeStyle = "rgba(" + S.grid + ",0.45)"; c.lineWidth = 1.5; c.setLineDash([3, 5]); c.stroke(); c.setLineDash([]);
-      drawFar(c, 20, 62, 5, -0.72, demo, 1);
-    });
-    if (meta.patches.length) add("먹이 자리", "먹이가 뭉쳐 나는 곳. 옅은 바탕과 점선 경계", function (c) {
-      var gr = c.createRadialGradient(44, 44, 0, 44, 44, 44);
-      gr.addColorStop(0, "rgba(" + S.patch + ",0.35)"); gr.addColorStop(1, "rgba(" + S.patch + ",0)");
-      c.fillStyle = gr; c.fillRect(0, 0, 88, 88);
-      c.strokeStyle = "rgba(" + S.patch + ",0.7)"; c.lineWidth = 1.5; c.setLineDash([4, 6]); c.beginPath(); c.arc(44, 44, 30, 0, TAU); c.stroke(); c.setLineDash([]);
-    });
-    if (meta.scenario && meta.scenario.strikes.length) add("운석", "각본이 떨어뜨린 재난", function (c) {
-      c.globalAlpha = 0.4; c.fillStyle = S.strike; c.beginPath(); c.arc(44, 44, 22, 0, TAU); c.fill();
-      c.globalAlpha = 1; c.strokeStyle = S.strike; c.lineWidth = 2; c.beginPath(); c.arc(44, 44, 30, 0, TAU);
-      c.moveTo(4, 44); c.lineTo(14, 44); c.moveTo(74, 44); c.lineTo(84, 44); c.moveTo(44, 4); c.lineTo(44, 14); c.moveTo(44, 74); c.lineTo(44, 84); c.stroke();
-    });
-    items.forEach(function (it) {
-      var d = el("div", "rp-lg"), c = el("canvas"), tx = el("div");
-      c.width = 88; c.height = 88;
-      var cx = c.getContext("2d");
-      cx.fillStyle = S.stage; cx.fillRect(0, 0, 88, 88);
-      it[2](cx);
-      tx.appendChild(el("b", "", it[0])); tx.appendChild(el("span", "", it[1]));
-      d.appendChild(c); d.appendChild(tx); box.appendChild(d);
-    });
-  }
-
-  // ---------- 긴 흐름: 한 시간축 위에 작은 그림 셋(개체 수, 독 비율, 뇌 크기) ----------
-  var hist = meta.history, lcv = $("rp-longcv"), lg = lcv.getContext("2d"), panels = [], hover = -1, PH = 96, PTOP = 4, PAXIS = 26;
-  function niceStep(v) {
-    var e = Math.pow(10, Math.floor(Math.log10(Math.max(v, 1e-9)))), q = v / e;
-    return (q <= 1 ? 1 : q <= 2 ? 2 : q <= 2.5 ? 2.5 : q <= 5 ? 5 : 10) * e;
-  }
-  function stepLabel(v) { return v >= 10000 ? (Math.round(v / 1000) / 10).toLocaleString("ko-KR") + "만" : fmt(v); }
-  function setupLong() {
-    if (!hist || hist.step.length < 2) return;
-    var notNull = function (v) { return v != null; };
-    var mk = function (key, title, show, tick) {
-      var vals = hist[key].filter(notNull), mx = Math.max.apply(null, vals), st = niceStep(mx / 2);
-      panels.push({ key: key, title: title, min: 0, max: Math.max(st * 2, mx), ticks: [0, st, st * 2].filter(function (v) { return v <= Math.max(st * 2, mx); }), show: show, tick: tick });
-    };
-    mk("pop", "개체 수", function (v) { return fmt(v) + "마리"; }, fmt);
-    if (on.kinds && hist.poison.some(notNull)) {
-      panels.push({ key: "poison", title: "먹은 것 가운데 독", min: 0, max: 1, ticks: [0, 0.5, 1], show: pct, tick: pct });
-    }
-    if (hist.hidden.some(notNull)) mk("hidden", "뇌 크기(평균 뉴런 수)", function (v) { return v.toFixed(1) + "개"; }, function (v) { return String(v); });
-    $("rp-longsec").hidden = false;
-    $("rp-longnote").textContent = "체크포인트(" + fmt(meta.ckpt_step) + "스텝)까지 원래 실행이 적어 둔 기록입니다. 오른쪽 끝의 세로줄이 지금 다시 보는 장면의 자리입니다."
-      + (hist.scn ? " 옅은 띠는 각본이 걸려 있던 구간입니다." : "");
-    lcv.addEventListener("pointermove", longHover);
-    lcv.addEventListener("pointerdown", longHover);
-    lcv.addEventListener("pointerleave", function () { hover = -1; $("rp-tip").hidden = true; drawLong(); });
-    var tb = $("rp-table"), hd = el("tr"), n = hist.step.length, rows = Math.min(12, n), i, k, tr;
-    hd.appendChild(el("th", "", "스텝"));
-    panels.forEach(function (p) { hd.appendChild(el("th", "", p.title)); });
-    tb.appendChild(hd);
-    for (i = 0; i < rows; i++) {
-      k = Math.round(i * (n - 1) / Math.max(1, rows - 1)); tr = el("tr");
-      tr.appendChild(el("td", "", fmt(hist.step[k])));
-      panels.forEach(function (p) { var v = hist[p.key][k]; tr.appendChild(el("td", "", v == null ? "–" : p.show(v))); });
-      tb.appendChild(tr);
-    }
-  }
-  function longX() {
-    var w = lcv.width, mL = 46 * dpr, mR = 14 * dpr, x0 = hist.step[0], x1 = Math.max(meta.end, hist.step[hist.step.length - 1]);
-    return { mL: mL, mR: mR, x0: x0, x1: x1, f: function (s) { return mL + (w - mL - mR) * (s - x0) / Math.max(1, x1 - x0); } };
-  }
-  function drawLong() {
-    if (!panels.length || !lcv.width) return;
-    var w = lcv.width, h = lcv.height, px = dpr, ax = longX(), X = ax.f, steps = hist.step, n = steps.length, i, k, y, v, pn, y0, yt, yb, a, b;
-    var Yv = function (pn, v) { return yb - (yb - yt) * (v - pn.min) / (pn.max - pn.min); };
-    lg.setTransform(1, 0, 0, 1, 0, 0);
-    lg.clearRect(0, 0, w, h);
-    for (k = 0; k < panels.length; k++) {
-      pn = panels[k]; y0 = (PTOP + k * PH) * px; yt = y0 + 24 * px; yb = y0 + (PH - 10) * px;
-      if (hist.scn) {       // 각본이 걸린 구간
-        lg.fillStyle = T.warn; lg.globalAlpha = 0.14;
-        for (i = 0; i < n; i++) if (hist.scn[i]) { a = X(i ? steps[i - 1] : steps[i]); lg.fillRect(a, yt, Math.max(px, X(steps[i]) - a), yb - yt); }
-        lg.globalAlpha = 1;
+    cv.addEventListener("pointermove", function (e) {
+      var p = ptrs[e.pointerId];
+      if (!p) return;
+      var dx = e.clientX - p.x, dy = e.clientY - p.y;
+      p.x = e.clientX; p.y = e.clientY;
+      if (nPtr >= 2) { var d = pdist(); if (pinch0 > 0 && d > 0) setSpan(span0 * pinch0 / d); return; }
+      if (!drag) return;
+      if (!drag.moved) {
+        if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) < 7) return;
+        drag.moved = true;
+        if (mode !== "free") setMode("free");
       }
-      lg.font = "600 " + 12.5 * px + "px " + T.font; lg.textBaseline = "alphabetic";
-      lg.fillStyle = T.ink; lg.textAlign = "left"; lg.fillText(pn.title, ax.mL, y0 + 14 * px);
-      for (i = n - 1, v = null; i >= 0 && v == null; i--) v = hist[pn.key][i];
-      lg.font = 11.5 * px + "px " + T.mono; lg.fillStyle = T.dim; lg.textAlign = "right";
-      if (v != null) lg.fillText("마지막 " + pn.show(v), w - ax.mR, y0 + 14 * px);
-      lg.font = 10.5 * px + "px " + T.mono;
-      for (i = 0; i < pn.ticks.length; i++) {
-        y = Math.round(Yv(pn, pn.ticks[i]));
-        lg.fillStyle = T.grid; lg.fillRect(ax.mL, y, w - ax.mL - ax.mR, px);
-        lg.fillStyle = T.faint; lg.fillText(pn.tick(pn.ticks[i]), ax.mL - 7 * px, y + 3.5 * px);
+      cam.x = mod(cam.x - dx * dpr / cam.s, WW); cam.y = mod(cam.y - dy * dpr / cam.s, WH);
+      dirty = true;
+    });
+    function endPtr(e) {
+      if (!ptrs[e.pointerId]) return;
+      delete ptrs[e.pointerId]; nPtr--;
+      if (nPtr > 0) return;
+      if (drag && !drag.moved && e.type === "pointerup") tap(e);
+      drag = null;
+    }
+    cv.addEventListener("pointerup", endPtr);
+    cv.addEventListener("pointercancel", endPtr);
+    function tap(e) {
+      var r = cv.getBoundingClientRect(), f = clamp(Math.round(t), 0, nF - 1), p, d, bd, best = -1;
+      var wx = cam.x + ((e.clientX - r.left) * dpr - cw / 2) / cam.s, wy = cam.y + ((e.clientY - r.top) * dpr - ch / 2) / cam.s;
+      bd = Math.max(1.6 * cfg.agent_radius, 26 * dpr / cam.s);
+      for (p = A.fr_off[f]; p < A.fr_off[f + 1]; p++) {
+        d = Math.hypot(wrapW(A.fr_x[p] * kx - wx), wrapH(A.fr_y[p] * ky - wy));
+        if (d < bd) { bd = d; best = A.fr_idx[p]; }
       }
-      // 옅은 채움과 2px 선(빈 자리에서는 끊는다)
-      var vals = hist[pn.key], open = false, sx = 0;
-      lg.strokeStyle = T.series; lg.lineWidth = 2 * px; lg.lineJoin = "round"; lg.lineCap = "round"; lg.fillStyle = T.series;
-      for (i = 0; i <= n; i++) {
-        v = i < n ? vals[i] : null;
-        if (v != null) {
-          if (!open) { lg.beginPath(); lg.moveTo(X(steps[i]), Yv(pn, v)); open = true; sx = X(steps[i]); }
-          else lg.lineTo(X(steps[i]), Yv(pn, v));
-        } else if (open) {
-          lg.stroke();
-          lg.lineTo(X(steps[i - 1]), yb); lg.lineTo(sx, yb); lg.closePath();
-          lg.globalAlpha = 0.1; lg.fill(); lg.globalAlpha = 1;
-          open = false;
+      if (best >= 0) select(best, { near: true });
+    }
+    cv.addEventListener("wheel", function (e) {
+      if (!e.ctrlKey && !e.metaKey) return;         // 그냥 굴리면 쪽이 넘어가게 둔다
+      e.preventDefault();
+      setSpan((mode === "world" ? fitSpan() : span) * Math.exp(e.deltaY * 0.01));
+    }, { passive: false });
+    $("rp-zin").addEventListener("click", function () { if (mode === "world") setMode(sel >= 0 ? "follow" : "free"); else setSpan(span / 1.6); });
+    $("rp-zout").addEventListener("click", function () { if (mode !== "world") setSpan(span * 1.6); });
+    $("rp-near").addEventListener("click", function () { if (sel >= 0) setMode("follow"); });
+    $("rp-far").addEventListener("click", function () { setMode("world"); });
+    $("rp-mini").addEventListener("click", function () { setMode("world"); });
+
+    // ---------- 읽는 법 ----------
+    function legend() {
+      var box = $("rp-legend"), items = [];
+      var add = function (title, note, draw) { items.push([title, note, draw]); };
+      var demo = "rgb(244,178,92)";
+      add("생물", "색은 핏줄, 크기는 에너지. 뾰족한 쪽이 앞입니다", function (c) { drawCreature(c, 52, 46, 14, -0.45, demo, 1, 0.4, false); });
+      if (on.mind) add("자는 생물", "흐리게 보이고, 가까이서는 z가 뜹니다", function (c) { drawCreature(c, 46, 50, 14, -0.45, demo, 0.45, 0, true); });
+      if (on.kinds) {
+        add("먹이와 독", "초록은 먹이, 보라는 독. 어느 모양이 독인지는 바뀝니다", function (c) {
+          c.fillStyle = S.food; c.beginPath(); foodPath(c, 28, 44, 11, 0); c.fill();
+          c.fillStyle = S.poison; c.beginPath(); foodPath(c, 61, 44, 11, 3); c.fill();
+          c.fillStyle = S.stage; c.beginPath(); c.arc(61, 44, 3.8, 0, TAU); c.fill();     // 독은 가운데가 뚫려 있다
+        });
+      } else {
+        add("먹이", "먹으면 에너지를 얻습니다", function (c) { c.fillStyle = S.food; c.beginPath(); foodPath(c, 44, 44, 12, 0); c.fill(); });
+      }
+      add("사체 조각", "죽은 생물이 남긴 먹이. 늘 먹을 수 있습니다", function (c) { c.fillStyle = S.corpse; c.beginPath(); foodPath(c, 44, 44, 13, 4); c.fill(); });
+      if (on.prey) {
+        add("사냥감", "생물보다 큰 동물. 둘레의 흰 호는 남은 체력이고, 여럿이 함께 쳐야 쓰러집니다", function (c) {
+          c.globalAlpha = 0.85; c.fillStyle = S.prey; c.beginPath(); c.arc(44, 44, 16, 0, TAU); c.fill(); c.globalAlpha = 1;
+          c.strokeStyle = S.ink; c.lineWidth = 2.5; c.beginPath(); c.arc(44, 44, 18.5, -Math.PI / 2, -Math.PI / 2 + TAU * 0.7); c.stroke();
+        });
+        add("고기", "쓰러진 사냥감이 남긴 먹이. 늘 먹을 수 있고, 먹이보다 빨리 상합니다", function (c) { c.fillStyle = S.meat; c.beginPath(); foodPath(c, 44, 44, 13, 5); c.fill(); });
+      }
+      if (on.carry) add("든 알", "생물이 들고 다니는 먹이. 머리 앞의 작은 알로 보이고, 내려놓으면 그 자리에 다시 놓입니다", function (c) {
+        drawCreature(c, 40, 48, 14, -0.45, demo, 1, 0, false); drawHeld(c, 40, 48, 14, -0.45, 1, 2);
+      });
+      if (hud) add("뭉쳐 자는 생물", "겨울에 다른 생물과 몸이 닿으면 기초 대사가 줄어듭니다(최대 " + Math.round(cfg.huddle_cap * 100)
+        + "%). 흰 테두리가 지금 아끼고 있는 생물이고, 진할수록 많이 아낍니다", function (c) {
+        drawCreature(c, 34, 50, 11, -0.45, demo, 1, 0, false); drawCreature(c, 56, 40, 11, 2.6, "rgb(150,190,220)", 1, 0, false);
+        c.strokeStyle = S.huddle; c.lineWidth = 2; c.globalAlpha = 0.8;
+        c.beginPath(); c.arc(34, 50, 18, 0, TAU); c.stroke(); c.beginPath(); c.arc(56, 40, 18, 0, TAU); c.stroke(); c.globalAlpha = 1;
+      });
+      if (memOn) add("맛 기억", "고른 생물의 기억으로 칠한 시야 안의 먹이. 초록 점선은 먹을 만했던 모양, 붉은 점선은 먹고 탈이 났던 모양이고, 진할수록 기억이 셉니다. "
+        + "사체 조각과 고기는 동그라미와 같은 칸으로 읽힙니다. 뇌는 시야 칸마다 가장 가까운 것 하나만 읽습니다"
+        + (cfg.taste_inherit > 0 ? ". 새끼는 어미 기억의 " + Math.round(cfg.taste_inherit * 100) + "%를 물려받습니다" : ""), function (c) {
+        c.fillStyle = S.food; c.beginPath(); foodPath(c, 26, 44, 9, 0); c.fill();
+        c.fillStyle = S.poison; c.beginPath(); foodPath(c, 62, 44, 9, 3); c.fill();
+        c.lineWidth = 2; c.setLineDash([4, 4]);
+        c.strokeStyle = S.memPos; c.beginPath(); c.arc(26, 44, 19, 0, TAU); c.stroke();
+        c.strokeStyle = S.memNeg; c.beginPath(); c.arc(62, 44, 19, 0, TAU); c.stroke(); c.setLineDash([]);
+      });
+      add("먹은 순간", "초록 고리", function (c) { drawEvent(c, 44, 44, EV.good, 0.35, 6, 2); });
+      if (on.kinds) add("독을 먹은 순간", "붉은 고리", function (c) { drawEvent(c, 44, 44, EV.poison, 0.35, 6, 2); });
+      add("태어남", "밝은 네모", function (c) { drawEvent(c, 44, 44, EV.born, 0.3, 6, 2); });
+      add("죽음", "흐려지는 ×", function (c) { drawEvent(c, 44, 44, EV.died, 0.1, 9, 2); });
+      if (on.social) {
+        add("신호", "이 기록에서 가장 세게 내는 5%(세기 " + SIG_MIN.toFixed(2) + " 넘음)의 둘레에 고리. 세게 낸다는 표시일 뿐, 뜻이 있거나 누가 알아듣는다는 표시는 아닙니다(그건 한쪽만 못 듣게 하고 겨뤄서 가립니다). 빛깔은 두 신호의 비율입니다", function (c) {
+          drawCreature(c, 46, 46, 9, -0.45, demo, 1, 0, false);
+          c.strokeStyle = "hsl(190," + S.sig + ")"; c.lineWidth = 2; c.globalAlpha = 0.8; c.beginPath(); c.arc(44, 44, 24, 0, TAU); c.stroke(); c.globalAlpha = 1;
+        });
+        add("에너지 건넴", "곁의 생물에게 나눠 준 순간", function (c) { drawEvent(c, 44, 44, EV.gave, 0.3, 6, 2); });
+      }
+      if (on.conflict) add("공격", "맞은 생물에 붉은 가시", function (c) { drawEvent(c, 44, 44, EV.hit, 0.3, 6, 2); });
+      add("시야", "고른 생물이 보는 범위", function (c) {
+        c.beginPath(); c.moveTo(20, 62); c.arc(20, 62, 56, -1.25, -0.2); c.closePath();
+        c.fillStyle = "rgba(" + S.grid + ",0.08)"; c.fill(); c.strokeStyle = "rgba(" + S.grid + ",0.45)"; c.lineWidth = 1.5; c.setLineDash([3, 5]); c.stroke(); c.setLineDash([]);
+        drawFar(c, 20, 62, 5, -0.72, demo, 1);
+      });
+      if (meta.patches.length) add("먹이 자리", "먹이가 뭉쳐 나는 곳. 옅은 바탕과 점선 경계", function (c) {
+        var gr = c.createRadialGradient(44, 44, 0, 44, 44, 44);
+        gr.addColorStop(0, "rgba(" + S.patch + ",0.35)"); gr.addColorStop(1, "rgba(" + S.patch + ",0)");
+        c.fillStyle = gr; c.fillRect(0, 0, 88, 88);
+        c.strokeStyle = "rgba(" + S.patch + ",0.7)"; c.lineWidth = 1.5; c.setLineDash([4, 6]); c.beginPath(); c.arc(44, 44, 30, 0, TAU); c.stroke(); c.setLineDash([]);
+      });
+      if (meta.scenario && meta.scenario.strikes.length) add("운석", "각본이 떨어뜨린 재난", function (c) {
+        c.globalAlpha = 0.4; c.fillStyle = S.strike; c.beginPath(); c.arc(44, 44, 22, 0, TAU); c.fill();
+        c.globalAlpha = 1; c.strokeStyle = S.strike; c.lineWidth = 2; c.beginPath(); c.arc(44, 44, 30, 0, TAU);
+        c.moveTo(4, 44); c.lineTo(14, 44); c.moveTo(74, 44); c.lineTo(84, 44); c.moveTo(44, 4); c.lineTo(44, 14); c.moveTo(44, 74); c.lineTo(44, 84); c.stroke();
+      });
+      items.forEach(function (it) {
+        var d = el("div", "rp-lg"), c = el("canvas"), tx = el("div");
+        c.width = 88; c.height = 88;
+        var cx = c.getContext("2d");
+        cx.fillStyle = S.stage; cx.fillRect(0, 0, 88, 88);
+        it[2](cx);
+        tx.appendChild(el("b", "", it[0])); tx.appendChild(el("span", "", it[1]));
+        d.appendChild(c); d.appendChild(tx); box.appendChild(d);
+      });
+    }
+
+    // ---------- 긴 흐름: 한 시간축 위에 작은 그림 셋(개체 수, 독 비율, 뇌 크기) ----------
+    var hist = meta.history, lcv = $("rp-longcv"), lg = lcv.getContext("2d"), panels = [], hover = -1, PH = 96, PTOP = 4, PAXIS = 26;
+    function niceStep(v) {
+      var e = Math.pow(10, Math.floor(Math.log10(Math.max(v, 1e-9)))), q = v / e;
+      return (q <= 1 ? 1 : q <= 2 ? 2 : q <= 2.5 ? 2.5 : q <= 5 ? 5 : 10) * e;
+    }
+    function stepLabel(v) { return v >= 10000 ? (Math.round(v / 1000) / 10).toLocaleString("ko-KR") + "만" : fmt(v); }
+    function setupLong() {
+      if (!hist || hist.step.length < 2) return;
+      var notNull = function (v) { return v != null; };
+      var mk = function (key, title, show, tick) {
+        var vals = hist[key].filter(notNull), mx = Math.max.apply(null, vals), st = niceStep(mx / 2);
+        panels.push({ key: key, title: title, min: 0, max: Math.max(st * 2, mx), ticks: [0, st, st * 2].filter(function (v) { return v <= Math.max(st * 2, mx); }), show: show, tick: tick });
+      };
+      mk("pop", "개체 수", function (v) { return fmt(v) + "마리"; }, fmt);
+      if (on.kinds && hist.poison.some(notNull)) {
+        panels.push({ key: "poison", title: "먹은 것 가운데 독", min: 0, max: 1, ticks: [0, 0.5, 1], show: pct, tick: pct });
+      }
+      if (hist.hidden.some(notNull)) mk("hidden", "뇌 크기(평균 뉴런 수)", function (v) { return v.toFixed(1) + "개"; }, function (v) { return String(v); });
+      $("rp-longsec").hidden = false;
+      $("rp-longnote").textContent = "체크포인트(" + fmt(meta.ckpt_step) + "스텝)까지 원래 실행이 적어 둔 기록입니다. 오른쪽 끝의 세로줄이 지금 다시 보는 장면의 자리입니다."
+        + (hist.scn ? " 옅은 띠는 각본이 걸려 있던 구간입니다." : "");
+      lcv.addEventListener("pointermove", longHover);
+      lcv.addEventListener("pointerdown", longHover);
+      lcv.addEventListener("pointerleave", function () { hover = -1; $("rp-tip").hidden = true; drawLong(); });
+      var tb = $("rp-table"), hd = el("tr"), n = hist.step.length, rows = Math.min(12, n), i, k, tr;
+      hd.appendChild(el("th", "", "스텝"));
+      panels.forEach(function (p) { hd.appendChild(el("th", "", p.title)); });
+      tb.appendChild(hd);
+      for (i = 0; i < rows; i++) {
+        k = Math.round(i * (n - 1) / Math.max(1, rows - 1)); tr = el("tr");
+        tr.appendChild(el("td", "", fmt(hist.step[k])));
+        panels.forEach(function (p) { var v = hist[p.key][k]; tr.appendChild(el("td", "", v == null ? "–" : p.show(v))); });
+        tb.appendChild(tr);
+      }
+    }
+    function longX() {
+      var w = lcv.width, mL = 46 * dpr, mR = 14 * dpr, x0 = hist.step[0], x1 = Math.max(meta.end, hist.step[hist.step.length - 1]);
+      return { mL: mL, mR: mR, x0: x0, x1: x1, f: function (s) { return mL + (w - mL - mR) * (s - x0) / Math.max(1, x1 - x0); } };
+    }
+    function drawLong() {
+      if (!panels.length || !lcv.width) return;
+      var w = lcv.width, h = lcv.height, px = dpr, ax = longX(), X = ax.f, steps = hist.step, n = steps.length, i, k, y, v, pn, y0, yt, yb, a, b;
+      var Yv = function (pn, v) { return yb - (yb - yt) * (v - pn.min) / (pn.max - pn.min); };
+      lg.setTransform(1, 0, 0, 1, 0, 0);
+      lg.clearRect(0, 0, w, h);
+      for (k = 0; k < panels.length; k++) {
+        pn = panels[k]; y0 = (PTOP + k * PH) * px; yt = y0 + 24 * px; yb = y0 + (PH - 10) * px;
+        if (hist.scn) {       // 각본이 걸린 구간
+          lg.fillStyle = T.warn; lg.globalAlpha = 0.14;
+          for (i = 0; i < n; i++) if (hist.scn[i]) { a = X(i ? steps[i - 1] : steps[i]); lg.fillRect(a, yt, Math.max(px, X(steps[i]) - a), yb - yt); }
+          lg.globalAlpha = 1;
+        }
+        lg.font = "600 " + 12.5 * px + "px " + T.font; lg.textBaseline = "alphabetic";
+        lg.fillStyle = T.ink; lg.textAlign = "left"; lg.fillText(pn.title, ax.mL, y0 + 14 * px);
+        for (i = n - 1, v = null; i >= 0 && v == null; i--) v = hist[pn.key][i];
+        lg.font = 11.5 * px + "px " + T.mono; lg.fillStyle = T.dim; lg.textAlign = "right";
+        if (v != null) lg.fillText("마지막 " + pn.show(v), w - ax.mR, y0 + 14 * px);
+        lg.font = 10.5 * px + "px " + T.mono;
+        for (i = 0; i < pn.ticks.length; i++) {
+          y = Math.round(Yv(pn, pn.ticks[i]));
+          lg.fillStyle = T.grid; lg.fillRect(ax.mL, y, w - ax.mL - ax.mR, px);
+          lg.fillStyle = T.faint; lg.fillText(pn.tick(pn.ticks[i]), ax.mL - 7 * px, y + 3.5 * px);
+        }
+        // 옅은 채움과 2px 선(빈 자리에서는 끊는다)
+        var vals = hist[pn.key], open = false, sx = 0;
+        lg.strokeStyle = T.series; lg.lineWidth = 2 * px; lg.lineJoin = "round"; lg.lineCap = "round"; lg.fillStyle = T.series;
+        for (i = 0; i <= n; i++) {
+          v = i < n ? vals[i] : null;
+          if (v != null) {
+            if (!open) { lg.beginPath(); lg.moveTo(X(steps[i]), Yv(pn, v)); open = true; sx = X(steps[i]); }
+            else lg.lineTo(X(steps[i]), Yv(pn, v));
+          } else if (open) {
+            lg.stroke();
+            lg.lineTo(X(steps[i - 1]), yb); lg.lineTo(sx, yb); lg.closePath();
+            lg.globalAlpha = 0.1; lg.fill(); lg.globalAlpha = 1;
+            open = false;
+          }
+        }
+      }
+      // 시간축
+      var yAx = (PTOP + panels.length * PH) * px, st = niceStep((ax.x1 - ax.x0) / 4), s0 = Math.ceil(ax.x0 / st) * st;
+      lg.font = "600 " + 10.5 * px + "px " + T.font;
+      var nowW = lg.measureText("지금 보는 장면").width + 10 * px;      // 오른쪽 끝은 "지금 보는 장면" 자리
+      lg.font = 10.5 * px + "px " + T.mono; lg.fillStyle = T.faint; lg.textAlign = "center";
+      for (v = s0; v <= ax.x1; v += st) {
+        a = Math.max(X(v), ax.mL + 8 * px);
+        if (a + lg.measureText(stepLabel(v)).width / 2 > w - ax.mR + 4 * px - nowW) continue;
+        lg.fillText(stepLabel(v), a, yAx + 12 * px);
+      }
+      if (hist.strikes) { lg.fillStyle = T.warn; for (i = 0; i < hist.strikes.length; i++) lg.fillRect(X(hist.strikes[i]) - px / 2, PTOP * px + 20 * px, px, 6 * px); }
+      // 지금 다시 보는 장면의 자리
+      a = Math.round(X(stepOf(Math.floor(t))));
+      lg.fillStyle = T.accent; lg.fillRect(a - px, (PTOP + 20) * px, 2 * px, yAx - (PTOP + 20) * px);
+      lg.font = "600 " + 10.5 * px + "px " + T.font; lg.textAlign = "right"; lg.fillText("지금 보는 장면", w - ax.mR + 4 * px, yAx + 12 * px);
+      if (hover >= 0) {      // 십자선
+        a = Math.round(X(steps[hover]));
+        lg.fillStyle = T.dim; lg.fillRect(a, (PTOP + 20) * px, px, yAx - (PTOP + 20) * px);
+        for (k = 0; k < panels.length; k++) {
+          pn = panels[k]; v = hist[pn.key][hover];
+          if (v == null) continue;
+          y0 = (PTOP + k * PH) * px; yt = y0 + 24 * px; yb = y0 + (PH - 10) * px;
+          lg.beginPath(); lg.arc(a, Yv(pn, v), 6 * px, 0, TAU); lg.fillStyle = T.bg; lg.fill();
+          lg.beginPath(); lg.arc(a, Yv(pn, v), 4 * px, 0, TAU); lg.fillStyle = T.series; lg.fill();
         }
       }
     }
-    // 시간축
-    var yAx = (PTOP + panels.length * PH) * px, st = niceStep((ax.x1 - ax.x0) / 4), s0 = Math.ceil(ax.x0 / st) * st;
-    lg.font = "600 " + 10.5 * px + "px " + T.font;
-    var nowW = lg.measureText("지금 보는 장면").width + 10 * px;      // 오른쪽 끝은 "지금 보는 장면" 자리
-    lg.font = 10.5 * px + "px " + T.mono; lg.fillStyle = T.faint; lg.textAlign = "center";
-    for (v = s0; v <= ax.x1; v += st) {
-      a = Math.max(X(v), ax.mL + 8 * px);
-      if (a + lg.measureText(stepLabel(v)).width / 2 > w - ax.mR + 4 * px - nowW) continue;
-      lg.fillText(stepLabel(v), a, yAx + 12 * px);
-    }
-    if (hist.strikes) { lg.fillStyle = T.warn; for (i = 0; i < hist.strikes.length; i++) lg.fillRect(X(hist.strikes[i]) - px / 2, PTOP * px + 20 * px, px, 6 * px); }
-    // 지금 다시 보는 장면의 자리
-    a = Math.round(X(stepOf(Math.floor(t))));
-    lg.fillStyle = T.accent; lg.fillRect(a - px, (PTOP + 20) * px, 2 * px, yAx - (PTOP + 20) * px);
-    lg.font = "600 " + 10.5 * px + "px " + T.font; lg.textAlign = "right"; lg.fillText("지금 보는 장면", w - ax.mR + 4 * px, yAx + 12 * px);
-    if (hover >= 0) {      // 십자선
-      a = Math.round(X(steps[hover]));
-      lg.fillStyle = T.dim; lg.fillRect(a, (PTOP + 20) * px, px, yAx - (PTOP + 20) * px);
-      for (k = 0; k < panels.length; k++) {
-        pn = panels[k]; v = hist[pn.key][hover];
-        if (v == null) continue;
-        y0 = (PTOP + k * PH) * px; yt = y0 + 24 * px; yb = y0 + (PH - 10) * px;
-        lg.beginPath(); lg.arc(a, Yv(pn, v), 6 * px, 0, TAU); lg.fillStyle = T.bg; lg.fill();
-        lg.beginPath(); lg.arc(a, Yv(pn, v), 4 * px, 0, TAU); lg.fillStyle = T.series; lg.fill();
-      }
-    }
-  }
-  function longHover(e) {
-    var r = lcv.getBoundingClientRect(), ax = longX(), steps = hist.step;
-    var s = ax.x0 + (ax.x1 - ax.x0) * ((e.clientX - r.left) * dpr - ax.mL) / Math.max(1, lcv.width - ax.mL - ax.mR);
-    var i = clamp(upper(steps, s), 0, steps.length - 1);
-    if (i > 0 && Math.abs(steps[i - 1] - s) < Math.abs(steps[i] - s)) i--;
-    hover = i;
-    var tip = $("rp-tip");
-    tip.textContent = "";
-    tip.appendChild(el("div", "", fmt(steps[i]) + "스텝"));
-    panels.forEach(function (p) {
-      var v = hist[p.key][i], row = el("div");
-      row.appendChild(el("b", "", v == null ? "–" : p.show(v)));
-      row.appendChild(document.createTextNode(" " + p.title));
-      tip.appendChild(row);
-    });
-    tip.hidden = false;
-    var x = ax.f(steps[i]) / dpr, tw = tip.offsetWidth;
-    tip.style.left = clamp(x + 12 + tw > r.width ? x - tw - 12 : x + 12, 0, Math.max(0, r.width - tw)) + "px";
-    tip.style.top = "22px";
-    drawLong();
-  }
-
-  // ---------- 처음 한 번 ----------
-  function about() {
-    var box = $("rp-about"), i;
-    var p = function (text) { box.appendChild(el("p", "", text)); };
-    p(fmt(meta.ckpt_step) + "스텝 체크포인트에서 세계를 다시 돌려 적은 장면입니다. " + fmt(meta.start) + "스텝부터 " + fmt(meta.end - meta.start)
-      + "스텝을 " + every + "스텝마다 한 장씩, 모두 " + fmt(nF) + "장 담았습니다.");
-    for (i = 0; i < meta.notes.length; i++) p(meta.notes[i]);
-    if (meta.orig.length) {
-      var og = meta.orig[meta.orig.length - 1], f = KK.frameOf(D, og[0]);
-      p("원래 실행의 기록에는 " + fmt(og[0]) + "스텝에 " + fmt(og[1]) + "마리로 적혀 있고, 다시 돌린 장면에서는 " + fmt(A.fr_off[f + 1] - A.fr_off[f]) + "마리입니다.");
-    }
-    var eaten = 0, known = meta.seen.good + meta.seen.poison;
-    for (i = 0; i < nF; i++) eaten += A.f_eaten[i];
-    if (eaten > 0) {
-      p("지도의 고리와 일생 자막은 먹은 " + fmt(eaten) + "끼 가운데 누가 먹었는지 가려낸 " + (known / eaten * 100).toFixed(1)
-        + "%만 보여 줍니다(같은 스텝에 났다가 바로 먹힌 먹이는 가릴 수 없습니다). 위의 숫자는 세계가 센 값 그대로입니다.");
-    }
-    if (meta.scenario) p("각본 ‘" + meta.scenario.name + "’" + (meta.scenario.description ? ": " + meta.scenario.description : "") );
-  }
-  function resize() {
-    var r = cv.getBoundingClientRect();
-    if (r.width < 2) return;
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
-    cw = Math.round(r.width * dpr); ch = Math.round(r.height * dpr);
-    if (cv.width !== cw) cv.width = cw;
-    if (cv.height !== ch) cv.height = ch;
-    fitS = Math.min(cw / WW, ch / WH);
-    sizeMini();
-    var tr = tcv.getBoundingClientRect();
-    tcv.width = Math.round(tr.width * dpr); tcv.height = Math.round(tr.height * dpr);
-    if (panels.length) {
-      var hcss = PTOP + panels.length * PH + PAXIS;
-      lcv.style.height = hcss + "px";
-      lcv.width = Math.round(lcv.getBoundingClientRect().width * dpr); lcv.height = Math.round(hcss * dpr);
+    function longHover(e) {
+      var r = lcv.getBoundingClientRect(), ax = longX(), steps = hist.step;
+      var s = ax.x0 + (ax.x1 - ax.x0) * ((e.clientX - r.left) * dpr - ax.mL) / Math.max(1, lcv.width - ax.mL - ax.mR);
+      var i = clamp(upper(steps, s), 0, steps.length - 1);
+      if (i > 0 && Math.abs(steps[i - 1] - s) < Math.abs(steps[i] - s)) i--;
+      hover = i;
+      var tip = $("rp-tip");
+      tip.textContent = "";
+      tip.appendChild(el("div", "", fmt(steps[i]) + "스텝"));
+      panels.forEach(function (p) {
+        var v = hist[p.key][i], row = el("div");
+        row.appendChild(el("b", "", v == null ? "–" : p.show(v)));
+        row.appendChild(document.createTextNode(" " + p.title));
+        tip.appendChild(row);
+      });
+      tip.hidden = false;
+      var x = ax.f(steps[i]) / dpr, tw = tip.offsetWidth;
+      tip.style.left = clamp(x + 12 + tw > r.width ? x - tw - 12 : x + 12, 0, Math.max(0, r.width - tw)) + "px";
+      tip.style.top = "22px";
       drawLong();
     }
-    snap = true; dirty = true;
-  }
-  function retheme() { readTokens(); drawLong(); dirty = true; }
 
-  readTokens();
-  $("rp-title").textContent = meta.title || "세계";
-  $("rp-eyebrow").appendChild(el("span", "", "체크포인트 " + fmt(meta.ckpt_step) + "스텝"));
-  $("rp-eyebrow").appendChild(el("span", "", fmt(nF) + "장 · " + every + "스텝 간격"));
-  $("rp-intro").textContent = meta.intro.join(" ");
-  (function () {       // 한 줄 상태: 지금 어느 모양이 먹이이고 독인지
-    var keys = $("rp-keys");
-    var key = function (gid, tid, cls, text) {
-      var k = el("span", "rp-key"), gl = el("span", "rp-glyph " + cls), tx = el("span", "", text);
-      gl.id = gid; tx.id = tid; k.appendChild(gl); k.appendChild(tx); keys.appendChild(k);
+    // ---------- 처음 한 번 ----------
+    function about() {
+      var box = $("rp-about"), i;
+      var p = function (text) { box.appendChild(el("p", "", text)); };
+      p(fmt(meta.ckpt_step) + "스텝 체크포인트에서 세계를 다시 돌려 적은 장면입니다. " + fmt(meta.start) + "스텝부터 " + fmt(meta.end - meta.start)
+        + "스텝을 " + every + "스텝마다 한 장씩, 모두 " + fmt(nF) + "장 담았습니다.");
+      for (i = 0; i < meta.notes.length; i++) p(meta.notes[i]);
+      if (meta.orig.length) {
+        var og = meta.orig[meta.orig.length - 1], f = KK.frameOf(D, og[0]);
+        p("원래 실행의 기록에는 " + fmt(og[0]) + "스텝에 " + fmt(og[1]) + "마리로 적혀 있고, 다시 돌린 장면에서는 " + fmt(A.fr_off[f + 1] - A.fr_off[f]) + "마리입니다.");
+      }
+      var eaten = 0, known = meta.seen.good + meta.seen.poison;
+      for (i = 0; i < nF; i++) eaten += A.f_eaten[i];
+      if (eaten > 0) {
+        p("지도의 고리와 일생 자막은 먹은 " + fmt(eaten) + "끼 가운데 누가 먹었는지 가려낸 " + (known / eaten * 100).toFixed(1)
+          + "%만 보여 줍니다(같은 스텝에 났다가 바로 먹힌 먹이는 가릴 수 없습니다). 위의 숫자는 세계가 센 값 그대로입니다.");
+      }
+      if (meta.scenario) p("각본 ‘" + meta.scenario.name + "’" + (meta.scenario.description ? ": " + meta.scenario.description : "") );
+    }
+    function resize() {
+      var r = cv.getBoundingClientRect();
+      if (r.width < 2) return;
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      cw = Math.round(r.width * dpr); ch = Math.round(r.height * dpr);
+      if (cv.width !== cw) cv.width = cw;
+      if (cv.height !== ch) cv.height = ch;
+      fitS = Math.min(cw / WW, ch / WH);
+      sizeMini();
+      var tr = tcv.getBoundingClientRect();
+      tcv.width = Math.round(tr.width * dpr); tcv.height = Math.round(tr.height * dpr);
+      if (panels.length) {
+        var hcss = PTOP + panels.length * PH + PAXIS;
+        lcv.style.height = hcss + "px";
+        lcv.width = Math.round(lcv.getBoundingClientRect().width * dpr); lcv.height = Math.round(hcss * dpr);
+        drawLong();
+      }
+      snap = true; dirty = true;
+    }
+    function retheme() { readTokens(); drawLong(); dirty = true; }
+
+    readTokens();
+    $("rp-title").textContent = meta.title || "세계";
+    $("rp-eyebrow").appendChild(el("span", "", "체크포인트 " + fmt(meta.ckpt_step) + "스텝"));
+    $("rp-eyebrow").appendChild(el("span", "", fmt(nF) + "장 · " + every + "스텝 간격"));
+    $("rp-intro").textContent = meta.intro.join(" ");
+    if (meta.guide) { $("rp-guide").textContent = meta.guide; $("rp-guide").hidden = false; }
+    (function () {       // 한 줄 상태: 지금 어느 모양이 먹이이고 독인지
+      var keys = $("rp-keys");
+      var key = function (gid, tid, cls, text) {
+        var k = el("span", "rp-key"), gl = el("span", "rp-glyph " + cls), tx = el("span", "", text);
+        gl.id = gid; tx.id = tid; k.appendChild(gl); k.appendChild(tx); keys.appendChild(k);
+      };
+      key("rp-g-good", "rp-t-good", "good circle", "먹이");
+      if (on.kinds) key("rp-g-bad", "rp-t-bad", "bad diamond", "독");
+      if (on.season && A.f_season) {       // 지금 철, 겨울에는 붙어서 아끼는 개체 수
+        var sk = el("span", "rp-key"), sg = el("span", "rp-glyph season"), stx = el("span", "");
+        sk.appendChild(sg); sk.appendChild(stx); keys.appendChild(sk);
+        seasonKey = { g: sg, t: stx };
+        if (hud) { hudEl = el("span", "rp-hud"); hudEl.hidden = true; keys.appendChild(hudEl); }
+      }
+      var tk = [];
+      if (on.kinds) tk.push("띠: 그때 독인 모양 · 세로줄: 독이 바뀌는 순간");
+      if (seasons.some(function (r) { return r.s >= 2; })) tk.push("갈색 띠: 가을 · 파란 띠: 겨울");
+      if (spans.length) tk.push("노란 띠: 각본");
+      $("rp-trackkey").textContent = tk.join(" · ");
+    })();
+    tile("pop", "개체 수"); tile("food", "놓인 먹이"); tile("brain", "뇌 크기(평균)");
+    if (on.social) tile("gift", "에너지 건넴");
+    if (on.conflict) tile("atk", "공격");
+    $("rp-bars").hidden = !on.kinds;
+    $("rp-vfine").hidden = !on.kinds;
+    stars.forEach(function (s, i) {
+      var b = el("button", "rp-chip", s.why.replace("가장 ", "").replace(/\s*개체$/, ""));
+      b.type = "button"; b.setAttribute("aria-pressed", "false");
+      b.addEventListener("click", function () { select(s.agent, { jump: true, near: true }); });
+      $("rp-stars").appendChild(b);
+    });
+    $("rp-stars").hidden = !stars.length;
+    legend(); setupLong(); about();
+    track.setAttribute("aria-valuemax", nF - 1);
+    resize();
+    // 창·문서에 거는 것은 해제 함수가 모두 거둔다(#rp 안의 요소에 건 것은 장면을 바꿀 때 요소와 함께 사라진다)
+    var ro = window.ResizeObserver ? new ResizeObserver(resize) : null, mq = null, mo = null;
+    if (ro) ro.observe($("rp-stage"));
+    window.addEventListener("resize", resize);
+    if (window.matchMedia) {
+      mq = window.matchMedia("(prefers-color-scheme: dark)");
+      if (mq.addEventListener) mq.addEventListener("change", retheme); else mq = null;
+    }
+    if (window.MutationObserver) {
+      mo = new MutationObserver(retheme);
+      mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    }
+
+    var lead = stars.length ? stars[0].agent : (A.fr_off[1] > 0 ? A.fr_idx[0] : -1);
+    if (lead >= 0) {
+      select(lead, {});
+      // 첫 주인공이 아직 안 태어났고 따라갈 어미도 안 보이면, 태어나는 장면에서 시작한다
+      if (D.first[lead] > 0 && !(A.ag_parent[lead] >= 0 && KK.find(D, 0, A.ag_parent[lead]) >= 0)) t = D.first[lead];
+    } else {
+      setMode("world");
+    }
+    setPlaying(!reduce);
+    raf = requestAnimationFrame(tick);
+    return function dispose() {
+      dead = true;
+      cancelAnimationFrame(raf);
+      if (ro) ro.disconnect();
+      window.removeEventListener("resize", resize);
+      if (mq) mq.removeEventListener("change", retheme);
+      if (mo) mo.disconnect();
+      APP.disposed++;
     };
-    key("rp-g-good", "rp-t-good", "good circle", "먹이");
-    if (on.kinds) key("rp-g-bad", "rp-t-bad", "bad diamond", "독");
-    $("rp-trackkey").textContent = (on.kinds ? "띠: 그때 독인 모양 · 세로줄: 독이 바뀌는 순간" : "") + (spans.length ? " · 노란 띠: 각본" : "");
-  })();
-  tile("pop", "개체 수"); tile("food", "놓인 먹이"); tile("brain", "뇌 크기(평균)");
-  if (on.social) tile("gift", "에너지 건넴");
-  if (on.conflict) tile("atk", "공격");
-  $("rp-bars").hidden = !on.kinds;
-  $("rp-vfine").hidden = !on.kinds;
-  stars.forEach(function (s, i) {
-    var b = el("button", "rp-chip", s.why.replace("가장 ", "").replace(/\s*개체$/, ""));
-    b.type = "button"; b.setAttribute("aria-pressed", "false");
-    b.addEventListener("click", function () { select(s.agent, { jump: true, near: true }); });
-    $("rp-stars").appendChild(b);
-  });
-  $("rp-stars").hidden = !stars.length;
-  legend(); setupLong(); about();
-  track.setAttribute("aria-valuemax", nF - 1);
-  resize();
-  if (window.ResizeObserver) new ResizeObserver(resize).observe($("rp-stage"));
-  window.addEventListener("resize", resize);
-  if (window.matchMedia) {
-    var mq = window.matchMedia("(prefers-color-scheme: dark)");
-    if (mq.addEventListener) mq.addEventListener("change", retheme);
   }
-  if (window.MutationObserver) new MutationObserver(retheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
-  var lead = stars.length ? stars[0].agent : (A.fr_off[1] > 0 ? A.fr_idx[0] : -1);
-  if (lead >= 0) {
-    select(lead, {});
-    // 첫 주인공이 아직 안 태어났고 따라갈 어미도 안 보이면, 태어나는 장면에서 시작한다
-    if (D.first[lead] > 0 && !(A.ag_parent[lead] >= 0 && KK.find(D, 0, A.ag_parent[lead]) >= 0)) t = D.first[lead];
-  } else {
-    setMode("world");
+  // ---------- 장면 고르기: 장면이 둘 이상이면 #rp 바로 위에 단추 줄. 누르면 그 장면을 처음부터 ----------
+  var rp = $("rp"), fresh = rp.innerHTML, sceneEl = $("replay-scenes"), scenes = sceneEl ? JSON.parse(sceneEl.textContent) : [];
+  var dispose = null, cur = -1;
+  function show(i) {
+    var tail = i ? "-" + i : "", mEl = $("replay-meta" + tail), bEl = $("replay-bin" + tail);
+    if (!mEl || !bEl || i === cur) return;
+    if (dispose) { dispose(); rp.innerHTML = fresh; }
+    cur = i;
+    APP.gen++;
+    dispose = app(mEl.textContent, bEl.textContent, APP.gen);
+    var bs = $("rp-scenes").querySelectorAll("button"), k;
+    for (k = 0; k < bs.length; k++) bs[k].setAttribute("aria-pressed", k === i ? "true" : "false");
   }
-  setPlaying(!reduce);
-  requestAnimationFrame(tick);
+  APP.show = show;
+  if (scenes.length > 1) {
+    var nav = $("rp-scenes");
+    nav.appendChild(el("span", "lbl", "장면"));
+    scenes.forEach(function (sc, i) {
+      var b = el("button", "", sc.title || "장면 " + (i + 1));
+      b.type = "button"; b.setAttribute("aria-pressed", "false");
+      b.addEventListener("click", function () { show(i); });
+      nav.appendChild(b);
+    });
+    nav.hidden = false;
+  }
+  show(0);
 })(typeof globalThis !== "undefined" ? globalThis : this);
 </script>
