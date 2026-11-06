@@ -82,7 +82,7 @@ FOOD_FIELDS = [
     ("fy", np.float64, True),
     ("f_alive", np.bool_, True),
     ("f_energy", np.float64, True),
-    ("f_kind", np.int8, True),       # 먹이 종류 0/1, 2는 늘 먹을 수 있는 것(사체)
+    ("f_kind", np.int8, True),       # 먹이 종류 0/1, 2는 늘 먹을 수 있는 것(사체), 3은 고기(쓰러진 사냥감)
     ("f_born", np.int64, True),      # 놓인 스텝(상한에서 가장 오래된 것을 고를 때, 부패의 나이를 셀 때 쓴다)
     ("f_holder", np.int32, True),    # 이 물건을 든 개체 칸(-1이면 아무도 들지 않음)
     ("f_dropped", np.int8, True),    # 1이면 들판을 떠난 적 있는 물건(들 때 켜고, 내려놓아도 1로 남는다)

@@ -351,6 +351,17 @@ def test_intro_and_title_come_from_the_config_and_folder(kinds_run):
     assert 1 <= len(stars) <= 4 and all(0 <= s["agent"] < len(rep.agents) and s["why"] for s in stars)
 
 
+def test_intro_names_harsh_devices_only_when_on():
+    words = ("겨울", "가을", "붙어 있으면", "큰 짐승", "고기", "들고 다니기")
+    plain = " ".join(replay.intro_sentences(ext_small("ext")))
+    assert not [w for w in words if w in plain]
+    harsh = " ".join(replay.intro_sentences(ext_small("harsh")))
+    assert "겨울" in harsh and not [w for w in words[1:] if w in harsh]
+    harsh2 = " ".join(replay.intro_sentences(ext_small("harsh2")))
+    assert all(w in harsh2 for w in words)
+    assert "4,000스텝" in harsh2 and "1,200스텝" in harsh2 and "800스텝" in harsh2
+
+
 # ---------------------------------------------------------------- 내보낸 파일
 def test_export_is_one_self_contained_file_and_touches_nothing(kinds_run, tmp_path):
     path = ckpt_of(kinds_run, 400)
@@ -662,7 +673,7 @@ def test_replay_records_animals_and_meat():
     why = meat["why"]
     assert int((why == replay.WHY_GOOD).sum()) > 0
     assert int((why == replay.WHY_POISON).sum()) == 0 and int((why == replay.WHY_UNKNOWN).sum()) == 0
-    assert rep.seen["poison"] == 0 or rep.seen["poison"] == int((rep.food["why"] == replay.WHY_POISON).sum())
+    assert rep.seen["poison"] == int((rep.food["why"] == replay.WHY_POISON).sum())
     assert rep.seen["unknown"] == 0
     assert rep.meta["on"]["prey"] and not rep.meta["on"]["huddle"] and rep.meta["cfg"]["prey_radius"] == w.cfg.prey_radius
     meta, _ = replay.pack(rep)

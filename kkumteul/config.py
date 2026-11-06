@@ -358,8 +358,8 @@ class Config:
             raise ValueError("prey_inflow_frac는 0 이상 1 미만이어야 한다")
         if not (0.0 < self.prey_graze_speed <= 1.0) or not (0.0 < self.prey_travel_speed <= 1.0):
             raise ValueError("prey_graze_speed, prey_travel_speed는 0보다 크고 1 이하여야 한다(v_max 배수)")
-        if not (0.0 <= self.prey_wander_turn <= math.pi):
-            raise ValueError("prey_wander_turn은 0~pi여야 한다")
+        if not (0.0 <= self.prey_wander_turn < math.pi / 2):
+            raise ValueError("prey_wander_turn은 0 이상 pi/2 미만이어야 한다(맴도는 자리에 가두기가 pi/2 아래에서만 보장된다)")
         if self.huddle_enabled and not self.season_enabled:
             raise ValueError("huddle_enabled는 겨울(season_enabled)이 켜져 있어야 쓸 수 있다")
         if not (0.0 <= self.huddle_cap < 1.0) or self.huddle_exp < 0.0:

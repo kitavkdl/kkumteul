@@ -2,6 +2,8 @@
 // 사건 표시(공격 #e5534b, 건넴 #d8b25a, 먹음 #9fd8a8, 죽음 #c3cacc, 태어남 #e9e2c4, 운석 #e08a3c, 신호 고리 hsl(?,55%,66%))와
 // 든 알(깃발 128 개체 머리 앞의 채움 #cfe8a4), 사냥감(채운 원 #8fb7cc, 체력 호는 선 #e8ecec), 고기(먹이 채움 #c27a62)가
 // 그려지는지 보는 손 점검이다(pytest에 들지 않는다. 브라우저가 따로 떠 있어야 한다). 눈에 잘 띄는지는 재지 않는다.
+// 사냥감은 마리마다 한 번, 고기는 장면마다 한 번(한 경로로 모아 채운다) 센다. 세계 전체 보기의 먹이는 fillRect라
+// 고기는 가까이 보기에서만 잡힌다. 체력 호(preyhp)는 고른 개체 괄호와 같은 빛깔이라 고른 개체가 없을 때만 뜻이 있다.
 // 1) 크롬 헤드리스를 띄운다(메모리 상한을 건다):
 //      chrome-headless-shell --remote-debugging-port=9333 --no-sandbox --allow-file-access-from-files --user-data-dir=<임시 폴더> about:blank
 //    playwright를 쓰면 `npx playwright install chromium-headless-shell`이 받아 둔다.
@@ -67,7 +69,8 @@ async function main() {
         if (Math.abs(s - 0.55) < 0.04 && Math.abs(l - 0.66) < 0.02 && !cnt["f " + k.slice(2)]) ring += v;
       }
       out.views[`${view} ${target}`] = { step, hit: cnt["s #e5534b"] || 0, gave: cnt["s #d8b25a"] || 0, eat: cnt["s #9fd8a8"] || 0,
-        died: cnt["s #c3cacc"] || 0, born: cnt["f #e9e2c4"] || 0, strike: cnt["f #e08a3c"] || 0, held: cnt["f #cfe8a4"] || 0, ring };
+        died: cnt["s #c3cacc"] || 0, born: cnt["f #e9e2c4"] || 0, strike: cnt["f #e08a3c"] || 0, held: cnt["f #cfe8a4"] || 0, ring,
+        prey: cnt["f #8fb7cc"] || 0, preyhp: cnt["s #e8ecec"] || 0, meat: cnt["f #c27a62"] || 0 };
     }
   }
   out.trackkey = await ev(`document.getElementById("rp-trackkey").textContent`);

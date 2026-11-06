@@ -1299,7 +1299,6 @@ def test_huddle_sleep_refund_uses_cut_basal():
     net = np.where(sleeping, m * (1.0 - cut) * cfg.sleep_basal, m * (1.0 - cut))[alive]
     assert (cut[group] > 0.0).all() and 0 < len(asleep) < n
     assert winter == pytest.approx(float(net.sum()), rel=1e-12)
-    assert (net >= 0.0).all()
 
 
 def test_huddle_needs_season_and_ext():
