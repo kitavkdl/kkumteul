@@ -424,15 +424,43 @@ def test_after_flips_uses_real_flips():
 
 
 @pytest.mark.parametrize("lab", [True, False])
-def test_hand_curve_counts_placed_food(lab):
+def test_hand_curve_counts_placed_food(lab, monkeypatch):
     hl = _hand_learner()
     cfg = small("stage2", "kinds", "taste")
     side = measure.side_from_world(World(cfg))
     g = hl.make_hand(side["genomes"], 4, taste_in0=cfg.taste_in0, **hl.VARIANTS["taste"])
+    seen = {}
+    real = hl.measure.inject_agent
+
+    def spy(world, genomes, *a, **kw):     # curve가 실제로 만든 세계의 설정과 넣는 유전체를 본다
+        seen["cfg"], seen["repro"] = world.cfg, genomes["bout"][:, k.ACT_REPRO].copy()
+        return real(world, genomes, *a, **kw)
+    monkeypatch.setattr(hl.measure, "inject_agent", spy)
     x = hl.curve(cfg, g, 4, 200, 1, every=100, lab=lab)
     assert len(x["series"]) == 2
     for r in x["series"]:
         assert r["placed"] > 0 and 0.0 <= r["placed_poison"] <= 1.0
+    lab_cfg = measure.arena_config(hl.with_set(cfg, hl.LAB), 1, 4)
+    plain_cfg = measure.arena_config(cfg, 1, 4)
+    assert lab_cfg.to_dict() != plain_cfg.to_dict()       # LAB을 걸면 설정이 달라진다(아래 단언이 뜻이 있게)
+    assert seen["cfg"].to_dict() == (lab_cfg if lab else plain_cfg).to_dict()
+    if lab:
+        assert (seen["repro"] == -5.0).all()
+    else:                                                # 번식 편향을 건드리지 않는다
+        assert (seen["repro"] == g["bout"][:, k.ACT_REPRO]).all() and not (seen["repro"] == -5.0).all()
+
+
+def test_taste_verdict_per_world():
+    # 판정 0은 세계마다 낸다: LAB만 통과하면 두 세계를 합친 평균이 문턱을 넘어도 전체는 실패다
+    hl = _hand_learner()
+    rest = {(True, True): [0.1, 0.1], (True, False): [0.5, 0.5],
+            (False, True): [0.5, 0.5], (False, False): [0.5, 0.5]}
+    v = hl.taste_verdict(rest)
+    assert [(w["lab"], w["pass"]) for w in v["worlds"]] == [(True, True), (False, False)]
+    assert v["pass"] is False
+    assert v["worlds"][0]["on_rest"] == pytest.approx(0.1) and v["worlds"][1]["off_rest"] == pytest.approx(0.5)
+    rest[(False, True)] = [0.2, 0.3]
+    assert hl.taste_verdict(rest)["pass"] is True
 
 
 def test_hand_taste_command_runs(tmp_path, monkeypatch):
@@ -452,4 +480,6 @@ def test_hand_taste_command_runs(tmp_path, monkeypatch):
     runs = [(x["lab"], x["taste"]) for x in res["taste"]]
     assert runs == [(True, True), (True, False), (False, True), (False, False)]
     assert all(len(x["series"]) == 2 and "placed_poison" in x["series"][0] for x in res["taste"])
-    assert set(res["verdict0"]) == {"pass", "on_rest", "off_rest"}
+    assert set(res["verdict0"]) == {"pass", "worlds"}
+    assert [w["lab"] for w in res["verdict0"]["worlds"]] == [True, False]
+    assert all(set(w) == {"lab", "pass", "on_rest", "off_rest"} for w in res["verdict0"]["worlds"])
