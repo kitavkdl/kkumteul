@@ -80,6 +80,8 @@ class World:
             self.recount_field()    # 꺼져 있던 동안 들판 알 수를 맞추지 않았다
         if old.field_cap and not cfg.field_cap:
             self.s.counters[k.C_NFIELD] = 0     # 꺼진 동안은 맞추지 않으니 남은 값이 낡지 않게 비운다
+        if old.huddle_enabled and not cfg.huddle_enabled:
+            self.s.huddle_cut[:] = 0.0          # 꺼진 동안 move가 지난 겨울의 절감을 쓰지 않게 비운다
 
     # ---- 들기: 물건 칸 ----
     def recount_field(self) -> None:
@@ -215,6 +217,8 @@ class World:
             k.think(s)
         if mind or social:
             st.after_think(s, fs, isp)
+        if cfg.huddle_enabled:
+            k.huddle(s, fp, ip, self.in_winter(t))
         k.move(s, fp, ip, basal)
         if mind or niche:
             st.after_move(s, fs, isp, basal)
@@ -435,6 +439,8 @@ class World:
                     "soil_total": float(s.soil.sum()),
                     "fertile_food": int(c[k.C_FERTILE]),
                 })
+        if self.cfg.huddle_enabled:
+            out["huddle_cut_mean"] = float(s.huddle_cut[a].mean()) if n else 0.0
         return out
 
     def energy_balance(self) -> dict:
