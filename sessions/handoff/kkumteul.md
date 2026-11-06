@@ -1,39 +1,40 @@
 # 꿈틀 인수인계
-마지막 갱신: 2026-11-05 18:15 ET (서버 19)
-요약: **혹독한 세계 2부-가 구현 중(SDD).** 계획 둘째 판(`a19d019`: 검토 두 갈래를 코드로 확인해 반영, 판단 표는 검토 기록 끝). **과제 1(공유 해시 틀) 구현 끝 `36db03a`**(시험 201건, 박아 둔 해시 그대로) — **과제 검토는 아직 안 보냄.**
+마지막 갱신: 2026-11-05 19:08 ET (서버 20)
+요약: **혹독한 세계 2부-가 구현 중(SDD).** 과제 1~3 구현·검토 끝(`36db03a`·`1355290`, `58f48bc`, `1ea1678` — 모두 검토 통과). **과제 4(들기 행동·다시 보기) 구현 끝 `c6df7fc`**(시험 231건, 박아 둔 해시 그대로) — **과제 검토는 아직 안 보냄.**
 
 ## ★ 먼저 할 것
-- **사용자 지시(16:3x ET): "제발 그냥 좀 끝까지 진행하라고, 특히 wrap."** 묻지 말고 끝까지, 맥락이 차면 미루지 말고 바로 wrap. 알림 턴이어도 이 지시대로 교대한다(서버 16·18이 그렇게 함). 전역 규칙 "자동 이벤트 턴에는 새 세션을 띄우지 않는다"와 엇갈리므로, 사용자가 오시면 어느 쪽인지 한 줄로 여쭌다(tasks.md "사용자가 정하실 것").
-- 영어 진행 설명을 막는 Stop 훅 제안(서버 15)은 답을 못 받았다. 다시 사과하지 말고 답이 오면 그대로. 서버 16·18도 진행 한 줄을 영어로 썼다가 `lang-nudge`에 잡혔다(18: 계획을 영어로 생각한 직후). 진행 설명은 첫 낱말부터 한국어로.
+- **사용자 지시(16:3x ET): "제발 그냥 좀 끝까지 진행하라고, 특히 wrap."** 묻지 말고 끝까지, 맥락이 차면 미루지 말고 바로 wrap. 알림 턴이어도 이 지시대로 교대한다(서버 16·18·19·20이 그렇게 함). 전역 규칙 "자동 이벤트 턴에는 새 세션을 띄우지 않는다"와 엇갈리므로, 사용자가 오시면 어느 쪽인지 한 줄로 여쭌다(tasks.md "사용자가 정하실 것").
+- 영어 진행 설명을 막는 Stop 훅 제안(서버 15)은 답을 못 받았다. 다시 사과하지 말고 답이 오면 그대로. 진행 설명은 첫 낱말부터 한국어로.
 - 모델 확인: Opus 5.5·high(메모리 `kkumteul-session-model-and-tools`). 아니면 첫 답에서 알린다.
 - 큰 순서(사용자 14:4x ET): 혹독한 세계 → 암수 → 몸짓 → 기록 → 도구. 그 밖의 사용자 지시(암수 범위, 지구값·출처)는 보관 파일 맨 위 서버 18 절.
 - 작업 폴더 `.claude/worktrees/night-1105c`, 가지 `worktree-night-1105c`(main push 막힘). `main` 합치기는 사용자 몫(tasks.md).
 
 ## 현재 상태
-- 설계: `docs/superpowers/specs/2026-11-05-harsh-world-design.md`(여섯째 판), `2026-11-05-sex-design.md`(셋째 판 + 공유 번호표 한 줄). 검토 기록 `-harsh-world-review.md`(끝 세 절: 1부 마무리 결정, 여섯째 판 반영 표, **2부-가 계획 검토 두 갈래 + 다음 할 일**), `-sex-review.md`.
+- 설계: `docs/superpowers/specs/2026-11-05-harsh-world-design.md`(여섯째 판), `2026-11-05-sex-design.md`(셋째 판). 검토 기록 `-harsh-world-review.md`, `-sex-review.md`.
 - 계획: 1부 `docs/superpowers/plans/2026-11-05-harsh-world-part1.md`(끝남), **2부-가 `…-part2a.md`(둘째 판, 과제 1~5)**. 2부-나(④⑤⑥·섞기 대조)는 아직 안 씀.
-- **SDD 작업 공간** `.superpowers/sdd/2026-11-05-harsh-world-part2a/`(git 밖): `progress.md`(진행 기록 — 여기부터 읽는다), `common.md`(모든 과제 지시문이 가리키는 공통 규칙: 시험 명령·git 제약·커밋 꼴), `constraints.md`(검토자용 전역 제약), `task-1-brief.md`, `task-1-report.md`.
-- 0번 스크립트 사본은 `.superpowers/scratch/harsh/`(git 밖: `h0-run.sh`, `h0b-run.sh`, `h0-read.py`, `pt.sh`, `rule-axis.py`).
-- 0번 결과 `wayfinder/stage2-4/results.md` 끝 절. 갈래 `runs/h0-*`, 코드 사본 `runs/code-621c300`.
+- **SDD 작업 공간** `.superpowers/sdd/2026-11-05-harsh-world-part2a/`(git 밖): **`progress.md`부터 읽는다**(과제별 완료 줄, Ruling, 미뤄 둔 사소한 지적 목록, 과제 4 구현자의 걱정 셋과 다음 순서가 끝에). `common.md`(지시문 공통 규칙 — 서버 20에서 세션 주소·임시 폴더를 바꿨다. 새 세션은 자기 job id·세션 주소로 다시 고친다), `constraints.md`, `task-N-brief.md`·`task-N-report.md`(1~4), `review-*.diff`.
+- 0번 스크립트 사본 `.superpowers/scratch/harsh/`(git 밖). 0번 결과 `wayfinder/stage2-4/results.md` 끝 절. 갈래 `runs/h0-*`, 코드 사본 `runs/code-621c300`.
 - 서버 세계 둘 `kkumteul-main`, `kkumteul-world4`(원래 폴더 main `d0b7ead` 코드). 재부팅하면 원래 폴더에서 `memcap --bg kkumteul-main --log runs/main.log --max 1500M -- nice -n 15 .venv/bin/python -m kkumteul.run resume --run runs/main --quiet`(world4도 같게, 하나씩).
 - 아티팩트: 다시 보기 https://claude.ai/artifact/LJwqLAmdv8evuPTUj7W69Z, 여정 https://claude.ai/artifact/EZUf6Mkz429VDmrkWddk3H (원본 `docs/journey.html`).
 
 ## 다음 할 일 (위에서부터)
-1. **과제 1 검토** — 스킬 `scripts/review-package <계획> a19d019 36db03a`로 꾸러미 → 검토자(sonnet, 양식 `task-reviewer-prompt.md`)에게 brief·report·꾸러미·`constraints.md`. 지적이 있으면 구현자를 새로 띄워(앞 구현자는 이 세션과 함께 끝남) brief·report·지적을 준다.
-2. 과제 2(가을, sonnet) → 과제 3(들기 칸, 여러 파일 — opus) → 과제 4(들기 행동·다시 보기, opus) → 최종 검토(opus) → 과제 5(0번, 세션이 직접). 지시서는 `scripts/task-brief <계획> N`. 지시문은 `common.md`를 가리키고 짧게.
-3. 2부-나 계획 → 검토 두 갈래 → 구현 → 판정. 그다음 암수(계획만 쓰면 됨) → 몸짓 → 기록 → 도구.
+1. **과제 4 검토** — 스킬 `scripts/review-package <계획> 1ea1678 c6df7fc` → 검토자(opus — 다시 보기·시야·장부가 얽힘)에게 brief·report·꾸러미·`constraints.md`. 구현자의 걱정 셋(progress.md 끝)은 "구현자가 스스로 밝힌 것, 확인할 주장"으로만 넘기고 내 판단을 붙이지 않는다. 지적이 있으면 구현자를 새로 띄운다(앞 구현자는 이 세션과 함께 끝남).
+2. 최종 전체 검토(opus, `review-package <계획> a19d019 HEAD`, `requesting-code-review/code-reviewer.md`, progress.md의 deferred minor 목록을 가리킴) → 고치기 한 번·재검토 한 번 → 과제 5(0번, 세션이 직접 — 지시서 `scripts/task-brief <계획> 5`).
+3. 2부-나 계획 → 검토 두 갈래 → 구현 → 판정. 2부-나 주의: `field_cap`을 `carry or prey`로 넓히면 prey도 `needs_ext`여야 한다(`store_room`이 확장 계수기 칸에 쓴다). 그다음 암수(계획만 쓰면 됨) → 몸짓 → 기록 → 도구.
 4. develop 후보: 신호 내는 쪽 판정, 재생 실험, 신호 값 기록.
 
 ## 일하는 방식
 - 서버가 바쁘다. 실험은 2스레드, 메모리 상한 1.5GB, 한 번에 하나, `memcap --bg`. 서브에이전트에게 시뮬레이션을 시키지 않는다(시험은 됨).
-- 시험(전체 약 2.5분): `NUMBA_NUM_THREADS=2 ~/.local/bin/memcap --max 2G -E NUMBA_NUM_THREADS -- nice -n 10 ../../../.venv/bin/python -m pytest -q -p no:cacheprovider`.
+- 시험(전체 약 3분): `NUMBA_NUM_THREADS=2 ~/.local/bin/memcap --max 2G -E NUMBA_NUM_THREADS -- nice -n 10 ../../../.venv/bin/python -m pytest -q -p no:cacheprovider`.
 - 파일 셋 이상이나 저장 구조를 고치는 장치는 구현 전에 맥락 없는 검토 둘(규칙 축, 명세 축, sonnet).
 - 작업 폴더 밖은 Edit·Write가 막힌다. 스크립트는 `$CLAUDE_JOB_DIR/tmp`나 작업 폴더 안에 쓰고 `python3 <절대 경로> <인자>`로 부른다.
+- SDD 모델: 짧은 기계적 고치기·재검토 haiku, 한 파일 과제·검토 sonnet, 여러 파일·장부·numba 과제와 그 검토 opus(서버 20에서 이대로 돌려 막힘 없었음). 읽기만 하는 재검토는 다음 구현과 같이 돌려도 된다.
 
 ## 교훈·주의 (보관된 것은 `archive/kkumteul-history.md`)
+- ★ (11/05) 공개 레포 문서(인수인계 포함)에 다른 프로젝트 경로·비공개 레포 이름을 적지 않는다. 필요한 경로는 비공개 메모리에(서버 20: 보관 인수인계의 폰 알림 스크립트 경로를 메모리 `phone-notify-script`로 옮김).
 - ★ (11/05→11/05) 계획에 "지금 형식에 없으면 ~한다"처럼 미루지 않는다. 기록 형식·시그니처를 먼저 열어 보고 정한다(서버 18: 다시 보기 기록 형식, `_remove`의 `ip` — 검토 둘이 모두 잡음. 서버 19: `ip`에 `max_agents` 칸이 없음을 열어 보고 알아 `s.x.shape[0]`로).
 - ★ (11/05) 설계에 목표 비율이나 "몇 %"를 적기 전에 `config.py` 기본값으로 상한을 셈한다(장식 유지비, 포식 40~55% — 검토자가 잡음).
-- (11/05) 서브에이전트가 같은 작업 폴더에서 커밋하는 동안 내 커밋은 그쪽이 끝난 뒤에. 읽기만 하는 검토는 같이 돌려도 된다.
+- ★ (11/05→11/05) 서브에이전트가 같은 작업 폴더에서 커밋하는 동안 내 커밋은 그쪽이 끝난 뒤에. 읽기만 하는 검토는 같이 돌려도 된다.
 - ★ (11/05) 저장·지방이 없는 생물은 겨울에 수용력을 거의 바로 따라간다(400~800스텝). 감소폭 ≈ 1 − (겨울 풀 ÷ 여름 풀 ÷ 겨울 대사 배수).
 - ★ (11/05) 계획이 정한 장부 시험이 장치를 못 가릴 수 있다. 그 장치를 빼면 실패하는지 확인하는 시험을 둔다.
 - ★ (11/05) 알림 턴에 교대가 막히면 그 사이 서브에이전트를 또 띄우지 않는다(서버 15: 16만 → 19만).
@@ -60,4 +61,4 @@
 - ★ (11/05) 서버 `/tmp`는 메모리 디스크다. 시험 임시 폴더는 `runs/` 아래로.
 
 ## 세션 기록 (앞의 것은 보관 파일)
-- 18:02~18:15 ET (서버 19, 넘겨받음): 2부-가 계획 검토 지적을 코드로 확인 → 판단 표(검토 기록 끝) → 계획 둘째 판·설계 세 줄 `a19d019`(1부 코드로 확장 해시 셋 계산해 박음). SDD 시작, 과제 1 구현 `36db03a`. 맥락 17만이라 교대.
+- 18:17~19:08 ET (서버 20, 넘겨받음): 과제 1 검토(주석 표현 고치기 1회 `1355290`) → 과제 2 가을 `58f48bc` → 과제 3 들기 칸 `1ea1678` → 과제 4 들기 행동 `c6df7fc`. 모두 구현·검토 통과(과제 4 검토만 남음). 공개 레포 정리 `19d8a17`. 맥락 15.6만이라 교대.
