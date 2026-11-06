@@ -40,7 +40,7 @@ from . import kernels as k
 from . import measure
 from . import stages as st
 from .config import (ACT_SIG0, ACT_THRUST, ACT_TURN, IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL,
-                     N_INTERNAL, N_TASTE_IN, TASTE_VAL, TASTE_VIS, Config)
+                     N_INTERNAL, N_TASTE_IN, N_TASTE_VIS, TASTE_VAL, TASTE_VIS, Config)
 
 CHANNELS = ("hear", "kin", "saweat", "social", "trail", "vision", "taste", "taste_vis", "taste_val")
 # 그 감각이 없는 규칙(대조). 시야는 양성 대조라 없앤 규칙이 없다
@@ -69,7 +69,7 @@ def columns(cfg: Config, channel: str) -> list[int]:
     if cfg.n_in >= cfg.taste_in0 + N_TASTE_IN:
         t0 = cfg.taste_in0
         table["taste"] = list(range(t0, t0 + N_TASTE_IN))
-        table["taste_vis"] = list(range(t0 + TASTE_VIS, t0 + TASTE_VIS + cfg.vision_sectors))
+        table["taste_vis"] = list(range(t0 + TASTE_VIS, t0 + TASTE_VIS + N_TASTE_VIS))
         table["taste_val"] = [t0 + TASTE_VAL, t0 + TASTE_VAL + 1]
         table["vision"] = table["vision"] + table["taste_vis"]
     if channel not in table:
