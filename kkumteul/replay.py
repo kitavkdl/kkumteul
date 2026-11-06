@@ -99,6 +99,11 @@ def intro_sentences(cfg: Config, scn: Scenario | None = None) -> list[str]:
         if cfg.huddle_enabled:
             season += " 겨울에 서로 붙어 있으면 몸이 쓰는 에너지가 줄어듭니다."
         out.append(season)
+    if cfg.taste_enabled:
+        taste = "먹고 탈이 난 모양과 먹을 만했던 모양을 저마다 기억합니다."
+        if cfg.taste_inherit > 0:
+            taste += " 새끼는 어미의 기억을 일부 물려받습니다."
+        out.append(taste)
     if cfg.prey_enabled:
         out.append("큰 짐승이 먹이 자리를 떠돕니다. 치면 반격하고, 여럿이 함께 쳐서 쓰러뜨리면 고기가 남습니다.")
     has = []
@@ -625,10 +630,10 @@ class Recorder:
                     "food_energy": cfg.food_energy, "eta_max": cfg.eta_max, "h_max": cfg.h_max,
                     "prey_radius": cfg.prey_radius, "winter_mult": cfg.winter_mult,
                     "winter_basal_mult": cfg.winter_basal_mult, "autumn_mult": cfg.autumn_mult,
-                    "huddle_cap": cfg.huddle_cap},
+                    "huddle_cap": cfg.huddle_cap, "taste_inherit": cfg.taste_inherit},
             "intro": intro_sentences(cfg, self.scn), "flips": self.flips, "patches": self.patches,
             "stars": self._stars(agents, end), "scenario": info, "notes": [], "history": None, "orig": [],
-            "seen": dict(self.seen), "sig_min": self._sig_min(cols),
+            "seen": dict(self.seen), "sig_min": self._sig_min(cols), "guide": None,
         }
         return Replay(self.start, self.every, off, cols, agents, food, per, dict(self.seen), meta,
                       cfg.world_w, cfg.world_h, animals)
@@ -922,7 +927,8 @@ def _record_within(scene: dict, steps, every: int, budget: int) -> Replay:
     while True:
         rep = record(scene["ckpt"], steps, every, scene.get("start") == "flip", scene.get("title"),
                      from_season=scene.get("start") == "season")
-        size = len(_data_tags(rep).encode("utf-8"))
+        rep.meta["guide"] = scene.get("guide") or None        # 장면마다 "무엇을 보면 되나" 한 줄
+        size =len(_data_tags(rep).encode("utf-8"))
         if size <= budget:
             return rep
         frames = sum(v.nbytes for v in rep.cols.values()) * 4 // 3      # 장면 간격에 따라 줄어드는 몫
@@ -936,7 +942,8 @@ def _record_within(scene: dict, steps, every: int, budget: int) -> Replay:
 
 def write_scenes(scenes: list[dict], out, steps: int | None = None, every: int = 2, standalone: bool = True,
                  max_bytes: int = MAX_BYTES) -> list[Replay]:
-    """장면 여럿(각각 {"ckpt": 경로, "title": 이름 또는 None, "start": None·"flip"·"season"})을 한 파일로 쓴다.
+    """장면 여럿(각각 {"ckpt": 경로, "title": 이름 또는 None, "start": None·"flip"·"season", "guide": 한 줄 또는 없음})을
+    한 파일로 쓴다.
     화면 틀을 뺀 나머지를 장면 수로 똑같이 나눈 몫이 장면마다의 상한이다."""
     if not scenes:
         raise ValueError("장면이 하나도 없다")
@@ -956,32 +963,32 @@ def write_scenes(scenes: list[dict], out, steps: int | None = None, every: int =
 
 def write(ckpt_path, out, steps: int | None = None, every: int = 2, from_flip: bool = False,
           title: str | None = None, standalone: bool = True, max_bytes: int = MAX_BYTES,
-          from_season: bool = False) -> Replay:
+          from_season: bool = False, guide: str | None = None) -> Replay:
     """다시 보기 파일(장면 하나)을 쓴다. 크기가 상한을 넘으면 장면 간격을 넓혀 다시 적는다."""
     if from_flip and from_season:
         raise ValueError("--from-flip과 --from-season은 함께 쓸 수 없다")
     start = "flip" if from_flip else "season" if from_season else None
-    return write_scenes([{"ckpt": ckpt_path, "title": title, "start": start}], out, steps, every, standalone,
+    return write_scenes([{"ckpt": ckpt_path, "title": title, "start": start, "guide": guide}], out, steps, every,
+                        standalone,
                         max_bytes)[0]
 
 
 def _scene_arg(text: str) -> dict:
-    """--ckpt 경로[::제목[::시작]]. 시작은 flip, season, 또는 빈칸."""
-    parts = text.split("::")
-    if len(parts) > 3:
-        raise argparse.ArgumentTypeError("--ckpt는 경로[::제목[::시작]] 꼴이다")
+    """--ckpt 경로[::제목[::시작[::설명]]]. 시작은 flip, season, 또는 빈칸. 설명은 화면 소개 위에 굵게 뜨는 한 줄
+    (설명 안에는 ::를 쓸 수 있다 — 넷째 칸 뒤는 나누지 않는다)."""
+    parts = text.split("::", 3)
     start = parts[2].strip() if len(parts) > 2 else ""
     if start not in ("", "flip", "season"):
         raise argparse.ArgumentTypeError(f"시작은 flip, season, 빈칸 가운데 하나다: {start!r}")
     return {"ckpt": Path(parts[0]), "title": (parts[1].strip() or None) if len(parts) > 1 else None,
-            "start": start or None}
+            "start": start or None, "guide": (parts[3].strip() or None) if len(parts) > 3 else None}
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="체크포인트에서 세계를 다시 돌려, 혼자 열리는 다시 보기 파일(HTML)을 만든다")
     ap.add_argument("--ckpt", type=_scene_arg, action="append", required=True,
-                    help="체크포인트 npz(같은 이름의 json이 옆에 있어야 한다). 경로[::제목[::시작]] 꼴로 여러 번 주면 "
-                         "장면을 골라 보는 한 파일이 된다. 시작은 flip 또는 season")
+                    help="체크포인트 npz(같은 이름의 json이 옆에 있어야 한다). 경로[::제목[::시작[::설명]]] 꼴로 여러 번 "
+                         "주면 장면을 골라 보는 한 파일이 된다. 시작은 flip 또는 season, 설명은 '무엇을 보면 되나' 한 줄")
     ap.add_argument("--out", type=Path, help="쓸 파일(기본: runs/replay-<첫 실행 이름>.html)")
     ap.add_argument("--steps", type=int, help="다시 돌릴 스텝 수(기본: 먹이 종류·계절 세계에 맞춘 길이). 모든 장면에 같게")
     ap.add_argument("--every", type=int, default=2, help="몇 스텝마다 장면을 적을지(기본 2). 모든 장면에 같게")
