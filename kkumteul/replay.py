@@ -104,10 +104,17 @@ def intro_sentences(cfg: Config, scn: Scenario | None = None) -> list[str]:
     return out
 
 
+def empty_animals(n_frames: int) -> dict:
+    """동물이 없는 기록의 동물 배열(장면마다 0마리)."""
+    return {"an_off": np.zeros(n_frames + 1, dtype="<u4"), "an_x": np.zeros(0, dtype="<u2"),
+            "an_y": np.zeros(0, dtype="<u2"), "an_kind": np.zeros(0, dtype="u1"), "an_hp": np.zeros(0, dtype="u1")}
+
+
 class Replay:
     """다시 돌린 장면 전체. 시험과 내보내기가 같이 쓴다."""
 
-    def __init__(self, start, every, off, cols, agents, food, per_frame, seen, meta, world_w, world_h):
+    def __init__(self, start, every, off, cols, agents, food, per_frame, seen, meta, world_w, world_h,
+                 animals: dict | None = None):
         self.start = start
         self.every = every
         self.off = off                    # 장면 f의 개체는 cols의 off[f]:off[f+1]
@@ -127,6 +134,8 @@ class Replay:
         self.seen = seen
         self.meta = meta
         self._w, self._h = world_w, world_h
+        # 동물: 장면 f의 산 동물은 an_x 따위의 an_off[f]:an_off[f+1]. 없으면 모두 비어 있다
+        self.animals = animals if animals is not None else empty_animals(self.n_frames)
 
     def frame(self, f: int) -> SimpleNamespace:
         a, b = int(self.off[f]), int(self.off[f + 1])
@@ -169,6 +178,7 @@ class Recorder:
             self._add_food(j, self.start)
         # 장면
         self.frames: list[dict] = []
+        self.animal_frames: list[dict] = []
         self.per: dict[str, list] = {n: [] for n in ("good", "food", "eaten", "poisoned", "blind", "gifts", "attacks")}
         self.seen = {"good": 0, "poison": 0, "unknown": 0, "evicted": 0, "burnt": 0, "gave": 0, "spoiled": 0,
                      "picked": 0, "dropped": 0, "stored_out": 0}
@@ -333,10 +343,10 @@ class Recorder:
         if len(gone):
             if n_evicted > 0:
                 # 상한 장치는 가장 먼저 놓인 것부터(같으면 낮은 칸부터) 치운다. 먹기보다 앞에 일어난다.
-                # 들기가 켜진 세계에서는 들판 알만 치운다
+                # 들기나 사냥감이 켜진 세계(field_cap)에서는 들판 알만 치운다
                 was = np.flatnonzero(p_alive)
-                if carry:
-                    was = was[(p_dropped[was] == 0) & (p_kind[was] != k.KIND_CORPSE)]
+                if cfg.field_cap:
+                    was = was[(p_dropped[was] == 0) & ~k.always_edible_mask(p_kind[was])]
                 oldest = was[np.lexsort((was, p_born[was]))][:n_evicted]
                 for j in oldest.tolist():
                     self._food_gone(j, t + 1, WHY_EVICTED)
@@ -345,13 +355,15 @@ class Recorder:
         rotten = np.zeros(len(gone), dtype=bool)
         if len(gone) and cfg.spoil_enabled:
             # 썩음은 먹기보다 앞에 일어나고, 남은 에너지가 하한 아래로 떨어진 먹이를 비운다(커널과 같은 계산)
-            left = p_energy[gone] - p_energy[gone] * (cfg.spoil_rate * self.w.spoil_mult(t))
+            r = np.full(len(gone), cfg.spoil_rate * self.w.spoil_mult(t))
+            r = np.where(p_kind[gone] == k.KIND_MEAT, r * cfg.meat_spoil_mult, r)      # 고기는 더 빨리 상한다
+            left = p_energy[gone] - p_energy[gone] * r
             rotten = (t - p_born[gone] >= cfg.spoil_after) & (left < cfg.spoil_min_frac * cfg.food_energy)
         if len(gone) and n_stored_out > 0:
             # 저장 칸이 차서 치운 것(C_STORE_EVICTED는 들기 커널(먹기 앞)과 사망 처리(먹기 뒤)에서 오른다): 들지 않은 들판 아닌 물건 가운데 가장 먼저 놓인 것부터.
             # 사라진 것 가운데서 고른다. 그보다 앞에 썩은 것은 빼고, 이 스텝에 내려놓였다가 치워진 것도 받게
             # 스텝 앞에 들려 있던 것(f_dropped가 1이다)도 후보로 둔다
-            cand = gone[~rotten & ((p_dropped[gone] == 1) | (p_kind[gone] == k.KIND_CORPSE))]
+            cand = gone[~rotten & ((p_dropped[gone] == 1) | k.always_edible_mask(p_kind[gone]))]
             out = cand[np.lexsort((cand, p_born[cand]))][:n_stored_out]
             for j in out.tolist():
                 self._food_gone(j, t + 1, WHY_STORED_OUT)
@@ -390,7 +402,7 @@ class Recorder:
                     self.seen["unknown"] += 1
                     continue
                 kind = int(p_kind[j])
-                if cfg.food_kinds_enabled and kind != k.KIND_CORPSE and kind != good:
+                if cfg.food_kinds_enabled and not k.always_edible(kind) and kind != good:
                     self._food_gone(j, t + 1, WHY_POISON)
                     self.seen["poison"] += 1
                     self.ate_poison[n] += 1
@@ -466,12 +478,17 @@ class Recorder:
         if cfg.social_enabled:
             fr["sig"] = np.clip(np.round(s.sig[a] * 127.0), -127, 127).astype(np.int8)
         self.frames.append(fr)
+        m = np.flatnonzero(s.an_alive)
+        self.animal_frames.append({
+            "an_x": _q16(s.an_x[m], cfg.world_w), "an_y": _q16(s.an_y[m], cfg.world_h),
+            "an_kind": s.an_kind[m].astype(np.uint8),
+            "an_hp": np.clip(s.an_hp[m] / cfg.prey_hp * 255.0, 0, 255).astype(np.uint8)})
         fa = s.f_alive
         n_food = int(fa.sum())
         bad = 0
         if cfg.food_kinds_enabled:
             kinds = s.f_kind[fa]
-            bad = int(((kinds != k.KIND_CORPSE) & (kinds != self._good)).sum())
+            bad = int((~k.always_edible_mask(kinds) & (kinds != self._good)).sum())
         self.per["good"].append(self._good)
         self.per["food"].append(n_food)
         self.per["blind"].append(bad / max(n_food, 1))
@@ -547,6 +564,9 @@ class Recorder:
         off = np.concatenate([[0], np.cumsum([len(f["idx"]) for f in self.frames])]).astype("<u4")
         cols = {name: np.concatenate([f[name] for f in self.frames]) for name in self.frames[0]}
         cols["idx"] = cols["idx"].astype("<u2" if len(agents) < 65536 else "<u4")
+        animals = {"an_off": np.concatenate([[0], np.cumsum([len(f["an_x"]) for f in self.animal_frames])]).astype("<u4")}
+        for name in ("an_x", "an_y", "an_kind", "an_hp"):
+            animals[name] = np.concatenate([f[name] for f in self.animal_frames])
         per = {"good": np.array(self.per["good"], dtype=np.uint8), "blind": np.array(self.per["blind"], dtype="<f4")}
         for name in ("food", "eaten", "poisoned", "gifts", "attacks"):
             per[name] = np.array(self.per[name], dtype="<u4")
@@ -560,17 +580,19 @@ class Recorder:
             "v": 1, "title": None, "ckpt_step": self.start, "start": self.start, "every": self.every,
             "n_frames": n_frames, "end": end, "w": cfg.world_w, "h": cfg.world_h,
             "on": {"mind": cfg.mind_enabled, "social": cfg.social_enabled, "niche": cfg.niche_enabled,
-                   "conflict": cfg.conflict_enabled, "kinds": cfg.food_kinds_enabled, "carry": cfg.carry_enabled},
+                   "conflict": cfg.conflict_enabled, "kinds": cfg.food_kinds_enabled, "carry": cfg.carry_enabled,
+                   "prey": cfg.prey_enabled, "huddle": cfg.huddle_enabled},
             "cfg": {"agent_radius": cfg.agent_radius, "food_radius": cfg.food_radius, "vision_fov": cfg.vision_fov,
                     "vision_range": cfg.vision_range, "e_max": cfg.e_max, "e_repro": cfg.e_repro,
                     "max_age": cfg.max_age, "kind_flip_period": cfg.kind_flip_period, "poison": cfg.poison,
-                    "food_energy": cfg.food_energy, "eta_max": cfg.eta_max, "h_max": cfg.h_max},
+                    "food_energy": cfg.food_energy, "eta_max": cfg.eta_max, "h_max": cfg.h_max,
+                    "prey_radius": cfg.prey_radius},
             "intro": intro_sentences(cfg, self.scn), "flips": self.flips, "patches": self.patches,
             "stars": self._stars(agents, end), "scenario": info, "notes": [], "history": None, "orig": [],
             "seen": dict(self.seen), "sig_min": self._sig_min(cols),
         }
         return Replay(self.start, self.every, off, cols, agents, food, per, dict(self.seen), meta,
-                      cfg.world_w, cfg.world_h)
+                      cfg.world_w, cfg.world_h, animals)
 
 
 # =========================== 체크포인트에서 ===========================
@@ -745,6 +767,8 @@ def pack(rep: Replay) -> tuple[dict, bytes]:
         arrays["ag_" + name] = np.ascontiguousarray(a[col]).reshape(-1)
     for name, col in (("x", "x"), ("y", "y"), ("kind", "kind"), ("in", "f_in"), ("out", "f_out"), ("why", "why")):
         arrays["fd_" + name] = np.ascontiguousarray(rep.food[col])
+    for name, v in rep.animals.items():
+        arrays[name] = v
     arrays.update(f_good=rep.good_kind, f_food=rep.n_food, f_eaten=rep.c_eaten, f_poisoned=rep.c_poisoned,
                   f_blind=rep.blind, f_gifts=rep.gifts, f_attacks=rep.attacks)
     chunks, directory, pos = [], {}, 0
