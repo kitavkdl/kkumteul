@@ -12,7 +12,7 @@ from collections import namedtuple
 import numpy as np
 from numba import njit, prange
 
-from .config import ACT_ATTACK, ACT_CARRY, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_THRUST, ACT_TURN, N_REWARD
+from .config import ACT_ATTACK, ACT_CARRY, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_THRUST, ACT_TURN, N_REWARD, N_TASTE_IN
 from .rng import (S_BIRTH_ORDER, S_BIRTH_POS, S_FOOD, S_KIND, S_INIT_AGE, S_INIT_GENOME, S_INIT_POS, S_MUT_GENE,
                   S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, normal, u01)
 
@@ -69,6 +69,7 @@ AGENT_FIELDS = [
     ("elig_in", np.float32, ("EI", "EH"), True),
     ("elig_rec", np.float32, ("EH", "EH"), True),
     ("a_held", np.int32, (), True),           # 든 물건의 먹이 칸 번호(-1이면 빈손)
+    ("taste_m", np.float32, ("2",), True),    # 맛 기억: +로 보이는 먹이, -로 보이는 먹이(-1~+1, 태어날 때 0)
     ("hnew", np.float32, ("H",), False),
     ("obs", np.float32, ("I",), False),
     ("act", np.float32, ("O",), False),
@@ -76,6 +77,10 @@ AGENT_FIELDS = [
     ("dispy", np.float64, (), False),
     ("a_hit", np.int32, (), False),           # 이번 스텝에 친 동물 칸(-1이면 없음)
     ("huddle_cut", np.float64, (), False),    # 이번 스텝 기초 대사를 줄이는 비율(뭉쳐 자기, 겨울 밖이면 0)
+    # 측정용 개체별 계수(태어날 때 0, 저장하지 않는다)
+    ("n_meal", np.int32, (), False),          # 먹은 알 수
+    ("n_poison", np.int32, (), False),        # 그 가운데 독
+    ("n_poison10", np.int32, (), False),      # 첫 FIRST_MEALS끼 가운데 독
 ]
 FOOD_FIELDS = [
     ("fx", np.float64, True),
@@ -121,7 +126,7 @@ LIFETIME_FLEX = ("epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link", "
 PERTURB_FLEX = ("elig_in", "elig_rec")
 # 나중에 생긴 저장 필드의 기본값. 값이 모두 기본값이면 상태 해시에 넣지 않고(그 필드가 생기기 전 해시와 같게),
 # 이 필드가 없는 옛 체크포인트를 읽으면 기본값으로 둔다(alloc_state가 이 값으로 채운다). 새 저장 필드는 여기에 더한다.
-HASH_DEFAULTS = {"elig_in": 0, "elig_rec": 0, "a_held": -1, "f_holder": -1, "f_dropped": 0}
+HASH_DEFAULTS = {"elig_in": 0, "elig_rec": 0, "a_held": -1, "f_holder": -1, "f_dropped": 0, "taste_m": 0}
 OTHER_SCRATCH = ["a_start", "a_items", "f_start", "f_items", "cursor", "bbuf", "dbuf", "dbuf_f"]
 
 State = namedtuple(
@@ -211,12 +216,12 @@ DEATH_KILLED = 4         # 공격을 맞은 스텝에 에너지가 바닥남
  P_BIAS_THRUST, P_BIAS_REPRO, P_SIGMA_INIT, P_SIGMA_MIN, P_SIGMA_MAX, P_SIGMA_TAU,
  P_P_HIDDEN, P_COLOR_SIGMA, P_SYN, P_BACK_COST, P_ETA_INIT, P_ETA_MAX, P_ALPHA_INIT, P_POISON,
  P_KIND_RATIO, P_SPOIL_RATE, P_SPOIL_MIN, P_CARRY_COST, P_MEAT_SPOIL, P_HUDDLE_CAP, P_HUDDLE_EXP,
- N_FP) = range(55)
+ P_TASTE_RATE, P_TASTE_DECAY, P_TASTE_INHERIT, N_FP) = range(58)
 
 # ---- 정수 설정 칸 ----
 (Q_SEED, Q_GW, Q_GH, Q_FOOD_CAP, Q_N_PATCH, Q_PATCH_LIFE, Q_MAX_AGE, Q_MIN_AGENTS,
  Q_SECTORS, Q_H_MAX, Q_H_INIT, Q_H_MIN, Q_REPRO_BRAIN, Q_REPRO_MIN_AGE, Q_MUT, Q_CORPSE,
- Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, Q_CAP_REPLACE, Q_SPOIL_AFTER, Q_FIELD_CAP, N_IP) = range(23)
+ Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, Q_CAP_REPLACE, Q_SPOIL_AFTER, Q_FIELD_CAP, Q_TASTE_IN0, N_IP) = range(24)
 
 
 def pack_params(cfg):
@@ -276,6 +281,9 @@ def pack_params(cfg):
     fp[P_MEAT_SPOIL] = cfg.meat_spoil_mult
     fp[P_HUDDLE_CAP] = cfg.huddle_cap
     fp[P_HUDDLE_EXP] = cfg.huddle_exp
+    fp[P_TASTE_RATE] = cfg.taste_rate
+    fp[P_TASTE_DECAY] = cfg.taste_decay
+    fp[P_TASTE_INHERIT] = cfg.taste_inherit
     ip[Q_SEED] = cfg.seed
     ip[Q_GW] = cfg.grid_w
     ip[Q_GH] = cfg.grid_h
@@ -298,6 +306,9 @@ def pack_params(cfg):
     ip[Q_CAP_REPLACE] = int(cfg.food_cap_replace)
     ip[Q_SPOIL_AFTER] = cfg.spoil_after
     ip[Q_FIELD_CAP] = int(cfg.field_cap)
+    # 맛 블록의 첫 입력 번호. 장치가 꺼져 있거나 입력 칸이 모자라면 -1(맛 블록에 쓰지 않는다)
+    taste_on = cfg.taste_enabled and cfg.n_in >= cfg.taste_in0 + N_TASTE_IN
+    ip[Q_TASTE_IN0] = cfg.taste_in0 if taste_on else -1
     return fp, ip
 
 

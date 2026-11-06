@@ -202,6 +202,16 @@ class Config:
     huddle_exp: float = 0.33      # 머릿수 지수. 지구: 한 마리 대사가 대략 N^-0.33(Gilbert et al. 2010 [2차]).
                                   # 셋이 붙으면 약 0.37, 넷 이상은 상한에서 멈춘다. 임시 결정
 
+    # --- 맛 기억 (기본은 꺼짐. 켜려면 맛 블록 크기: preset=taste) ---
+    taste_enabled: bool = False   # 개체마다 보이는 모양 둘(+로 보이는 먹이, -로 보이는 먹이)의 먹은 결과를 기억한다.
+                                  # 기억으로 물든 시야 8칸과 기억 값 2칸이 확장 블록 뒤 맛 블록으로 들어온다.
+                                  # 시야 칸 수가 8이어야 한다. 실행 중에 끄면 기억을 0으로 지운다
+    taste_rate: float = 0.5       # 먹은 순간 기억이 결과(독 -1, 아니면 +1) 쪽으로 움직이는 비율.
+                                  # 한 번이면 반, 두 번이면 3/4("한두 끼면 바뀐다"). 임시 결정
+    taste_decay: float = 0.002    # 스텝마다 기억이 0 쪽으로 줄어드는 비율. 반감기 약 350스텝으로 독을 다시 정하는
+                                  # 주기 1500의 4분의 1. 잊어야 피하던 모양을 다시 맛본다. 임시 결정
+    taste_inherit: float = 0.0    # 자연 출생 때 새끼가 받는 기억 = taste_inherit * 부모 기억. 0이면 0에서 시작. 임시 결정
+
     # --- 4단계: 판이 바뀌는 세계 (기본은 꺼짐) ---
     niche_enabled: bool = False   # 다닌 자리가 길이 되고, 쌓은 거름이 먹이를 끌어온다
     wear_rate: float = 0.002      # 지나갈 때 그 칸에 남는 흔적 = wear_rate * 속도.
@@ -270,6 +280,11 @@ class Config:
     def ext_in0(self) -> int:
         """확장 입력 블록의 첫 입력 번호."""
         return 2 * self.vision_sectors + N_INTERNAL + N_STAGE_IN
+
+    @property
+    def taste_in0(self) -> int:
+        """맛 블록의 첫 입력 번호(확장 블록 바로 뒤)."""
+        return self.ext_in0 + N_EXT_IN
 
     @property
     def grid_w(self) -> int:
@@ -368,6 +383,13 @@ class Config:
             raise ValueError("huddle_enabled는 겨울(season_enabled)이 켜져 있어야 쓸 수 있다")
         if not (0.0 <= self.huddle_cap < 1.0) or self.huddle_exp < 0.0:
             raise ValueError("huddle_cap는 0 이상 1 미만, huddle_exp는 0 이상이어야 한다")
+        if self.taste_enabled and self.n_spare_in < N_STAGE_IN + N_EXT_IN + N_TASTE_IN:
+            raise ValueError("맛 기억 장치는 맛 블록 크기가 필요하다: preset=taste")
+        if self.taste_enabled and self.vision_sectors != TASTE_VAL:
+            raise ValueError(f"맛 기억 장치는 vision_sectors가 {TASTE_VAL}이어야 한다(맛 블록의 물든 시야 칸 수가 고정이다)")
+        for name in ("taste_rate", "taste_decay", "taste_inherit"):
+            if not (0.0 <= getattr(self, name) <= 1.0):
+                raise ValueError(f"{name}은 0과 1 사이여야 한다")
         for name in ("give_loss", "deposit_loss", "path_bonus", "fert_frac", "sleep_basal", "trace_decay",
                      "hormone_rate_hunger", "hormone_rate_stress", "hormone_rate_dopamine",
                      "hormone_rate_boredom", "reward_baseline_rate", "proto_lr", "sleep_forget",
@@ -474,6 +496,11 @@ EXT_PREY = 3
 EXT_PRED = 5
 EXT_SCAV = 7
 EXT_SEX = 9          # 네 칸
+# 맛 블록: 확장 블록 바로 뒤(절대 번호 = Config.taste_in0 + TASTE_*). 맛 기억 장치가 꺼져 있으면 칸은 0
+N_TASTE_IN = 10      # 기억으로 물든 시야 8칸 + 기억 값 2칸
+TASTE_VIS = 0        # 물든 시야 여덟 칸(vision_sectors와 같은 수)
+TASTE_VAL = 8        # 기억 값 두 칸: +로 보이는 먹이, -로 보이는 먹이
+FIRST_MEALS = 10     # 측정: 개체의 첫 이만큼 끼니에서 독 비율을 센다(n_poison10)
 N_REWARD = 8     # 보상 특징: 먹음, 에너지 변화, 닿음, 호기심, 허기*먹음, 스트레스, 이웃이 먹음, 상수
 
 
@@ -491,6 +518,9 @@ def preset(name: str) -> dict:
     table["harsh"] = {**table["ext"], "season_enabled": True, "spoil_enabled": True}  # 확장 묶음에 덧붙이므로 표 뒤에 만든다
     table["harsh2"] = {**table["harsh"], "autumn_len": 800, "autumn_mult": 2.0, "carry_enabled": True,
                        "prey_enabled": True, "huddle_enabled": True}
+    # 맛 블록 크기만 올린다(대조 갈래용). 대조도 같은 크기여야 변이 난수 자리와 시냅스 유지비가 같다
+    table["taste_size"] = {**table["ext"], "n_spare_in": N_STAGE_IN + N_EXT_IN + N_TASTE_IN}
+    table["taste"] = {**table["taste_size"], "taste_enabled": True}
     if name not in table:
-        raise ValueError(f"모르는 preset: {name} (stage1~stage4, conflict, kinds, ext, harsh, harsh2)")
+        raise ValueError(f"모르는 preset: {name} (stage1~stage4, conflict, kinds, ext, harsh, harsh2, taste, taste_size)")
     return table[name]
