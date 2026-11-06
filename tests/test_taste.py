@@ -278,7 +278,8 @@ def test_branch_old_checkpoint_into_taste(tmp_path):
 
 # ---- 물려주기·기록 ----
 # 맛 장치를 켠 세계(taste_inherit=1)를 300스텝 돌린 해시. 맛 장치의 계산을 일부러 바꿀 때만 고친다.
-PINNED_TASTE_HASH_300 = "2ae2c2b913c2fbb0f11899b3f25edbaccd260d4e6cf9eb5c54efc1aded4d0b1c"
+# (11/06 다시 박음: 자는 개체의 물든 시야를 지우기로 고침 — Ruling 6, 대표님 승인)
+PINNED_TASTE_HASH_300 = "0ae38c53b1e07a1ca8f1746f47492c002d76a69903a04da004252712eb60311b"
 
 PARENT_M = (0.6, -0.4)
 
@@ -495,3 +496,27 @@ def test_hand_taste_command_runs(tmp_path, monkeypatch, capsys):
     assert set(res["verdict0"]) == {"pass", "worlds"}
     assert [w["lab"] for w in res["verdict0"]["worlds"]] == [True, False]
     assert all(set(w) == {"lab", "pass", "on_rest", "off_rest"} for w in res["verdict0"]["worlds"])
+
+
+def test_sleeping_agent_taste_vision_cleared():
+    """자는 개체는 시야를 지우므로 시야에서 나온 물든 시야 8칸도 지운다. 기억 값 2칸은 시야가 아니라 남는다."""
+    w = taste_world("taste")
+    s = w.s
+    t0 = w.cfg.taste_in0
+    vis = slice(t0 + TASTE_VIS, t0 + TASTE_VAL)
+    val = slice(t0 + TASTE_VAL, t0 + TASTE_VAL + 2)
+    w.run(5)
+    live = np.flatnonzero(s.alive)
+    s.taste_m[live] = (0.6, -0.4)
+    sleep, awake = live[::2], live[1::2]
+    s.asleep[sleep], s.fatigue[sleep] = 1.0, 50.0       # 한 스텝에 깨지 않게
+    s.asleep[awake], s.fatigue[awake] = 0.0, 0.0
+    ids0 = s.ids.copy()
+    w.step()
+    sleep = sleep[s.alive[sleep] & (s.ids[sleep] == ids0[sleep]) & (s.asleep[sleep] > 0.0)]
+    awake = awake[s.alive[awake] & (s.ids[awake] == ids0[awake]) & (s.asleep[awake] == 0.0)]
+    assert len(sleep) >= 5 and len(awake) >= 5
+    assert np.all(s.obs[sleep, :2 * w.cfg.vision_sectors] == 0.0)   # 시야는 원래 지워진다
+    assert np.all(s.obs[sleep, vis] == 0.0)
+    assert np.abs(s.obs[awake, vis]).max() > 0.0                    # 깨어 있는 쪽은 물든 시야가 그대로
+    assert np.abs(s.obs[sleep, val]).max() > 0.0                    # 기억 값은 남는다
