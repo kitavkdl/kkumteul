@@ -583,7 +583,7 @@ def _see(obs, i, ch, nsec, ddx, ddy, d, rad, hi, fov, vrange, sgn):
 
 @njit(cache=True, parallel=True)
 def _sense_par(step, fp, ip, alive, x, y, heading, vx, vy, energy, age, touch, ate, obs,
-               fx, fy, f_alive, f_kind, a_start, a_items, f_start, f_items):
+               fx, fy, f_alive, f_kind, f_holder, a_start, a_items, f_start, f_items):
     # 주의: prange 안에서 상태 묶음을 거쳐 배열에 쓰면 numba가 그 쓰기를 조용히 버린다.
     # 병렬 커널은 반드시 배열을 직접 받는다.
     n = x.shape[0]
@@ -626,15 +626,19 @@ def _sense_par(step, fp, ip, alive, x, y, heading, vx, vy, energy, age, touch, a
                 c = yy * gw + xx
                 for p in range(f_start[c], f_start[c + 1]):
                     j = f_items[p]
-                    if not f_alive[j]:
-                        continue
+                    if not f_alive[j] or f_holder[j] == i:
+                        continue    # 자기가 든 물건은 보지도 냄새 맡지도 않는다(곁 개체에게는 보인다)
                     ddx = _wdiff(fx[j] - xi, w)
                     ddy = _wdiff(fy[j] - yi, hgt)
                     d2 = ddx * ddx + ddy * ddy
                     if d2 > vr2:
                         continue
                     smell += 1.0 / (1.0 + d2 / sl2)
-                    _see(obs, i, 0, nsec, ddx, ddy, math.sqrt(d2), f_rad, hi, fov, vrange,
+                    d = math.sqrt(d2)
+                    if f_holder[j] >= 0:
+                        # 남이 든 물건은 든 개체 자리에 있어 그 몸에 가려진다. 보는 쪽에서 든 개체의 앞면에 있는 것으로 본다
+                        d -= a_rad
+                    _see(obs, i, 0, nsec, ddx, ddy, d, f_rad, hi, fov, vrange,
                          np.float32(-1.0) if f_kind[j] == KIND_B else np.float32(1.0))
                 for p in range(a_start[c], a_start[c + 1]):
                     j = a_items[p]
@@ -668,7 +672,7 @@ def _sense_par(step, fp, ip, alive, x, y, heading, vx, vy, energy, age, touch, a
 @njit(cache=True)
 def sense(step, s, fp, ip):
     _sense_par(step, fp, ip, s.alive, s.x, s.y, s.heading, s.vx, s.vy, s.energy, s.age, s.touch,
-               s.ate, s.obs, s.fx, s.fy, s.f_alive, s.f_kind, s.a_start, s.a_items, s.f_start, s.f_items)
+               s.ate, s.obs, s.fx, s.fy, s.f_alive, s.f_kind, s.f_holder, s.a_start, s.a_items, s.f_start, s.f_items)
 
 
 # ---- 뇌 ----
@@ -708,6 +712,14 @@ def write_ext2(alive, obs, col, a, b):
         if alive[i]:
             obs[i, col] = a
             obs[i, col + 1] = b
+
+
+@njit(cache=True)
+def write_held(alive, a_held, obs, col):
+    """살아 있는 개체의 입력 칸 col에 손 감각을 쓴다: 무엇을 들고 있으면 1, 빈손이면 0."""
+    for i in range(alive.shape[0]):
+        if alive[i]:
+            obs[i, col] = 1.0 if a_held[i] >= 0 else 0.0
 
 
 @njit(cache=True)
@@ -752,6 +764,8 @@ def move(s, fp, ip, basal_mult=1.0):
         c_move = fp[P_THRUST_COST] * abs(thrust) + fp[P_TURN_COST] * abs(turn)
         if thrust < 0.0:
             c_move += fp[P_THRUST_COST] * abs(thrust) * (fp[P_BACK_COST] - 1.0)
+        if s.a_held[i] >= 0:
+            c_move *= fp[P_CARRY_COST]      # 들고 있으면 이동·회전이 더 든다. 든 물건의 자리는 carry가 맞춘다
         c_brain = fp[P_BRAIN] * nh / h_max + fp[P_SYN] * (nh * nh + nh * n_io) / syn_max
         if fp[P_BRAIN_ACT] > 0.0:
             a = 0.0
@@ -838,6 +852,85 @@ def collide(s, fp, ip):
         if s.touch[i] > 0.0:
             s.x[i] = _wrap(s.x[i] + s.dispx[i], fp[P_W])
             s.y[i] = _wrap(s.y[i] + s.dispy[i], fp[P_H])
+
+
+# ---- 들기 ----
+@njit(cache=True)
+def carry(step, s, fp, ip):
+    """들고 내려놓기. collide 뒤, eat 앞에 부르는 순차 커널이다.
+    먼저 든 물건을 모두 든 개체의 자리로 옮긴다. 이어 step % n 칸부터 산 개체를 돌며(늘 낮은 칸이 먼저 들지 않게)
+    들기 출력이 0보다 크고 빈손이면 닿는 거리 안의 들지 않은 물건(들판 알·내려놓은 알·사체) 가운데 가장 가까운 것을 들고,
+    0 이하이고 들고 있으면 그 자리에 내려놓는다. 자는 개체는 든 채로 둔다(자는 동안 출력이 0이 되어도 놓지 않는다).
+    들판 알을 들려면 저장 칸에 자리가 있어야 한다(store_room). 에너지는 옮기지 않는다.
+    먹이 격자는 스텝 처음에 세운 것을 쓴다(든 물건 말고는 먹이가 움직이지 않는다). 기본 크기 세계에서는 하는 일이 없다."""
+    if s.act.shape[1] <= ACT_CARRY:
+        return
+    n = s.x.shape[0]
+    for i in range(n):
+        j = s.a_held[i]
+        if j >= 0:
+            s.fx[j] = s.x[i]
+            s.fy[j] = s.y[i]
+    gw = ip[Q_GW]
+    gh = ip[Q_GH]
+    w = fp[P_W]
+    hgt = fp[P_H]
+    inv_cell = fp[P_INV_CELL]
+    r = fp[P_A_RAD] + fp[P_F_RAD]
+    r2 = r * r
+    field_cap = ip[Q_FIELD_CAP]
+    start = step % n
+    for q in range(n):
+        i = start + q
+        if i >= n:
+            i -= n
+        if not s.alive[i] or s.asleep[i] > 0.0:
+            continue
+        if s.act[i, ACT_CARRY] <= 0.0:
+            j = s.a_held[i]
+            if j >= 0:
+                s.f_holder[j] = -1
+                s.a_held[i] = -1
+            continue
+        if s.a_held[i] >= 0:
+            continue
+        xi = s.x[i]
+        yi = s.y[i]
+        cx = int(xi * inv_cell)
+        cy = int(yi * inv_cell)
+        if cx >= gw:
+            cx = gw - 1
+        if cy >= gh:
+            cy = gh - 1
+        best = -1
+        bd = r2
+        for oy in range(-1, 2):
+            yy = (cy + oy) % gh
+            for ox in range(-1, 2):
+                xx = (cx + ox) % gw
+                c = yy * gw + xx
+                for p in range(s.f_start[c], s.f_start[c + 1]):
+                    j = s.f_items[p]
+                    if not s.f_alive[j] or s.f_holder[j] >= 0:
+                        continue
+                    ddx = _wdiff(s.fx[j] - xi, w)
+                    ddy = _wdiff(s.fy[j] - yi, hgt)
+                    d2 = ddx * ddx + ddy * ddy
+                    if d2 <= bd and (best < 0 or d2 < bd):
+                        best = j
+                        bd = d2
+        if best < 0:
+            continue
+        if is_field(s, best):
+            # 들판 알은 들면 저장 칸 물건이 된다. 자리가 없으면 들지 않는다(store_room은 들지 않은 들판 아닌 것만 치운다)
+            if field_cap != 0:
+                if not store_room(s, field_cap):
+                    continue
+                s.counters[C_NFIELD] -= 1
+            s.f_dropped[best] = 1
+        s.a_held[i] = best
+        s.f_holder[best] = i
+        s.counters[C_CARRIES] += 1
 
 
 # ---- 먹기 ----

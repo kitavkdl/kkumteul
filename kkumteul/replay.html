@@ -547,7 +547,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
   // 형광을 빼고 채도를 낮춘 계기 빛깔. 사건 빛깔은 tests/replay_screen_probe.js가 세므로 바꾸면 거기도 고친다.
   var S = { stage: "#0c0f10", grid: "232,236,236", patch: "127,174,140", food: "#7fae8c", poison: "#a48fd0", corpse: "#7d8587",
             eat: "#9fd8a8", bad: "#e5534b", born: "#e9e2c4", dead: "#c3cacc", give: "#d8b25a", ink: "#e8ecec", strike: "#e08a3c",
-            sig: "55%,66%" };
+            held: "#cfe8a4", sig: "55%,66%" };
   var T = {};   // 쪽의 색 토큰(테마를 따른다)
   function readTokens() {
     var cs = getComputedStyle(document.documentElement);
@@ -613,6 +613,11 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
       g.font = Math.round(r * 0.9) + "px " + (T.mono || "monospace"); g.textAlign = "left"; g.textBaseline = "alphabetic";
       g.fillText("z", X + r * 0.9, Y - r * 0.7);
     }
+    g.globalAlpha = 1;
+  }
+  function drawHeld(g, X, Y, r, h, alpha, px) {     // 든 알: 머리 앞에 작은 알
+    g.globalAlpha = alpha; g.fillStyle = S.held;
+    g.beginPath(); g.arc(X + Math.cos(h) * r * 1.45, Y + Math.sin(h) * r * 1.45, Math.max(r * 0.4, 1.2 * px), 0, TAU); g.fill();
     g.globalAlpha = 1;
   }
   function drawFar(g, X, Y, r, h, color, alpha) {      // 멀리서: 네모 점과 짧은 꼬리
@@ -820,6 +825,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
         wig = asleep || !o.wiggle ? 0 : Math.sin(time * 0.012 + n * 1.9) * Math.min(1, mv * 1.8) * 0.5;
         drawCreature(g, X, Y, r, ang, colorOf(n), asleep ? 0.45 : 1, wig, asleep);
       }
+      if ((fl & 128) && !mini) drawHeld(g, X, Y, r, ang, asleep ? 0.45 : 1, px);   // 든 알
       if (n === sel) { selX = X; selY = Y; selR = r; selOn = true; }
     }
 
@@ -1349,6 +1355,9 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
       add("먹이", "먹으면 에너지를 얻습니다", function (c) { c.fillStyle = S.food; c.beginPath(); foodPath(c, 44, 44, 12, 0); c.fill(); });
     }
     add("사체 조각", "죽은 생물이 남긴 먹이. 늘 먹을 수 있습니다", function (c) { c.fillStyle = S.corpse; c.beginPath(); foodPath(c, 44, 44, 13, 4); c.fill(); });
+    if (on.carry) add("든 알", "생물이 들고 다니는 먹이. 머리 앞의 작은 알로 보이고, 내려놓으면 그 자리에 다시 놓입니다", function (c) {
+      drawCreature(c, 40, 48, 14, -0.45, demo, 1, 0, false); drawHeld(c, 40, 48, 14, -0.45, 1, 2);
+    });
     add("먹은 순간", "초록 고리", function (c) { drawEvent(c, 44, 44, EV.good, 0.35, 6, 2); });
     if (on.kinds) add("독을 먹은 순간", "붉은 고리", function (c) { drawEvent(c, 44, 44, EV.poison, 0.35, 6, 2); });
     add("태어남", "밝은 네모", function (c) { drawEvent(c, 44, 44, EV.born, 0.3, 6, 2); });

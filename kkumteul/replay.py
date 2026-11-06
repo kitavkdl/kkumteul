@@ -36,6 +36,7 @@ from .scenario import Scenario
 F_ASLEEP = 16
 F_GAVE = 32
 F_HIT = 64
+F_CARRY = 128       # 무엇을 들고 있다
 
 # 먹이가 사라진 까닭
 WHY_PRESENT = 0     # 끝까지 남아 있었다
@@ -45,6 +46,8 @@ WHY_UNKNOWN = 3     # 먹혔지만 누가 먹었는지 모른다
 WHY_EVICTED = 4     # 먹이 상한 장치가 새 먹이에 자리를 내줬다
 WHY_BURNT = 5       # 운석에 사라졌다
 WHY_SPOILED = 6     # 썩어서 사라졌다
+WHY_PICKED = 7      # 누가 들어서 들판에서 빠졌다(내려놓으면 그 자리에서 새 행이 열린다)
+WHY_STORED_OUT = 8  # 저장 칸(들판 아닌 물건 자리)이 차서 치워졌다
 
 BORN_BEFORE = 255   # 다시 보기가 시작될 때 이미 살아 있던 개체의 출생 종류
 NO_CAUSE = 255      # 다시 보기가 끝날 때까지 살아 있었다
@@ -161,12 +164,13 @@ class Recorder:
         # 먹이 표
         self.food_rows: list[list] = []   # [x, y, kind, 처음 있던 상태, 처음 없던 상태(-1이면 남아 있다), 까닭]
         self.slot_food = np.full(s.fx.shape[0], -1, dtype=np.int64)
-        for j in np.flatnonzero(s.f_alive).tolist():
+        for j in np.flatnonzero(s.f_alive & (s.f_holder < 0)).tolist():    # 든 물건은 내려놓을 때 행이 열린다
             self._add_food(j, self.start)
         # 장면
         self.frames: list[dict] = []
         self.per: dict[str, list] = {n: [] for n in ("good", "food", "eaten", "poisoned", "blind", "gifts", "attacks")}
-        self.seen = {"good": 0, "poison": 0, "unknown": 0, "evicted": 0, "burnt": 0, "gave": 0, "spoiled": 0}
+        self.seen = {"good": 0, "poison": 0, "unknown": 0, "evicted": 0, "burnt": 0, "gave": 0, "spoiled": 0,
+                     "picked": 0, "dropped": 0, "stored_out": 0}
         self._acc_good: dict[int, int] = {}
         self._acc_poison: dict[int, int] = {}
         self._acc_gave: set[int] = set()
@@ -219,7 +223,8 @@ class Recorder:
 
     def _food_snapshot(self):
         s = self.w.s
-        return (s.f_alive.copy(), s.f_born.copy(), s.f_kind.copy(), s.fx.copy(), s.fy.copy(), s.f_energy.copy())
+        return (s.f_alive.copy(), s.f_born.copy(), s.f_kind.copy(), s.fx.copy(), s.fy.copy(), s.f_energy.copy(),
+                s.f_holder.copy(), s.f_dropped.copy())
 
     # ---- 한 스텝 ----
     def advance(self, n: int) -> None:
@@ -227,7 +232,8 @@ class Recorder:
             self._step()
 
     def _apply_scenario(self, t: int, pre):
-        """실행기와 같은 자리(스텝 바로 앞)에서 각본을 적용한다. 운석에 사라진 먹이를 가려 적고 새 먹이 사진을 돌려준다."""
+        """실행기와 같은 자리(스텝 바로 앞)에서 각본을 적용한다. 운석에 사라진 먹이와 풀린 손(들기를 끄거나
+        든 개체가 운석에 죽음)을 가려 적고 새 먹이 사진을 돌려준다."""
         w, scn = self.w, self.scn
         t_rel = t - self.scn_start
         hits = scn.strikes_at(t_rel) if t_rel >= 0 else []
@@ -238,7 +244,8 @@ class Recorder:
         if diff:
             self.changes.append({"step": t, "frame": self._frame_of(t + 1), "values": diff})
             self._scn_prev = cur
-        if not hits:
+        held = bool((pre[6] >= 0).any())
+        if not hits and not held:
             return pre
         cfg = w.cfg
         for n, st in enumerate(hits):
@@ -255,6 +262,10 @@ class Recorder:
         for j in np.flatnonzero(pre[0] & ~post[0]).tolist():
             self._food_gone(j, t + 1, WHY_BURNT)
             self.seen["burnt"] += 1
+        # 각본 앞에 들려 있다가 풀린 물건은 그 자리에 내려놓은 것으로 적는다(스텝 앞 사진도 풀린 뒤의 것이 된다)
+        for j in np.flatnonzero(pre[0] & post[0] & (pre[6] >= 0) & (post[6] < 0)).tolist():
+            self._add_food(j, t + 1)
+            self.seen["dropped"] += 1
         return post
 
     def _step(self) -> None:
@@ -277,7 +288,8 @@ class Recorder:
         self._acc["gifts"] += int(dc[k.C_GIFTS])
         self._acc["attacks"] += int(dc[k.C_ATTACKS])
         self._read_agents(t)
-        self._read_food(t, pre, cfg, good, int(dc[k.C_FOOD_REPLACED]))
+        self._read_food(t, pre, cfg, good, int(dc[k.C_FOOD_REPLACED]),
+                        int(dc[k.C_STORE_EVICTED]) if len(dc) > k.C_STORE_EVICTED else 0)
         if cfg.social_enabled and dc[k.C_GIFTS] > 0:
             self._read_givers(t, cfg)
         if cfg.conflict_enabled and dc[k.C_ATTACKS] > 0:
@@ -306,25 +318,46 @@ class Recorder:
                 if p is not None and b["kind"] == k.BIRTH_NATURAL:
                     self.kids[p] += 1
 
-    def _read_food(self, t: int, pre, cfg: Config, good: int, n_evicted: int) -> None:
-        """스텝 전후의 먹이를 (칸, 놓인 스텝, 종류, 위치)로 견주어, 사라진 것과 새로 난 것을 가린다."""
+    def _read_food(self, t: int, pre, cfg: Config, good: int, n_evicted: int, n_stored_out: int = 0) -> None:
+        """스텝 전후의 먹이를 (칸, 놓인 스텝, 종류, 위치)로 견주어, 사라진 것과 새로 난 것을 가린다.
+        들기가 켜진 세계에서는 물건이 움직이므로 위치는 보지 않고, 들림과 내려놓음을 따로 적는다:
+        들리면 그 행을 닫고(WHY_PICKED), 내려놓으면 그 자리에서 새 행을 연다."""
         s = self.w.s
-        p_alive, p_born, p_kind, p_x, p_y, p_energy = pre
-        same = s.f_alive & p_alive & (s.f_born == p_born) & (s.f_kind == p_kind) & (s.fx == p_x) & (s.fy == p_y)
+        p_alive, p_born, p_kind, p_x, p_y, p_energy, p_holder, p_dropped = pre
+        carry = cfg.carry_enabled
+        same = s.f_alive & p_alive & (s.f_born == p_born) & (s.f_kind == p_kind)
+        if not carry:
+            same &= (s.fx == p_x) & (s.fy == p_y)
         gone = np.flatnonzero(p_alive & ~same)
         if len(gone):
             if n_evicted > 0:
-                # 상한 장치는 가장 먼저 놓인 것부터(같으면 낮은 칸부터) 치운다. 먹기보다 앞에 일어난다
+                # 상한 장치는 가장 먼저 놓인 것부터(같으면 낮은 칸부터) 치운다. 먹기보다 앞에 일어난다.
+                # 들기가 켜진 세계에서는 들판 알만 치운다
                 was = np.flatnonzero(p_alive)
+                if carry:
+                    was = was[(p_dropped[was] == 0) & (p_kind[was] != k.KIND_CORPSE)]
                 oldest = was[np.lexsort((was, p_born[was]))][:n_evicted]
                 for j in oldest.tolist():
                     self._food_gone(j, t + 1, WHY_EVICTED)
                     self.seen["evicted"] += 1
                 gone = np.setdiff1d(gone, oldest)
+        rotten = np.zeros(len(gone), dtype=bool)
         if len(gone) and cfg.spoil_enabled:
             # 썩음은 먹기보다 앞에 일어나고, 남은 에너지가 하한 아래로 떨어진 먹이를 비운다(커널과 같은 계산)
             left = p_energy[gone] - p_energy[gone] * (cfg.spoil_rate * self.w.spoil_mult(t))
             rotten = (t - p_born[gone] >= cfg.spoil_after) & (left < cfg.spoil_min_frac * cfg.food_energy)
+        if len(gone) and n_stored_out > 0:
+            # 저장 칸이 차서 치운 것(들기 커널 안, 썩음 뒤·먹기 앞): 들지 않은 들판 아닌 물건 가운데 가장 먼저 놓인 것부터.
+            # 사라진 것 가운데서 고른다. 그보다 앞에 썩은 것은 빼고, 이 스텝에 내려놓였다가 치워진 것도 받게
+            # 스텝 앞에 들려 있던 것(f_dropped가 1이다)도 후보로 둔다
+            cand = gone[~rotten & ((p_dropped[gone] == 1) | (p_kind[gone] == k.KIND_CORPSE))]
+            out = cand[np.lexsort((cand, p_born[cand]))][:n_stored_out]
+            for j in out.tolist():
+                self._food_gone(j, t + 1, WHY_STORED_OUT)
+                self.seen["stored_out"] += 1
+            keep = ~np.isin(gone, out)
+            gone, rotten = gone[keep], rotten[keep]
+        if len(gone) and cfg.spoil_enabled:
             for j in gone[rotten].tolist():
                 self._food_gone(j, t + 1, WHY_SPOILED)
                 self.seen["spoiled"] += 1
@@ -335,8 +368,15 @@ class Recorder:
             who = np.full(len(gone), -1, dtype=np.int64)
             if len(eaters):
                 r = cfg.agent_radius + cfg.food_radius
-                dx = p_x[gone][:, None] - s.x[eaters][None, :]
-                dy = p_y[gone][:, None] - s.y[eaters][None, :]
+                gx, gy = p_x[gone], p_y[gone]
+                if carry:
+                    # 이 스텝에 내려놓였다가 먹힌 물건은 내려놓은 자리에서 먹혔다. 비운 칸에는 그 자리가 남아 있다
+                    # (같은 스텝에 다른 물건이 그 칸에 들어왔으면 스텝 앞 자리로 어림한다)
+                    freed = ~s.f_alive[gone]
+                    gx = np.where(freed, s.fx[gone], gx)
+                    gy = np.where(freed, s.fy[gone], gy)
+                dx = gx[:, None] - s.x[eaters][None, :]
+                dy = gy[:, None] - s.y[eaters][None, :]
                 dx -= cfg.world_w * np.round(dx / cfg.world_w)
                 dy -= cfg.world_h * np.round(dy / cfg.world_h)
                 near = dx * dx + dy * dy <= r * r + 1e-9
@@ -361,6 +401,15 @@ class Recorder:
                     self._acc_good[n] = self._acc_good.get(n, 0) + 1
         for j in np.flatnonzero(s.f_alive & ~same).tolist():
             self._add_food(j, t + 1)
+        if carry:
+            # 같은 물건의 손이 바뀐 것. 든 개체가 들자마자 죽으면 손은 그대로 비어 있고 자리만 옮겨진다(들고 내려놓음)
+            moved = same & ((s.fx != p_x) | (s.fy != p_y))
+            for j in np.flatnonzero(same & (p_holder < 0) & ((s.f_holder >= 0) | moved)).tolist():
+                self._food_gone(j, t + 1, WHY_PICKED)
+                self.seen["picked"] += 1
+            for j in np.flatnonzero(same & (s.f_holder < 0) & ((p_holder >= 0) | moved)).tolist():
+                self._add_food(j, t + 1)
+                self.seen["dropped"] += 1
 
     def _read_givers(self, t: int, cfg: Config) -> None:
         """에너지를 건넨 개체를 어림한다: 주기 출력이 켜져 있고 닿는 거리 안에 이웃이 있던 개체.
@@ -395,6 +444,7 @@ class Recorder:
         order = np.argsort(idx)
         a, idx = a[order], idx[order]
         flags = np.where(s.asleep[a] > 0, F_ASLEEP, 0).astype(np.uint8)
+        flags[s.a_held[a] >= 0] |= F_CARRY
         if self._acc_good or self._acc_poison or self._acc_gave or self._acc_hit:
             for n, i in enumerate(idx.tolist()):
                 f = min(self._acc_good.get(i, 0), 3) | (min(self._acc_poison.get(i, 0), 3) << 2)
@@ -507,7 +557,7 @@ class Recorder:
             "v": 1, "title": None, "ckpt_step": self.start, "start": self.start, "every": self.every,
             "n_frames": n_frames, "end": end, "w": cfg.world_w, "h": cfg.world_h,
             "on": {"mind": cfg.mind_enabled, "social": cfg.social_enabled, "niche": cfg.niche_enabled,
-                   "conflict": cfg.conflict_enabled, "kinds": cfg.food_kinds_enabled},
+                   "conflict": cfg.conflict_enabled, "kinds": cfg.food_kinds_enabled, "carry": cfg.carry_enabled},
             "cfg": {"agent_radius": cfg.agent_radius, "food_radius": cfg.food_radius, "vision_fov": cfg.vision_fov,
                     "vision_range": cfg.vision_range, "e_max": cfg.e_max, "e_repro": cfg.e_repro,
                     "max_age": cfg.max_age, "kind_flip_period": cfg.kind_flip_period, "poison": cfg.poison,

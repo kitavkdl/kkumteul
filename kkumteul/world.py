@@ -8,7 +8,7 @@ import numpy as np
 
 from . import kernels as k
 from . import stages as st
-from .config import ACT_CARRY, EXT_SEASON, Config, N_REWARD
+from .config import ACT_CARRY, EXT_CARRY, EXT_SEASON, Config, N_REWARD
 
 # 2~4단계에서 새로 생긴 저장 필드. 옛 체크포인트에는 없어도 된다(그 밖의 필드가 없으면 깨진 것이다)
 NEW_SINCE_STAGE1 = frozenset({"rw", "eta", "alpha", "horm", "mod", "exp_r", "e_prev", "fatigue", "asleep",
@@ -178,6 +178,8 @@ class World:
             st.trail_sense(s, fs, isp)
         if cfg.season_enabled:
             k.write_ext2(s.alive, s.obs, cfg.ext_in0 + EXT_SEASON, sn, cs)
+        if cfg.carry_enabled:
+            k.write_held(s.alive, s.a_held, s.obs, cfg.ext_in0 + EXT_CARRY)
         if mind:
             st.mind_update(s, fs, isp)
             st.think_plastic(t, s, fs, isp)
@@ -190,6 +192,8 @@ class World:
             st.after_move(s, fs, isp, basal)
         k.build_grid(s.x, s.y, s.alive, inv_cell, gw, gh, s.a_start, s.a_items, s.cursor)
         k.collide(s, fp, ip)
+        if cfg.carry_enabled:
+            k.carry(t, s, fp, ip)
         k.eat(t, s, fp, ip)
         if social:
             st.give(s, fs, isp)

@@ -1,5 +1,6 @@
 // 다시 보기 화면을 헤드리스 브라우저로 띄워 장면 몇 곳에서 지도 캔버스의 선·채움 호출을 빛깔별로 센다.
-// 사건 표시(공격 #e5534b, 건넴 #d8b25a, 먹음 #9fd8a8, 죽음 #c3cacc, 태어남 #e9e2c4, 운석 #e08a3c, 신호 고리 hsl(?,55%,66%))가
+// 사건 표시(공격 #e5534b, 건넴 #d8b25a, 먹음 #9fd8a8, 죽음 #c3cacc, 태어남 #e9e2c4, 운석 #e08a3c, 신호 고리 hsl(?,55%,66%))와
+// 든 알(깃발 128 개체 머리 앞의 채움 #cfe8a4)이
 // 그려지는지 보는 손 점검이다(pytest에 들지 않는다. 브라우저가 따로 떠 있어야 한다). 눈에 잘 띄는지는 재지 않는다.
 // 1) 크롬 헤드리스를 띄운다(메모리 상한을 건다):
 //      chrome-headless-shell --remote-debugging-port=9333 --no-sandbox --allow-file-access-from-files --user-data-dir=<임시 폴더> about:blank
@@ -66,7 +67,7 @@ async function main() {
         if (Math.abs(s - 0.55) < 0.04 && Math.abs(l - 0.66) < 0.02 && !cnt["f " + k.slice(2)]) ring += v;
       }
       out.views[`${view} ${target}`] = { step, hit: cnt["s #e5534b"] || 0, gave: cnt["s #d8b25a"] || 0, eat: cnt["s #9fd8a8"] || 0,
-        died: cnt["s #c3cacc"] || 0, born: cnt["f #e9e2c4"] || 0, strike: cnt["f #e08a3c"] || 0, ring };
+        died: cnt["s #c3cacc"] || 0, born: cnt["f #e9e2c4"] || 0, strike: cnt["f #e08a3c"] || 0, held: cnt["f #cfe8a4"] || 0, ring };
     }
   }
   out.trackkey = await ev(`document.getElementById("rp-trackkey").textContent`);
