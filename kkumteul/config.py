@@ -184,6 +184,8 @@ class Config:
     prey_meat: int = 24           # 쓰러지면 남기는 고기 알 수. 넷이 나누면 각 6(배를 채우는 양). 임시 결정
     prey_inflow_frac: float = 0.3  # 유입 가운데 사냥감 몫. 겨울에도 줄지 않아 사냥이 되면 겨울 먹이가 0.3배에서
                                   # 약 0.51배로 는다. 사냥감이 다 차 있으면 넘친 몫은 풀 배수를 곱해 풀로 간다. 임시 결정
+    prey_bite: float = 0.0        # 물어뜯기: 친 개체가 입힌 피해(포화 뒤 몫)만큼 사냥감 몸 에너지의 이 비율을 곧바로 얻는다.
+                                  # 뜯긴 몸은 아물 때 사냥감 몫(budget[2])에서 다시 찬다. 0이면 꺼짐(설계 일곱째 판). 임시 결정
     prey_life: int = 12000        # 사냥감 수명(스텝). 다하면 고기 없이 사라진다(장부의 L_LOST). 임시 결정
     prey_stay: int = 1500         # 한 먹이 자리에서 맴도는 스텝 수. 임시 결정
     prey_graze_speed: float = 0.1  # 맴돌 때 속도(v_max 배수). 임시 결정
@@ -348,6 +350,8 @@ class Config:
         for name in ("prey_regen", "prey_rest", "prey_strike"):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name}은 0 이상이어야 한다")
+        if not (0.0 <= self.prey_bite <= 1.0):
+            raise ValueError("prey_bite는 0 이상 1 이하여야 한다")
         for name in ("prey_hp", "prey_radius", "prey_graze_r"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name}은 0보다 커야 한다")

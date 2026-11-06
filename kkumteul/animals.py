@@ -21,7 +21,7 @@ ANIMAL_SCAV = 2
 
 # ---- 실수 설정 칸 ----
 (AF_W, AF_H, AF_INFLOW, AF_PREY_FRAC, AF_MEAT_E, AF_HP, AF_REGEN, AF_STRIKE, AF_RADIUS, AF_REACH,
- AF_GRAZE_V, AF_TRAVEL_V, AF_GRAZE_R, AF_ATK_DMG, AF_ATK_COST, AF_WANDER_TURN, N_FA) = range(17)
+ AF_GRAZE_V, AF_TRAVEL_V, AF_GRAZE_R, AF_ATK_DMG, AF_ATK_COST, AF_WANDER_TURN, AF_BITE, AF_E_MAX, N_FA) = range(19)
 
 # ---- 정수 설정 칸 ----
 (AI_SEED, AI_N_PREY, AI_REST, AI_SAT_N, AI_MEAT, AI_LIFE, AI_STAY, AI_CONFLICT, AI_N_PATCH,
@@ -47,6 +47,8 @@ def pack_animal_params(cfg):
     fa[AF_ATK_DMG] = cfg.attack_damage
     fa[AF_ATK_COST] = cfg.attack_cost
     fa[AF_WANDER_TURN] = cfg.prey_wander_turn
+    fa[AF_BITE] = cfg.prey_bite
+    fa[AF_E_MAX] = cfg.e_max
     ia[AI_SEED] = cfg.seed
     ia[AI_N_PREY] = cfg.n_prey
     ia[AI_REST] = cfg.prey_rest
@@ -252,7 +254,10 @@ def heal(s, a, hp_max, regen, rest):
 def _scatter_meat(step, s, fa, ia, a):
     """쓰러진 사냥감 a의 몸 에너지를 고기 prey_meat알로 나눠 사냥감 자리 둘레에 뿌린다.
     자리는 사냥감 자리 + prey_radius × 정규 난수(S_MEAT, a = 늘리기 전 C_PREY_KILLED, b = 2q·2q+1)이고 감는다.
-    고기는 들판 아닌 물건이라 저장 칸에 자리가 있어야 놓인다. 놓지 못한 알은 장부의 L_LOST로 간다."""
+    고기는 들판 아닌 물건이라 저장 칸에 자리가 있어야 놓인다. 놓지 못한 알은 장부의 L_LOST로 간다.
+    몸이 0 이하면(다 뜯겼으면) 아무것도 놓지 않는다."""
+    if s.an_energy[a] <= 0.0:
+        return
     n = ia[AI_MEAT]
     e = s.an_energy[a] / n
     seed = ia[AI_SEED]
@@ -271,10 +276,13 @@ def attack_animals(step, s, fa, ia):
     1. 공격 출력 a > 0이고 에너지 > 0이면 비용 attack_cost × a(빗나가도 든다, L_MOVE)를 매긴다. 공격이 켜진 세계에서는
        st.attack이 이미 매겼으므로 여기서는 매기지 않는다. 감긴 중심 거리 AF_REACH 안의 가장 가까운 산 동물을 a_hit에 적는다.
     2. 맞은 사냥감은 그 스텝 피해의 합을 prey_sat_n × attack_damage까지만 입는다(포화).
+    2b. 물어뜯기(prey_bite > 0): 입은 피해를 공격자들의 피해 몫대로 나눠, 몫마다 prey_bite × 몫 × (몸/체력)을
+       사냥감 몸에서 친 개체에게 옮긴다. 사냥감 몸과 e_max − 개체 에너지를 넘지 않는다(개체 번호 순서).
     3. 사냥감을 친 개체는 반격 prey_strike를 그 사냥감의 공격자 수로 나눠 잃고(L_LOST) 닿음 감각이 TOUCH_HIT가 된다.
-       반격은 쓰러지는 스텝에도 든다. 에너지가 바닥나면 process_deaths가 DEATH_KILLED로 센다.
+       반격은 쓰러지는 스텝에도 든다. 에너지가 바닥나면 process_deaths가 DEATH_KILLED로 센다. 친 개체-스텝을 C_PREY_HITS에 센다.
     4. 체력이 0 이하인 사냥감은 쓰러져 고기가 되고, 그 스텝의 공격자 수를 C_HUNTERS에 더한다.
-    5. 이번 스텝에 맞지 않은 산 사냥감은 쉬며 아문다. 순차 커널이다."""
+    5. 이번 스텝에 맞지 않은 산 사냥감은 쉬며 아문다. prey_bite > 0이면 아문 체력만큼 몸도 사냥감 몫(budget[2])에서
+       prey_bite × 아문 체력 × (몸/체력)을 채운다(몸 상한까지, 몫이 있는 만큼, L_SPAWN). 순차 커널이다."""
     n_an = s.an_alive.shape[0]
     for j in range(n_an):
         s.an_natt[j] = 0
@@ -316,6 +324,28 @@ def attack_animals(step, s, fa, ia):
         if s.an_alive[j] and s.an_kind[j] == ANIMAL_PREY and s.an_natt[j] > 0:
             d = s.an_dmg[j]
             wound(s, j, cap if d > cap else d)
+    bite = fa[AF_BITE]
+    per_hp = fa[AF_MEAT_E] / fa[AF_HP]
+    if bite > 0.0:
+        e_max = fa[AF_E_MAX]
+        for i in range(n):
+            j = s.a_hit[i]
+            if j < 0 or s.an_kind[j] != ANIMAL_PREY:
+                continue
+            d = s.an_dmg[j]
+            applied = cap if d > cap else d
+            share = applied * (dmg1 * float(s.act[i, ACT_ATTACK])) / d
+            take = bite * share * per_hp
+            room = e_max - s.energy[i]
+            if room < 0.0:
+                room = 0.0
+            if take > room:
+                take = room
+            if take > s.an_energy[j]:
+                take = s.an_energy[j]
+            if take > 0.0:
+                s.an_energy[j] -= take
+                s.energy[i] += take
     strike = fa[AF_STRIKE]
     for i in range(n):
         j = s.a_hit[i]
@@ -325,6 +355,7 @@ def attack_animals(step, s, fa, ia):
         s.energy[i] -= loss
         s.ledger[k.L_LOST] += loss
         s.touch[i] = k.TOUCH_HIT
+        s.counters[k.C_PREY_HITS] += 1
     killed = 0
     for j in range(n_an):
         if not s.an_alive[j] or s.an_kind[j] != ANIMAL_PREY:
@@ -337,7 +368,19 @@ def attack_animals(step, s, fa, ia):
             s.an_energy[j] = 0.0
             killed += 1
         elif s.an_natt[j] == 0:
+            hp0 = s.an_hp[j]
             heal(s, j, fa[AF_HP], fa[AF_REGEN], ia[AI_REST])
+            if bite > 0.0 and s.an_hp[j] > hp0:
+                add = bite * (s.an_hp[j] - hp0) * per_hp
+                room = fa[AF_MEAT_E] - s.an_energy[j]
+                if add > room:
+                    add = room
+                if add > s.budget[2]:
+                    add = s.budget[2]
+                if add > 0.0:
+                    s.an_energy[j] += add
+                    s.budget[2] -= add
+                    s.ledger[k.L_SPAWN] += add
     return killed
 
 
