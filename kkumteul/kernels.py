@@ -12,7 +12,8 @@ from collections import namedtuple
 import numpy as np
 from numba import njit, prange
 
-from .config import ACT_ATTACK, ACT_CARRY, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_THRUST, ACT_TURN, N_REWARD, N_TASTE_IN
+from .config import (ACT_ATTACK, ACT_CARRY, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_THRUST, ACT_TURN, FIRST_MEALS, N_REWARD,
+                     N_TASTE_IN)
 from .rng import (S_BIRTH_ORDER, S_BIRTH_POS, S_FOOD, S_KIND, S_INIT_AGE, S_INIT_GENOME, S_INIT_POS, S_MUT_GENE,
                   S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, normal, u01)
 
@@ -1068,9 +1069,18 @@ def eat(step, s, fp, ip):
     r2 = r * r
     e_max = fp[P_E_MAX]
     field_cap = ip[Q_FIELD_CAP]
+    taste = ip[Q_TASTE_IN0] >= 0
+    rate = fp[P_TASTE_RATE]
+    keep = 1.0 - fp[P_TASTE_DECAY]
     for i in range(n):
         s.ate[i] = 0.0
-        if not s.alive[i] or s.energy[i] >= e_max:
+        if not s.alive[i]:
+            continue
+        if taste:
+            # 잊기: 배부른 개체도 스텝마다 기억이 0 쪽으로 줄어든다
+            s.taste_m[i, 0] *= keep
+            s.taste_m[i, 1] *= keep
+        if s.energy[i] >= e_max:
             continue
         xi = s.x[i]
         yi = s.y[i]
@@ -1100,7 +1110,19 @@ def eat(step, s, fp, ip):
                         continue
                     _drop_food_slot(s, j, field_cap)
                     s.counters[C_EATEN] += 1
-                    if kinds and not always_edible(s.f_kind[j]) and s.f_kind[j] != good:
+                    fk = s.f_kind[j]
+                    poison = kinds and not always_edible(fk) and fk != good
+                    if s.n_meal[i] < FIRST_MEALS and poison:
+                        s.n_poison10[i] += 1
+                    s.n_meal[i] += 1
+                    if poison:
+                        s.n_poison[i] += 1
+                    if taste:
+                        # 먹은 순간: 보인 모양의 칸이 결과(독 -1, 아니면 +1) 쪽으로 움직인다
+                        mc = 1 if fk == KIND_B else 0
+                        o = -1.0 if poison else 1.0
+                        s.taste_m[i, mc] += rate * (o - s.taste_m[i, mc])
+                    if poison:
                         # 독: 먹이의 에너지는 사라지고 먹은 쪽도 에너지를 잃는다
                         s.energy[i] -= fp[P_POISON]
                         s.ledger[L_LOST] += s.f_energy[j] + fp[P_POISON]
@@ -1170,6 +1192,11 @@ def _reset_body(s, j, aid, parent, gen, tag, step, px, py, hd, e):
         for k in range(s.elig_rec.shape[2]):
             s.elig_rec[j, a, k] = 0.0
     s.a_held[j] = -1
+    s.taste_m[j, 0] = 0.0
+    s.taste_m[j, 1] = 0.0
+    s.n_meal[j] = 0
+    s.n_poison[j] = 0
+    s.n_poison10[j] = 0
     s.counters[C_NALIVE] += 1
 
 
