@@ -50,7 +50,13 @@ WHY_SPOILED = 6     # 썩어서 사라졌다
 WHY_PICKED = 7      # 누가 들어서 들판에서 빠졌다(내려놓으면 그 자리에서 새 행이 열린다)
 WHY_STORED_OUT = 8  # 저장 칸(들판 아닌 물건 자리)이 차서 치워졌다
 
-BORN_BEFORE = 255   # 다시 보기가 시작될 때 이미 살아 있던 개체의 출생 종류
+# 장면의 철(f_season)
+SEASON_NONE = 0
+SEASON_REST = 1     # 봄·여름(가을·겨울이 아닌 철)
+SEASON_AUTUMN = 2
+SEASON_WINTER = 3
+
+BORN_BEFORE = 255  # 다시 보기가 시작될 때 이미 살아 있던 개체의 출생 종류
 NO_CAUSE = 255      # 다시 보기가 끝날 때까지 살아 있었다
 
 MAX_BYTES = 15_000_000   # 아티팩트 상한(16MB) 아래로 지킨다
@@ -69,8 +75,6 @@ FOOD_DTYPE = np.dtype([("x", "<u2"), ("y", "<u2"), ("kind", "u1"), ("f_in", "<u4
 TEMPLATE = Path(__file__).with_name("replay.html")
 _DATA_MARK = "<!--__REPLAY_DATA__-->"
 _HEAD_RE = re.compile(r"<!--HEAD-->(.*?)<!--/HEAD-->", re.S)
-_META_RE = re.compile(r'<script type="application/json" id="replay-meta">(.*?)</script>', re.S)
-_BIN_RE = re.compile(r'<script type="application/octet-stream" id="replay-bin">(.*?)</script>', re.S)
 
 
 def _q16(v: np.ndarray, size: float) -> np.ndarray:
@@ -143,6 +147,7 @@ class Replay:
         self.blind = per_frame["blind"]
         self.gifts = per_frame["gifts"]
         self.attacks = per_frame["attacks"]
+        self.season = per_frame.get("season", np.zeros(self.n_frames, dtype=np.uint8))   # 0 없음, 1 봄·여름, 2 가을, 3 겨울
         self.seen = seen
         self.meta = meta
         self._w, self._h = world_w, world_h
@@ -153,9 +158,11 @@ class Replay:
         a, b = int(self.off[f]), int(self.off[f + 1])
         c = self.cols
         sig = c["sig"][a:b].astype(np.float32) / 127.0 if "sig" in c else None
+        taste = c["taste"][a:b].astype(np.float32) / 127.0 if "taste" in c else None
+        hud = c["hud"][a:b] if "hud" in c else None
         return SimpleNamespace(idx=c["idx"][a:b], x=c["x"][a:b] / 65536.0 * self._w,
                                y=c["y"][a:b] / 65536.0 * self._h, head=c["head"][a:b],
-                               energy=c["energy"][a:b], flags=c["flags"][a:b], sig=sig)
+                               energy=c["energy"][a:b], flags=c["flags"][a:b], sig=sig, taste=taste, hud=hud)
 
 
 class Recorder:
@@ -191,7 +198,11 @@ class Recorder:
         # 장면
         self.frames: list[dict] = []
         self.animal_frames: list[dict] = []
-        self.per: dict[str, list] = {n: [] for n in ("good", "food", "eaten", "poisoned", "blind", "gifts", "attacks")}
+        self.per: dict[str, list] = {n: [] for n in ("good", "food", "eaten", "poisoned", "blind", "gifts", "attacks",
+                                                     "season")}
+        # 개체 열은 장면마다 같아야 하므로 시작할 때 켜져 있던 장치만 적는다(각본이 나중에 켜면 적지 않는다)
+        self._has_hud = bool(cfg.huddle_enabled)
+        self._has_taste = bool(cfg.taste_enabled)
         self.seen = {"good": 0, "poison": 0, "unknown": 0, "evicted": 0, "burnt": 0, "gave": 0, "spoiled": 0,
                      "picked": 0, "dropped": 0, "stored_out": 0}
         self._acc_good: dict[int, int] = {}
@@ -243,6 +254,13 @@ class Recorder:
     @staticmethod
     def _good_at(step: int, cfg: Config) -> int:
         return int(k.good_kind(cfg.seed, step, cfg.kind_flip_period)) if cfg.food_kinds_enabled else 0
+
+    def _season_at(self, step: int) -> int:
+        """그 스텝의 철: 0 계절 없음, 1 봄·여름, 2 가을, 3 겨울(세계의 판정을 그대로 쓴다. 각본이 바꾼 값도 따른다)."""
+        w = self.w
+        if not w.cfg.season_enabled:
+            return SEASON_NONE
+        return SEASON_WINTER if w.in_winter(step) else SEASON_AUTUMN if w.in_autumn(step) else SEASON_REST
 
     def _food_snapshot(self):
         s = self.w.s
@@ -489,6 +507,10 @@ class Recorder:
         }
         if cfg.social_enabled:
             fr["sig"] = np.clip(np.round(s.sig[a] * 127.0), -127, 127).astype(np.int8)
+        if self._has_hud:      # 뭉쳐 자기로 줄인 기초 대사 비율(상한 = 255). 커널은 겨울이 아니면 0을 적는다
+            fr["hud"] = np.clip(np.round(s.huddle_cut[a] / max(cfg.huddle_cap, 1e-9) * 255.0), 0, 255).astype(np.uint8)
+        if self._has_taste:    # 맛 기억 둘: 칸 0은 시야에서 +로 보이는 모양(종류 A), 칸 1은 −(종류 B). 커널과 같은 대응
+            fr["taste"] = np.clip(np.round(s.taste_m[a] * 127.0), -127, 127).astype(np.int8)
         self.frames.append(fr)
         m = np.flatnonzero(s.an_alive)
         self.animal_frames.append({
@@ -502,6 +524,7 @@ class Recorder:
             kinds = s.f_kind[fa]
             bad = int((~k.always_edible_mask(kinds) & (kinds != self._good)).sum())
         self.per["good"].append(self._good)
+        self.per["season"].append(self._season_at(max(w.step_no - 1, 0)))
         self.per["food"].append(n_food)
         self.per["blind"].append(bad / max(n_food, 1))
         for name in ("eaten", "poisoned", "gifts", "attacks"):
@@ -579,7 +602,8 @@ class Recorder:
         animals = {"an_off": np.concatenate([[0], np.cumsum([len(f["an_x"]) for f in self.animal_frames])]).astype("<u4")}
         for name in ("an_x", "an_y", "an_kind", "an_hp"):
             animals[name] = np.concatenate([f[name] for f in self.animal_frames])
-        per = {"good": np.array(self.per["good"], dtype=np.uint8), "blind": np.array(self.per["blind"], dtype="<f4")}
+        per = {"good": np.array(self.per["good"], dtype=np.uint8), "blind": np.array(self.per["blind"], dtype="<f4"),
+               "season": np.array(self.per["season"], dtype=np.uint8)}
         for name in ("food", "eaten", "poisoned", "gifts", "attacks"):
             per[name] = np.array(self.per[name], dtype="<u4")
         info = None
@@ -593,12 +617,15 @@ class Recorder:
             "n_frames": n_frames, "end": end, "w": cfg.world_w, "h": cfg.world_h,
             "on": {"mind": cfg.mind_enabled, "social": cfg.social_enabled, "niche": cfg.niche_enabled,
                    "conflict": cfg.conflict_enabled, "kinds": cfg.food_kinds_enabled, "carry": cfg.carry_enabled,
-                   "prey": cfg.prey_enabled, "huddle": cfg.huddle_enabled},
+                   "prey": cfg.prey_enabled, "huddle": self._has_hud, "season": cfg.season_enabled,
+                   "taste": self._has_taste},
             "cfg": {"agent_radius": cfg.agent_radius, "food_radius": cfg.food_radius, "vision_fov": cfg.vision_fov,
                     "vision_range": cfg.vision_range, "e_max": cfg.e_max, "e_repro": cfg.e_repro,
                     "max_age": cfg.max_age, "kind_flip_period": cfg.kind_flip_period, "poison": cfg.poison,
                     "food_energy": cfg.food_energy, "eta_max": cfg.eta_max, "h_max": cfg.h_max,
-                    "prey_radius": cfg.prey_radius},
+                    "prey_radius": cfg.prey_radius, "winter_mult": cfg.winter_mult,
+                    "winter_basal_mult": cfg.winter_basal_mult, "autumn_mult": cfg.autumn_mult,
+                    "huddle_cap": cfg.huddle_cap},
             "intro": intro_sentences(cfg, self.scn), "flips": self.flips, "patches": self.patches,
             "stars": self._stars(agents, end), "scenario": info, "notes": [], "history": None, "orig": [],
             "seen": dict(self.seen), "sig_min": self._sig_min(cols),
@@ -701,15 +728,30 @@ def _next_flip(cfg: Config, t0: int) -> int | None:
     return None
 
 
+def _next_season(cfg: Config, t0: int) -> int | None:
+    """t0 뒤에 가을(가을이 없으면 겨울)이 시작되는 첫 스텝. 계절이 꺼져 있으면 None.
+    가을은 한 해의 [P − W − A, P − W), 겨울은 [P − W, P) 자리다(world.in_autumn·in_winter와 같은 셈)."""
+    if not cfg.season_enabled:
+        return None
+    P = cfg.season_period
+    u = P - cfg.winter_len - (cfg.autumn_len if cfg.autumn_len > 0 else 0)
+    b = (t0 // P) * P + u
+    return b if b > t0 else b + P
+
+
 def default_steps(cfg: Config) -> int:
-    """기본 길이. 먹이 종류 세계는 독이 다시 정해지는 순간을 두 번 담는다."""
+    """기본 길이. 먹이 종류 세계는 독이 다시 정해지는 순간을 두 번 담고, 계절 세계는 가을과 겨울을 앞뒤 여유와 함께 담는다.
+    둘 다 켜져 있으면 긴 쪽."""
+    out = 1500
     if cfg.food_kinds_enabled:
-        return int(min(max(2 * cfg.kind_flip_period, 1500), 6000))
-    return 1500
+        out = max(out, int(min(max(2 * cfg.kind_flip_period, 1500), 6000)))
+    if cfg.season_enabled:
+        out = max(out, int(min(cfg.autumn_len + cfg.winter_len + 2 * FLIP_LEAD, 6000)))
+    return out
 
 
 def record(ckpt_path, steps: int | None = None, every: int = 2, from_flip: bool = False,
-           title: str | None = None, overrides: list[str] | None = None) -> Replay:
+           title: str | None = None, overrides: list[str] | None = None, from_season: bool = False) -> Replay:
     """체크포인트를 읽어 steps 스텝을 다시 돌리며 장면을 적는다. 체크포인트와 실행 폴더는 읽기만 한다.
     overrides(["poison=0", ...])를 주면 그 설정으로 바꿔 돌린다(같은 체크포인트에서 설정 하나만 바꾼 대조)."""
     path = Path(ckpt_path)
@@ -743,19 +785,28 @@ def record(ckpt_path, steps: int | None = None, every: int = 2, from_flip: bool 
     ckpt_step = world.step_no
     if steps is None:
         steps = default_steps(world.cfg)
+    if from_flip and from_season:
+        raise ValueError("--from-flip과 --from-season은 함께 쓸 수 없다")
+    target = None
     if from_flip:
         b = _next_flip(world.cfg, ckpt_step)
         if b is None:
             notes.append("독이 바뀌는 순간을 찾지 못해 체크포인트에서 바로 시작했습니다.")
         else:
-            lead = min(FLIP_LEAD, world.cfg.kind_flip_period // 4)
-            force = True
-            while world.step_no < b - lead:           # 장면을 적지 않고 거기까지 간다
-                if scn is not None:
-                    scn.apply(world, base, world.step_no, scn_start, force)
-                    force = False
-                world.step()
-                world.drain_events()
+            target = b - min(FLIP_LEAD, world.cfg.kind_flip_period // 4)
+    if from_season:
+        b = _next_season(world.cfg, ckpt_step)
+        if b is None:
+            raise ValueError("계절이 꺼진 세계라 --from-season으로 시작할 수 없다")
+        target = b - FLIP_LEAD
+    if target is not None:
+        force = True
+        while world.step_no < target:           # 장면을 적지 않고 거기까지 간다
+            if scn is not None:
+                scn.apply(world, base, world.step_no, scn_start, force)
+                force = False
+            world.step()
+            world.drain_events()
     rec = Recorder(world, every, scn, base, scn_start)
     rec.advance(int(steps))
     rep = rec.finish()
@@ -782,7 +833,7 @@ def pack(rep: Replay) -> tuple[dict, bytes]:
     for name, v in rep.animals.items():
         arrays[name] = v
     arrays.update(f_good=rep.good_kind, f_food=rep.n_food, f_eaten=rep.c_eaten, f_poisoned=rep.c_poisoned,
-                  f_blind=rep.blind, f_gifts=rep.gifts, f_attacks=rep.attacks)
+                  f_blind=rep.blind, f_gifts=rep.gifts, f_attacks=rep.attacks, f_season=rep.season)
     chunks, directory, pos = [], {}, 0
     for name, v in arrays.items():
         v = np.ascontiguousarray(v)
@@ -798,16 +849,29 @@ def pack(rep: Replay) -> tuple[dict, bytes]:
     return meta, b"".join(chunks)
 
 
-def export_html(rep: Replay, standalone: bool = True) -> str:
-    """화면 틀(replay.html)에 자료를 넣어 한 파일로 만든다. standalone이 아니면 아티팩트용으로 내용만 낸다."""
+def _data_tags(rep: Replay, i: int = 0) -> str:
+    """장면 하나의 자료 자리: 설명(JSON)과 이진 덩어리(base64). 장면 0은 옛 이름 그대로, 장면 i는 이름 끝에 -i."""
     meta, blob = pack(rep)
+    tail = "" if i == 0 else f"-{i}"
+    return (f'<script type="application/json" id="replay-meta{tail}">'
+            + json.dumps(meta, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+            + f'</script>\n<script type="application/octet-stream" id="replay-bin{tail}">'
+            + base64.b64encode(blob).decode("ascii") + "</script>")
+
+
+def _scene_list(reps: list[Replay]) -> str:
+    """장면이 둘 이상일 때만 넣는 장면 목록(화면의 장면 단추)."""
+    if len(reps) < 2:
+        return ""
+    items = [{"title": r.meta.get("title") or f"장면 {i + 1}"} for i, r in enumerate(reps)]
+    return ('\n<script type="application/json" id="replay-scenes">'
+            + json.dumps(items, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/") + "</script>")
+
+
+def _assemble(data: str, standalone: bool) -> str:
     page = TEMPLATE.read_text(encoding="utf-8")
     if _DATA_MARK not in page:
         raise ValueError("화면 틀에 자료 자리가 없다")
-    data = ('<script type="application/json" id="replay-meta">'
-            + json.dumps(meta, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
-            + '</script>\n<script type="application/octet-stream" id="replay-bin">'
-            + base64.b64encode(blob).decode("ascii") + "</script>")
     page = page.replace(_DATA_MARK, data)
     m = _HEAD_RE.search(page)
     head = m.group(1).strip() if m else ""
@@ -819,64 +883,140 @@ def export_html(rep: Replay, standalone: bool = True) -> str:
             + head + "\n</head>\n<body>\n" + body + "\n</body>\n</html>\n")
 
 
-def read_embedded(html: str) -> tuple[dict, dict]:
-    """내보낸 파일에서 자료를 다시 꺼낸다(시험과 점검용)."""
-    meta = json.loads(_META_RE.search(html).group(1).replace("<\\/", "</"))
-    blob = base64.b64decode(_BIN_RE.search(html).group(1))
+def export_scenes(reps: list[Replay], standalone: bool = True) -> str:
+    """장면 여럿을 한 파일로. 장면이 하나면 장면 목록 없이 옛 꼴 그대로다."""
+    if not reps:
+        raise ValueError("장면이 하나도 없다")
+    data = "\n".join(_data_tags(r, i) for i, r in enumerate(reps)) + _scene_list(reps)
+    return _assemble(data, standalone)
+
+
+def export_html(rep: Replay, standalone: bool = True) -> str:
+    """화면 틀(replay.html)에 자료를 넣어 한 파일로 만든다. standalone이 아니면 아티팩트용으로 내용만 낸다."""
+    return export_scenes([rep], standalone)
+
+
+def read_embedded(html: str, scene: int = 0) -> tuple[dict, dict]:
+    """내보낸 파일에서 장면 하나의 자료를 다시 꺼낸다(시험과 점검용)."""
+    tail = "" if scene == 0 else f"-{scene}"
+    mm = re.search(rf'<script type="application/json" id="replay-meta{tail}">(.*?)</script>', html, re.S)
+    mb = re.search(rf'<script type="application/octet-stream" id="replay-bin{tail}">(.*?)</script>', html, re.S)
+    if mm is None or mb is None:
+        raise ValueError(f"장면 {scene}의 자료가 없다")
+    meta = json.loads(mm.group(1).replace("<\\/", "</"))
+    blob = base64.b64decode(mb.group(1))
     arrays = {name: np.frombuffer(blob, dtype="<" + code, count=n, offset=pos)
               for name, (code, pos, n) in meta["arrays"].items()}
     return meta, arrays
 
 
-def write(ckpt_path, out, steps: int | None = None, every: int = 2, from_flip: bool = False,
-          title: str | None = None, standalone: bool = True, max_bytes: int = MAX_BYTES) -> Replay:
-    """다시 보기 파일을 쓴다. 크기가 상한을 넘으면 장면 간격을 넓혀 다시 적는다."""
+def read_scenes(html: str) -> list[dict]:
+    """장면 목록. 장면 하나짜리 파일은 빈 목록."""
+    m = re.search(r'<script type="application/json" id="replay-scenes">(.*?)</script>', html, re.S)
+    return json.loads(m.group(1).replace("<\\/", "</")) if m else []
+
+
+def _record_within(scene: dict, steps, every: int, budget: int) -> Replay:
+    """장면 하나를 적되, 자료 자리의 크기가 budget을 넘으면 장면 간격을 넓혀 다시 적는다."""
     every = max(1, int(every))
     while True:
-        rep = record(ckpt_path, steps, every, from_flip, title)
-        html = export_html(rep, standalone).encode("utf-8")
-        if len(html) <= max_bytes:
-            break
+        rep = record(scene["ckpt"], steps, every, scene.get("start") == "flip", scene.get("title"),
+                     from_season=scene.get("start") == "season")
+        size = len(_data_tags(rep).encode("utf-8"))
+        if size <= budget:
+            return rep
         frames = sum(v.nbytes for v in rep.cols.values()) * 4 // 3      # 장면 간격에 따라 줄어드는 몫
-        fixed = len(html) - frames
-        wider = max(every + 1, math.ceil(every * frames / max(max_bytes - fixed, 1) * 1.02)) if fixed < max_bytes else 0
+        fixed = size - frames
+        wider = max(every + 1, math.ceil(every * frames / max(budget - fixed, 1) * 1.02)) if fixed < budget else 0
         if not 0 < wider <= MAX_EVERY:
-            raise ValueError(f"다시 보기 파일의 크기({len(html):,}바이트)를 상한({max_bytes:,}바이트) 아래로 "
-                             "줄일 수 없다. --steps를 줄인다.")
+            raise ValueError(f"다시 보기 장면 '{rep.meta.get('title')}'의 크기({size:,}바이트)를 몫({budget:,}바이트) "
+                             "아래로 줄일 수 없다. --steps를 줄인다.")
         every = wider
+
+
+def write_scenes(scenes: list[dict], out, steps: int | None = None, every: int = 2, standalone: bool = True,
+                 max_bytes: int = MAX_BYTES) -> list[Replay]:
+    """장면 여럿(각각 {"ckpt": 경로, "title": 이름 또는 None, "start": None·"flip"·"season"})을 한 파일로 쓴다.
+    화면 틀을 뺀 나머지를 장면 수로 똑같이 나눈 몫이 장면마다의 상한이다."""
+    if not scenes:
+        raise ValueError("장면이 하나도 없다")
+    frame = len(_assemble("", standalone).encode("utf-8")) + 200 * len(scenes)     # 화면 틀, 장면 목록과 사이 줄
+    budget = (max_bytes - frame) // len(scenes)
+    if budget <= 0:
+        raise ValueError(f"크기 상한({max_bytes:,}바이트)이 화면 틀보다 작다")
+    reps = [_record_within(sc, steps, every, budget) for sc in scenes]
+    html = export_scenes(reps, standalone).encode("utf-8")
+    if len(html) > max_bytes:        # 몫으로 나눴으니 오지 않는 길이다. 그래도 넘으면 쓰지 않는다
+        raise ValueError(f"다시 보기 파일의 크기({len(html):,}바이트)가 상한({max_bytes:,}바이트)을 넘는다")
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     ckpt.atomic_write_bytes(out, html)
-    return rep
+    return reps
+
+
+def write(ckpt_path, out, steps: int | None = None, every: int = 2, from_flip: bool = False,
+          title: str | None = None, standalone: bool = True, max_bytes: int = MAX_BYTES,
+          from_season: bool = False) -> Replay:
+    """다시 보기 파일(장면 하나)을 쓴다. 크기가 상한을 넘으면 장면 간격을 넓혀 다시 적는다."""
+    if from_flip and from_season:
+        raise ValueError("--from-flip과 --from-season은 함께 쓸 수 없다")
+    start = "flip" if from_flip else "season" if from_season else None
+    return write_scenes([{"ckpt": ckpt_path, "title": title, "start": start}], out, steps, every, standalone,
+                        max_bytes)[0]
+
+
+def _scene_arg(text: str) -> dict:
+    """--ckpt 경로[::제목[::시작]]. 시작은 flip, season, 또는 빈칸."""
+    parts = text.split("::")
+    if len(parts) > 3:
+        raise argparse.ArgumentTypeError("--ckpt는 경로[::제목[::시작]] 꼴이다")
+    start = parts[2].strip() if len(parts) > 2 else ""
+    if start not in ("", "flip", "season"):
+        raise argparse.ArgumentTypeError(f"시작은 flip, season, 빈칸 가운데 하나다: {start!r}")
+    return {"ckpt": Path(parts[0]), "title": (parts[1].strip() or None) if len(parts) > 1 else None,
+            "start": start or None}
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="체크포인트에서 세계를 다시 돌려, 혼자 열리는 다시 보기 파일(HTML)을 만든다")
-    ap.add_argument("--ckpt", type=Path, required=True, help="체크포인트 npz(같은 이름의 json이 옆에 있어야 한다)")
-    ap.add_argument("--out", type=Path, help="쓸 파일(기본: runs/replay-<실행 이름>.html)")
-    ap.add_argument("--steps", type=int, help="다시 돌릴 스텝 수(기본: 먹이 종류 세계는 독이 두 번 다시 정해지는 길이)")
-    ap.add_argument("--every", type=int, default=2, help="몇 스텝마다 장면을 적을지(기본 2)")
-    ap.add_argument("--from-flip", action="store_true", help="독이 바뀌는 다음 순간의 조금 앞에서 시작한다")
-    ap.add_argument("--title", help="화면에 적을 세계 이름(기본: 실행 폴더 이름)")
+    ap.add_argument("--ckpt", type=_scene_arg, action="append", required=True,
+                    help="체크포인트 npz(같은 이름의 json이 옆에 있어야 한다). 경로[::제목[::시작]] 꼴로 여러 번 주면 "
+                         "장면을 골라 보는 한 파일이 된다. 시작은 flip 또는 season")
+    ap.add_argument("--out", type=Path, help="쓸 파일(기본: runs/replay-<첫 실행 이름>.html)")
+    ap.add_argument("--steps", type=int, help="다시 돌릴 스텝 수(기본: 먹이 종류·계절 세계에 맞춘 길이). 모든 장면에 같게")
+    ap.add_argument("--every", type=int, default=2, help="몇 스텝마다 장면을 적을지(기본 2). 모든 장면에 같게")
+    ap.add_argument("--from-flip", action="store_true", help="독이 바뀌는 다음 순간의 조금 앞에서 시작한다(장면이 하나일 때)")
+    ap.add_argument("--from-season", action="store_true", help="다음 가을(없으면 겨울)의 조금 앞에서 시작한다(장면이 하나일 때)")
+    ap.add_argument("--title", help="화면에 적을 세계 이름(장면이 하나일 때. 기본: 실행 폴더 이름)")
     ap.add_argument("--artifact", action="store_true", help="뼈대(<html>, <body>) 없이 내용만 쓴다(아티팩트로 올릴 때)")
     ap.add_argument("--max-mb", type=float, default=MAX_BYTES / 1e6, help="파일 크기 상한(MB)")
     args = ap.parse_args(argv)
-    out = args.out or Path("runs") / f"replay-{_run_name(args.ckpt)}.html"
+    scenes = args.ckpt
+    if len(scenes) == 1:      # 장면 하나: 장면 쪽에 적은 값이 먼저, 없으면 전역 선택
+        sc = scenes[0]
+        if args.from_flip and args.from_season:
+            ap.error("--from-flip과 --from-season은 함께 쓸 수 없다")
+        sc["title"] = sc["title"] or args.title
+        sc["start"] = sc["start"] or ("flip" if args.from_flip else "season" if args.from_season else None)
+    elif args.from_flip or args.from_season or args.title:
+        ap.error("장면이 여럿이면 --from-flip·--from-season·--title 대신 --ckpt 경로::제목::시작으로 장면마다 적는다")
+    out = args.out or Path("runs") / f"replay-{_run_name(scenes[0]['ckpt'])}.html"
     try:
-        rep = write(args.ckpt, out, args.steps, args.every, args.from_flip, args.title,
-                    not args.artifact, int(args.max_mb * 1e6))
+        reps = write_scenes(scenes, out, args.steps, args.every, not args.artifact, int(args.max_mb * 1e6))
     except (ValueError, OSError) as e:
         print(f"못 만들었다: {e}", file=sys.stderr)
         return 1
-    seen = rep.seen
-    eaten = int(rep.c_eaten.sum())
-    found = seen["good"] + seen["poison"] + seen["unknown"]
-    print(f"{out} ({out.stat().st_size / 1e6:.1f}MB): {rep.meta['start']:,}스텝부터 {rep.meta['end'] - rep.start:,}스텝, "
-          f"장면 {rep.n_frames}장(간격 {rep.every}), 개체 {len(rep.agents)}마리, 먹이 {len(rep.food)}알")
-    print(f"먹은 수 {eaten}(독 {int(rep.c_poisoned.sum())}) 가운데 누가 먹었는지 가린 것 {seen['good'] + seen['poison']}, "
-          f"모름 {seen['unknown']}, 같은 스텝에 났다 먹혀 못 본 것 {eaten - found}")
-    for n in rep.meta["notes"]:
-        print("주의:", n)
+    print(f"{out} ({out.stat().st_size / 1e6:.1f}MB), 장면 {len(reps)}개")
+    for rep in reps:
+        seen = rep.seen
+        eaten = int(rep.c_eaten.sum())
+        found = seen["good"] + seen["poison"] + seen["unknown"]
+        print(f"[{rep.meta.get('title')}] {rep.meta['start']:,}스텝부터 {rep.meta['end'] - rep.start:,}스텝, "
+              f"장면 {rep.n_frames}장(간격 {rep.every}), 개체 {len(rep.agents)}마리, 먹이 {len(rep.food)}알")
+        print(f"  먹은 수 {eaten}(독 {int(rep.c_poisoned.sum())}) 가운데 누가 먹었는지 가린 것 "
+              f"{seen['good'] + seen['poison']}, 모름 {seen['unknown']}, 같은 스텝에 났다 먹혀 못 본 것 {eaten - found}")
+        for n in rep.meta["notes"]:
+            print("  주의:", n)
     return 0
 
 

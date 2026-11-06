@@ -712,3 +712,124 @@ def test_replay_without_animals_has_empty_animal_arrays(kinds_run):
         assert name in meta["arrays"]
     assert meta["arrays"]["an_x"][2] == 0 and meta["arrays"]["an_off"][2] == rep.n_frames + 1
     assert not meta["on"]["prey"] and not meta["on"]["huddle"]
+
+
+# ---------------------------------------------------------------- 둘째 판: 계절·뭉쳐 자기·맛 기억·장면 여럿
+def _season_code(t: int, period: int, winter: int, autumn: int) -> int:
+    """시험 안에서 따로 셈한 철(세계의 판정 함수를 부르지 않는다)."""
+    u = t % period
+    if u >= period - winter:
+        return replay.SEASON_WINTER
+    if u >= period - winter - autumn:
+        return replay.SEASON_AUTUMN
+    return replay.SEASON_REST
+
+
+def _by_slot(w: World, rep, f: int, col: str):
+    """장면 f의 열 값과, 그 개체들이 세계에서 차지한 칸(개체 번호로 맞춘다)."""
+    fr = rep.frame(f)
+    ids = rep.agents["id"][fr.idx].astype(np.int64)
+    slot = {int(w.s.ids[j]): j for j in np.flatnonzero(w.s.alive).tolist()}
+    order = np.array([slot[i] for i in ids.tolist()])
+    return order, getattr(fr, col)
+
+
+def test_season_column_follows_the_year():
+    cfg = ext_small("harsh", season_enabled=True, season_period=40, winter_len=12, autumn_len=8, autumn_mult=1.5)
+    w = World(cfg)
+    rec = replay.Recorder(w, every=1)
+    rec.advance(100)
+    rep = rec.finish()
+    want = [_season_code(max(rep.start + f - 1, 0), 40, 12, 8) for f in range(rep.n_frames)]
+    assert rep.season.tolist() == want
+    assert {1, 2, 3} <= set(want)
+    assert rep.meta["on"]["season"] is True
+
+
+def test_season_column_is_zero_without_seasons(kinds_run):
+    rep = replay.record(ckpt_of(kinds_run, 400), steps=20, every=2)
+    assert not rep.season.any()
+    assert "hud" not in rep.cols and "taste" not in rep.cols
+
+
+def test_huddle_column_matches_the_state():
+    cfg = ext_small("harsh", season_enabled=True, season_period=40, winter_len=30, huddle_enabled=True, init_agents=400,
+                world_w=96.0, world_h=96.0)
+    w = World(cfg)
+    rec = replay.Recorder(w, every=1)
+    rec.advance(20)          # 겨울 한가운데(스텝 10~39)
+    rep = rec.finish()
+    order, hud = _by_slot(w, rep, rep.n_frames - 1, "hud")
+    want = np.clip(np.round(w.s.huddle_cut[order] / cfg.huddle_cap * 255.0), 0, 255)
+    assert np.array_equal(hud.astype(np.int64), want.astype(np.int64))
+    assert hud.max() > 0, "붙어 있는 개체가 하나도 없으면 시험이 장치를 못 가린다"
+
+
+def test_taste_column_matches_the_state():
+    cfg = small("stage2", "kinds", "taste", poison=0.3, kind_flip_period=150)
+    w = World(cfg)
+    rec = replay.Recorder(w, every=1)
+    rec.advance(150)
+    rep = rec.finish()
+    order, taste = _by_slot(w, rep, rep.n_frames - 1, "taste")
+    want = np.clip(np.round(w.s.taste_m[order] * 127.0), -127, 127)
+    assert taste.shape == (len(order), 2)
+    assert np.allclose(taste * 127.0, want, atol=0.51)
+    assert np.abs(taste).max() > 0, "먹은 개체가 없으면 시험이 장치를 못 가린다"
+    assert rep.meta["on"]["taste"] is True
+
+
+def test_from_season_starts_a_little_before_autumn(tmp_path):
+    d = tmp_path / "season-world"
+    r = Runner.new(d, ext_small("harsh", season_enabled=True, season_period=1000, winter_len=100, autumn_len=100, autumn_mult=1.5))
+    r.loop(400, quiet=True)
+    r.close()
+    rep = replay.record(ckpt_of(d, 400), steps=10, every=2, from_season=True)
+    assert rep.start == (1000 - 100 - 100) - replay.FLIP_LEAD      # 가을은 스텝 800에 온다
+    with pytest.raises(ValueError):
+        replay.record(ckpt_of(d, 400), steps=10, from_season=True, from_flip=True)
+
+
+def test_from_season_refuses_a_world_without_seasons(kinds_run):
+    with pytest.raises(ValueError):
+        replay.record(ckpt_of(kinds_run, 400), steps=10, from_season=True)
+
+
+def test_two_scenes_in_one_file(kinds_run, tmp_path):
+    out = tmp_path / "two.html"
+    reps = replay.write_scenes([{"ckpt": ckpt_of(kinds_run, 400), "title": "가", "start": None},
+                                {"ckpt": ckpt_of(kinds_run, 400), "title": "나", "start": "flip"}],
+                               out, steps=60, every=2)
+    html = out.read_text(encoding="utf-8")
+    assert [s["title"] for s in replay.read_scenes(html)] == ["가", "나"]
+    m0, a0 = replay.read_embedded(html, 0)
+    m1, a1 = replay.read_embedded(html, 1)
+    assert (m0["title"], m1["title"]) == ("가", "나")
+    assert m1["start"] == reps[1].start and m1["start"] > m0["start"]
+    assert np.array_equal(a1["fr_x"], reps[1].cols["x"])
+    single = tmp_path / "one.html"
+    replay.write(ckpt_of(kinds_run, 400), single, steps=20, every=2)
+    text = single.read_text(encoding="utf-8")
+    assert replay.read_scenes(text) == []
+    with pytest.raises(ValueError):
+        replay.read_embedded(text, 1)
+
+
+def test_two_scenes_share_the_size_limit(kinds_run, tmp_path):
+    one = tmp_path / "one.html"
+    rep = replay.write(ckpt_of(kinds_run, 400), one, steps=200, every=2)
+    size = one.stat().st_size
+    out = tmp_path / "two.html"
+    reps = replay.write_scenes([{"ckpt": ckpt_of(kinds_run, 400), "title": None, "start": None}] * 2,
+                               out, steps=200, every=2, max_bytes=size + 30_000)
+    assert out.stat().st_size <= size + 30_000
+    assert all(r.every > rep.every for r in reps)
+
+
+def test_command_line_takes_several_scenes(kinds_run, tmp_path):
+    out = tmp_path / "cli.html"
+    c = str(ckpt_of(kinds_run, 400))
+    assert replay.main(["--ckpt", c + "::가", "--ckpt", c + "::나::flip", "--steps", "20", "--out", str(out)]) == 0
+    assert len(replay.read_scenes(out.read_text(encoding="utf-8"))) == 2
+    with pytest.raises(SystemExit):
+        replay.main(["--ckpt", c, "--ckpt", c, "--title", "x", "--out", str(out)])
