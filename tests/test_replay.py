@@ -14,6 +14,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from test_harsh import _place  # noqa: E402
+from test_stages import small as ext_small  # noqa: E402
+from kkumteul import animals as an  # noqa: E402
 from kkumteul import checkpoint as ckpt  # noqa: E402
 from kkumteul import kernels as k  # noqa: E402
 from kkumteul import replay  # noqa: E402
@@ -122,7 +125,7 @@ def test_eating_is_read_from_the_food_side_and_matches_counters(kinds_run):
     # 눈 감고 먹었을 때의 독 비율: 그때 세계에 놓인 먹이 가운데 독인 것
     fa = w.s.f_alive
     good = k.good_kind(cfg.seed, w.step_no - 1, cfg.kind_flip_period)
-    bad = int(((w.s.f_kind[fa] != k.KIND_CORPSE) & (w.s.f_kind[fa] != good)).sum())
+    bad = int((~k.always_edible_mask(w.s.f_kind[fa]) & (w.s.f_kind[fa] != good)).sum())
     assert rep.blind[-1] == pytest.approx(bad / max(int(fa.sum()), 1), abs=1e-6)
 
 
@@ -607,5 +610,94 @@ def test_replay_scenario_turning_carry_off_records_release(tmp_path):
     assert not w.cfg.carry_enabled and (s.a_held == -1).all()
     rep = rec.finish()
     assert rep.seen["dropped"] == held and rep.seen["unknown"] == 0
-    reopened = rep.food[(rep.food["f_in"] == 4) & (rep.food["kind"] != k.KIND_CORPSE)]
+    reopened = rep.food[(rep.food["f_in"] == 4) & (~k.always_edible_mask(rep.food["kind"]))]
     assert len(reopened) == held and (reopened["why"] == replay.WHY_PRESENT).all()
+
+
+# ---------------------------------------------------------------- 고기·동물
+def _hunting_world() -> World:
+    """먹이 종류가 켜진 사냥감 세계. 200스텝 뒤 산 개체 모두의 공격 편향을 +3으로 두고, 산 사냥감마다 개체 곁으로 옮긴다."""
+    w = World(ext_small("ext", prey_enabled=True, prey_hp=0.5, food_kinds_enabled=True))
+    w.run(200)
+    s = w.s
+    s.bout[s.alive, ACT_ATTACK] = 3.0
+    ag = np.flatnonzero(s.alive)
+    for q, j in enumerate(np.flatnonzero(s.an_alive)):
+        s.an_x[j], s.an_y[j] = s.x[ag[q]], s.y[ag[q]]
+    return w
+
+
+def test_replay_records_animals_and_meat():
+    # 사냥감을 개체 곁에 두고 공격 편향을 +3으로 둔 세계를 Recorder로 120스텝 적는다(장면마다 한 스텝)
+    steps = 120
+    ref = _hunting_world()                       # 같은 세계를 따로 돌려, 장면마다 산 동물 수를 센다
+    live = [(int(ref.s.an_alive.sum()))]
+    c0 = ref.s.counters.copy()
+    for _ in range(steps):
+        ref.step()
+        live.append(int(ref.s.an_alive.sum()))
+    kills = int((ref.s.counters - c0)[k.C_PREY_KILLED])
+    w = _hunting_world()
+    rec = replay.Recorder(w, every=1)
+    rec.advance(steps)
+    rep = rec.finish()
+    assert kills > 0 and max(live) > 0
+    an_off = rep.animals["an_off"]
+    assert an_off.dtype == np.dtype("<u4") and len(an_off) == rep.n_frames + 1
+    assert np.diff(an_off).tolist() == live, "장면마다 동물 수 = 그 장면의 산 동물 수"
+    n = int(an_off[-1])
+    for name in ("an_x", "an_y", "an_kind", "an_hp"):
+        assert len(rep.animals[name]) == n
+    assert rep.animals["an_x"].dtype == np.dtype("<u2") and rep.animals["an_kind"].dtype == np.dtype("u1")
+    assert (rep.animals["an_kind"] == an.ANIMAL_PREY).all()
+    hp = rep.animals["an_hp"]
+    assert hp.dtype == np.dtype("u1") and hp.max() == 255 and hp.min() < 255, "체력은 prey_hp에 대한 비율"
+    # 마지막 장면의 동물 자리는 세계의 것과 같다
+    last = np.flatnonzero(w.s.an_alive)
+    got = rep.animals["an_x"][an_off[-2]:an_off[-1]]
+    assert sorted(got.tolist()) == sorted(replay._q16(w.s.an_x[last], w.cfg.world_w).tolist())
+    # 쓰러지면 고기 24알이 열리고, 먹은 고기는 독이 아니라 좋은 먹이로 적힌다
+    meat = rep.food[rep.food["kind"] == k.KIND_MEAT]
+    assert len(meat) == 24 * kills
+    why = meat["why"]
+    assert int((why == replay.WHY_GOOD).sum()) > 0
+    assert int((why == replay.WHY_POISON).sum()) == 0 and int((why == replay.WHY_UNKNOWN).sum()) == 0
+    assert rep.seen["poison"] == 0 or rep.seen["poison"] == int((rep.food["why"] == replay.WHY_POISON).sum())
+    assert rep.seen["unknown"] == 0
+    assert rep.meta["on"]["prey"] and not rep.meta["on"]["huddle"] and rep.meta["cfg"]["prey_radius"] == w.cfg.prey_radius
+    meta, _ = replay.pack(rep)
+    for name in ("an_off", "an_x", "an_y", "an_kind", "an_hp"):
+        assert name in meta["arrays"]
+    assert meta["arrays"]["an_x"][2] == n
+    # 세계의 먹이 집계: 고기는 독이 아니므로 눈 감고 먹은 독 비율에 들지 않는다
+    fa = w.s.f_alive
+    bad = int((~k.always_edible_mask(w.s.f_kind[fa]) & (w.s.f_kind[fa] != rec._good)).sum())
+    assert rep.blind[-1] == pytest.approx(bad / max(int(fa.sum()), 1), abs=1e-6)
+
+
+def test_replay_tells_spoiled_meat_from_eaten():
+    # 하한(0.05) 바로 위의 오래된 고기 한 알 곁에 개체 하나. 고기는 부패가 3배라 한 스텝에 하한 아래로 떨어지고
+    # (e 0.052 -> 0.0489), 배수를 빼면 0.0510으로 남아 먹힌다. 다시 보기는 썩음으로 적어야 한다
+    w = World(ext_small("ext", prey_enabled=True, n_prey=0, spoil_enabled=True, spoil_after=60, spoil_rate=0.02,
+                        init_agents=1, min_agents=0, food_inflow=0.0))
+    a = int(np.flatnonzero(w.s.alive)[0])
+    w.s.x[a], w.s.y[a] = 10.0, 10.0
+    j = _place(w, e=0.052, born=-1000, kind=k.KIND_MEAT)
+    rec = replay.Recorder(w, every=1)
+    rec.advance(1)
+    rep = rec.finish()
+    assert not w.s.f_alive[j] and w.s.counters[k.C_SPOILED] == 1
+    assert rep.seen["spoiled"] == 1 and rep.seen["good"] == 0 and rep.seen["unknown"] == 0
+    assert int((rep.food["why"] == replay.WHY_SPOILED).sum()) == 1
+
+
+def test_replay_without_animals_has_empty_animal_arrays(kinds_run):
+    rep = replay.record(ckpt_of(kinds_run, 400), steps=40, every=2)
+    assert (rep.animals["an_off"] == 0).all() and len(rep.animals["an_off"]) == rep.n_frames + 1
+    for name in ("an_x", "an_y", "an_kind", "an_hp"):
+        assert len(rep.animals[name]) == 0
+    meta, _ = replay.pack(rep)
+    for name in ("an_off", "an_x", "an_y", "an_kind", "an_hp"):
+        assert name in meta["arrays"]
+    assert meta["arrays"]["an_x"][2] == 0 and meta["arrays"]["an_off"][2] == rep.n_frames + 1
+    assert not meta["on"]["prey"] and not meta["on"]["huddle"]

@@ -1,6 +1,6 @@
 // 다시 보기 화면을 헤드리스 브라우저로 띄워 장면 몇 곳에서 지도 캔버스의 선·채움 호출을 빛깔별로 센다.
 // 사건 표시(공격 #e5534b, 건넴 #d8b25a, 먹음 #9fd8a8, 죽음 #c3cacc, 태어남 #e9e2c4, 운석 #e08a3c, 신호 고리 hsl(?,55%,66%))와
-// 든 알(깃발 128 개체 머리 앞의 채움 #cfe8a4)이
+// 든 알(깃발 128 개체 머리 앞의 채움 #cfe8a4), 사냥감(채운 원 #8fb7cc, 체력 호는 선 #e8ecec), 고기(먹이 채움 #c27a62)가
 // 그려지는지 보는 손 점검이다(pytest에 들지 않는다. 브라우저가 따로 떠 있어야 한다). 눈에 잘 띄는지는 재지 않는다.
 // 1) 크롬 헤드리스를 띄운다(메모리 상한을 건다):
 //      chrome-headless-shell --remote-debugging-port=9333 --no-sandbox --allow-file-access-from-files --user-data-dir=<임시 폴더> about:blank

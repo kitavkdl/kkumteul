@@ -545,7 +545,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
 
   // 관측 창의 색. 창은 밝은·어두운 테마 어디서나 어두운 바탕 하나로 둔다(어떤 핏줄 색이든 읽히게).
   // 형광을 빼고 채도를 낮춘 계기 빛깔. 사건 빛깔은 tests/replay_screen_probe.js가 세므로 바꾸면 거기도 고친다.
-  var S = { stage: "#0c0f10", grid: "232,236,236", patch: "127,174,140", food: "#7fae8c", poison: "#a48fd0", corpse: "#7d8587",
+  var S = { stage: "#0c0f10", grid: "232,236,236", patch: "127,174,140", food: "#7fae8c", poison: "#a48fd0", corpse: "#7d8587", meat: "#c27a62", prey: "#8fb7cc",
             eat: "#9fd8a8", bad: "#e5534b", born: "#e9e2c4", dead: "#c3cacc", give: "#d8b25a", ink: "#e8ecec", strike: "#e08a3c",
             held: "#cfe8a4", sig: "55%,66%" };
   var T = {};   // 쪽의 색 토큰(테마를 따른다)
@@ -626,9 +626,12 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
     g.fillRect(X - r, Y - r, 2 * r, 2 * r);
     g.globalAlpha = 1;
   }
-  // 먹이의 모양을 지금 경로에 보탠다. 0·2 동그라미(A), 1·3 마름모(B), 4 사체 조각
+  // 먹이의 모양을 지금 경로에 보탠다. 0·2 동그라미(A), 1·3 마름모(B), 4 사체 조각, 5 고기(네모)
   function foodPath(g, X, Y, r, b) {
-    if (b === 4) {
+    if (b === 5) {
+      var q = r * 0.9;
+      g.rect(X - q, Y - q, 2 * q, 2 * q);
+    } else if (b === 4) {
       var c = r * 0.95;
       g.moveTo(X - c, Y + c * 0.7); g.lineTo(X + c * 0.15, Y - c); g.lineTo(X + c, Y + c * 0.55); g.closePath();
     } else if (b === 1 || b === 3) {
@@ -710,8 +713,9 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
   // ---------- 장면 하나를 그린다 (뒤에 실시간 화면도 이 함수를 쓴다) ----------
   // g: 2D 문맥, cw·ch: 캔버스 크기(픽셀), cam: {x, y, s}(세계 좌표의 가운데와 세계 한 칸의 픽셀 수),
   // tt: 장면 번호(소수면 두 장면 사이를 잇는다), o: {sel, px, time, wiggle, mini}
-  var foodBuf = [new Float32Array(4096), new Float32Array(4096), new Float32Array(4096), new Float32Array(4096), new Float32Array(1024)];
-  var foodN = [0, 0, 0, 0, 0];
+  var foodBuf = [new Float32Array(4096), new Float32Array(4096), new Float32Array(4096), new Float32Array(4096), new Float32Array(1024),
+                 new Float32Array(1024)];
+  var foodN = [0, 0, 0, 0, 0, 0];
   var RING = Math.max(3, Math.round(16 / every));       // 고리가 남는 장면 수
   var sigW = A.fr_sig && A.fr_idx.length ? Math.round(A.fr_sig.length / A.fr_idx.length) : 0;
   function drawScene(g, cw, ch, cam, tt, o) {
@@ -742,25 +746,25 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
       }
     }
 
-    // 먹이: 종류 A는 동그라미, B는 마름모. 지금 독인 종류는 보라. 사체 조각은 회색
+    // 먹이: 종류 A는 동그라미, B는 마름모. 지금 독인 종류는 보라. 사체 조각은 회색, 고기는 붉은 갈색 네모
     var good = A.f_good[f], kinds = on.kinds, fr = cfg.food_radius * s * 1.15, far = fr < 1.7 * px;
     var hi = upper(A.fd_in, f), m = fr + 3 * px, kd;
-    foodN[0] = foodN[1] = foodN[2] = foodN[3] = foodN[4] = 0;
+    foodN[0] = foodN[1] = foodN[2] = foodN[3] = foodN[4] = foodN[5] = 0;
     for (j = 0; j < hi; j++) {
       if (A.fd_out[j] <= f) continue;
       X = hw + wrapW(A.fd_x[j] * kx - cx) * s; Y = hh + wrapH(A.fd_y[j] * ky - cy) * s;
       if (X < -m || X > cw + m || Y < -m || Y > ch + m) continue;
       kd = A.fd_kind[j];
-      b = kd === 2 ? 4 : (kinds && kd !== good ? 2 : 0) + (kd === 1 ? 1 : 0);
+      b = kd === 3 ? 5 : kd === 2 ? 4 : (kinds && kd !== good ? 2 : 0) + (kd === 1 ? 1 : 0);
       n = foodN[b]; buf = foodBuf[b];
       if (2 * n + 2 > buf.length) { var nb = new Float32Array(buf.length * 2); nb.set(buf); foodBuf[b] = buf = nb; }
       buf[2 * n] = X; buf[2 * n + 1] = Y; foodN[b] = n + 1;
     }
-    for (b = 0; b < 5; b++) {
+    for (b = 0; b < 6; b++) {
       n = foodN[b];
       if (!n) continue;
       buf = foodBuf[b];
-      g.fillStyle = b === 4 ? S.corpse : b >= 2 ? S.poison : S.food;
+      g.fillStyle = b === 5 ? S.meat : b === 4 ? S.corpse : b >= 2 ? S.poison : S.food;
       if (far) {       // 세계 전체 보기: 옅은 점으로 낮춘다
         var q = Math.max(1.5 * px, fr * 1.7);
         g.globalAlpha = mini ? 0.5 : 0.66;
@@ -777,6 +781,22 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
         g.beginPath();
         for (i = 0; i < n; i++) { g.moveTo(buf[2 * i] + rr * 0.34, buf[2 * i + 1]); g.arc(buf[2 * i], buf[2 * i + 1], rr * 0.34, 0, TAU); }
         g.fill();
+      }
+    }
+
+    // 사냥감: 반지름 prey_radius의 채운 원, 체력은 테두리 호(꽉 차면 온전)
+    if (on.prey && A.an_off) {
+      var ar = Math.max(cfg.prey_radius * s, (mini ? 2 : 3) * px);
+      for (i = A.an_off[f]; i < A.an_off[f + 1]; i++) {
+        X = hw + wrapW(A.an_x[i] * kx - cx) * s; Y = hh + wrapH(A.an_y[i] * ky - cy) * s;
+        if (X < -ar - 3 * px || X > cw + ar + 3 * px || Y < -ar - 3 * px || Y > ch + ar + 3 * px) continue;
+        g.globalAlpha = 0.85; g.fillStyle = S.prey;
+        g.beginPath(); g.arc(X, Y, ar, 0, TAU); g.fill();
+        g.globalAlpha = 1;
+        if (!mini) {
+          g.strokeStyle = S.ink; g.lineWidth = 1.6 * px; g.lineCap = "butt";
+          g.beginPath(); g.arc(X, Y, ar + 1.6 * px, -Math.PI / 2, -Math.PI / 2 + TAU * A.an_hp[i] / 255); g.stroke();
+        }
       }
     }
 
@@ -1355,6 +1375,13 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(
       add("먹이", "먹으면 에너지를 얻습니다", function (c) { c.fillStyle = S.food; c.beginPath(); foodPath(c, 44, 44, 12, 0); c.fill(); });
     }
     add("사체 조각", "죽은 생물이 남긴 먹이. 늘 먹을 수 있습니다", function (c) { c.fillStyle = S.corpse; c.beginPath(); foodPath(c, 44, 44, 13, 4); c.fill(); });
+    if (on.prey) {
+      add("사냥감", "생물보다 큰 동물. 둘레의 흰 호는 남은 체력이고, 여럿이 함께 쳐야 쓰러집니다", function (c) {
+        c.globalAlpha = 0.85; c.fillStyle = S.prey; c.beginPath(); c.arc(44, 44, 16, 0, TAU); c.fill(); c.globalAlpha = 1;
+        c.strokeStyle = S.ink; c.lineWidth = 2.5; c.beginPath(); c.arc(44, 44, 18.5, -Math.PI / 2, -Math.PI / 2 + TAU * 0.7); c.stroke();
+      });
+      add("고기", "쓰러진 사냥감이 남긴 먹이. 늘 먹을 수 있고, 먹이보다 빨리 상합니다", function (c) { c.fillStyle = S.meat; c.beginPath(); foodPath(c, 44, 44, 13, 5); c.fill(); });
+    }
     if (on.carry) add("든 알", "생물이 들고 다니는 먹이. 머리 앞의 작은 알로 보이고, 내려놓으면 그 자리에 다시 놓입니다", function (c) {
       drawCreature(c, 40, 48, 14, -0.45, demo, 1, 0, false); drawHeld(c, 40, 48, 14, -0.45, 1, 2);
     });
