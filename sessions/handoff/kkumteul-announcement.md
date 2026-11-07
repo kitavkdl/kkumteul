@@ -1,5 +1,5 @@
 # 꿈틀 announcement 인수인계
-마지막 갱신: 2026-11-06 18:0x ET (announcement 2131b3d6)
+마지막 갱신: 2026-11-06 20:0x ET (announcement 2131b3d6)
 
 ## 역할 (사용자 11/06 17:47 ET)
 꿈틀 세션들의 현황을 사용자에게 알리고 중계한다. 구현은 하지 않는다.
@@ -21,14 +21,19 @@
 - **커밋·push (사용자 11/06 18:0x):** 이 레포는 main에 자동 커밋·push. 검사는 개인정보·API 키·env만. 리서처는 Bash가 없어 raw 파일을 못 올리므로 announcement가 커밋한다(리서처가 파일 이름을 알려 줌). 리서처는 백그라운드라 main 폴더에 못 쓰므로 전용 작업 폴더 `.claude/worktrees/research`(가지 `research`)에 쓴다 → `git -C <그 폴더>`로 add·commit·fetch·rebase origin/main·push HEAD:main, 그 뒤 main 폴더 `git pull --ff-only`. 리서처를 새로 띄우면 이 경로를 할 일에 넣는다.
 
 ## 지금 걸린 것 (위에서부터)
-1. **옛 창 둘 닫기 대기**: `claude --agent insight`(pid 1248540)·`claude --agent researcher`(pid 1249338) — 사용자에게 요청함. 그 전엔 같은 이름이 둘씩이라 메시지가 옛 창으로 갈 수 있음(옛 insight가 정정을 보내와 새 insight에 전달함).
-2. **인사이트 첫 바퀴 결론(정정판)**은 메인에 전달됨: 1순위 대조 b 기억 입력 뒤섞기(mode=shuffle)로 판정 가 지표·막기 겨루기 재실행 + 1인당 섭취량·먹은 것의 독 여부 기록. 막기 −0.33은 중립 −0.007±0.05라 진짜 효과. 실행은 사용자 확인 뒤, 새 방향 다음.
-3. **status.md 낡음**: 새 insight가 메인에게 갱신 요청함(가지 results.md에 판정 셋·11/07 정정). 메인은 자기 가지에서 고치므로 main 합칠 때 들어왔는지 확인.
+1. **밤샘 체인 2026-11-07b 진행 중** (사용자 19:4x ET `/overnight` "다들 진행 ㄱㄱ 자정까지"). 메인 세션 `night-kkumteul-learn-1`(교대하면 -2, -3…), 작업 폴더 `.claude/worktrees/night-2026-11-07b-kkumteul-learn`, 가지 `night/2026-11-07b-kkumteul-learn`(앞 가지 끝 `8f6c200`에서 갈라 미리 만듦). 계획은 밤 폴더 `2026-11-07b/plan.md`. 자정 멈춤 타이머 `night-stop-20261107c`. 확인: `python3 ~/.claude/skills/overnight/night.py status 2026-11-07b`. 첫 동작이 status.md 갱신 → 그다음 0 판정 실험 마무리 → 1 개인 학습.
+   - 옛 체인 2026-11-07은 18:00 ET 멈춤(심사자가 "status.md가 가지에 없다"로 바로잡기 2번). 옛 타이머 `night-stop-20261107b`는 옛 체인을 가리켜 무해. 옛 가지는 `8f6c200`(main 합침)까지.
+   - 결과 가지의 main 병합은 사용자 몫(아침).
+2. **인사이트**: 메인 이름 바뀜을 알림. status.md 갱신을 기다렸다가 추천 1·2 결과 → 개인 학습 방향 발산.
+3. **리서처**: 대기. raw 파일 알림이 오면 `.claude/worktrees/research`에서 커밋(위 절차).
 
-## 현황 (18:0x ET)
-- 메인: 신호 판정 측정 구현 중. insight `[111f6c]`(opus·medium, bg): 0단계 갱신 대기 → 개인 학습 방향 발산 예정. research `[a53060]`(sonnet·high, bg): 할 일 받음.
+## 현황 (20:0x ET)
+- 메인 `night-kkumteul-learn-1`: 19:57 ET 시작, git log 읽는 중. insight `[111f6c]`(opus·medium, bg)·research `[a53060]`(sonnet·high, bg) 대기. 옛 창 둘은 사용자 지시로 프로세스 종료함(20:3x 전).
 
 ## 교훈·주의
+- ★ (11/06) **체인을 새로 걸 때는 main을 밤샘 가지에 먼저 합친다.** 가지가 갈라진 뒤 main에 생긴 파일(status.md)을 다음 할 일이 가리키면 심사자가 "없는 파일"로 바로잡기를 반복해 체인이 멈춘다(18:00~19:57 ET 2시간 공백). 멈춘 체인은 이어 가는 명령이 없다 — 새 날짜 이름(예: `2026-11-07b`)으로 init하고, 작업 폴더를 앞 가지 끝에서 미리 만들어 두면 launch가 그대로 쓴다.
+- ★ (11/06) 체인이 멈췄는지 스스로 확인한다(`night.py status`, 밤 폴더 events.log). 사용자가 "잘 진행 중이야?" 물으실 때까지 몰랐다 — 중계 세션은 메인이 ListAgents에서 사라지면 바로 본다.
+- (11/06) 체인 재시작은 사용자 `/overnight`가 있어야 한다. 기다릴 때는 "사용자가 /overnight를 치셔야 시작된다"를 분명히 쓴다.
 - ★ (11/06) 세션 이름은 첫 프롬프트 훅으로만 붙는다. 떠 있는 세션은 스스로 이름을 못 바꾼다(사용자가 `/rename`). 앱이 제목을 바꾸면 SendMessage 주소도 바뀌니, 다른 세션에 "받는 곳"을 알릴 때 `ListAgents`로 실제 이름을 확인한다(이 세션이 `kkumteul-2e`로 알렸다가 이름이 바뀌어 정정함).
 - ★ (11/06) 서브에이전트 `tools`를 빼면 전부 물려받는다. `[]`가 0개. 문서에 없어 `claude -p`로 시험해 확인했다. "list-agents 스킬"은 없다 — `ListAgents`·`SendMessage` 도구.
 - 공개 레포: 이 파일에 로컬 절대 경로·서버 구성·개인 정보 적지 않는다.
