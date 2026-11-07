@@ -87,6 +87,12 @@ def test_gene_ignored_when_off():
 
 
 # ---- 비용 ----
+# eat만 직접 부른다: 세계를 돌리면 에너지(감각 입력)가 달라져 행동·이동 비용이 갈라지므로 비용만 떼어 잴 수 없다
+def _eat_n(w, n):
+    for _ in range(n):
+        k.eat(w.step_no, w.s, w.fp, w.ip)
+
+
 def test_cost_per_step_and_none_when_off():
     on = lone(True, taste_cost=0.01)
     off = lone(False, taste_cost=0.01)
@@ -94,9 +100,9 @@ def test_cost_per_step_and_none_when_off():
     off.s.taste_g[0] = -0.1
     for w in (on, off):
         w.s.energy[0] = 5.0
-        w.run(10)
-        assert w.s.alive[0]
+        _eat_n(w, 10)
     assert off.s.energy[0] - on.s.energy[0] == pytest.approx(10 * 0.004, rel=1e-6)
+    assert on.s.ledger[k.L_BRAIN] - off.s.ledger[k.L_BRAIN] == pytest.approx(10 * 0.004, rel=1e-6)
 
 
 def test_cost_zero_rate_is_free():
@@ -105,7 +111,7 @@ def test_cost_zero_rate_is_free():
     on.s.taste_g[0] = -0.5                  # 실제 속도 0
     for w in (on, off):
         w.s.energy[0] = 5.0
-        w.run(10)
+        _eat_n(w, 10)
     assert on.s.energy[0] == pytest.approx(off.s.energy[0])
 
 
@@ -210,3 +216,46 @@ def test_summary_rate_mean_only_when_on():
     w.s.taste_g[w.s.alive] = -0.1
     assert w.summary()["taste_rate_mean"] == pytest.approx(0.4)
     assert "taste_rate_mean" not in taste_world("taste").summary()
+
+
+# ---- 판정 나 도구(wayfinder/stage2-4/taste_gene_judge.py) ----
+def _judge():
+    import importlib.util
+    p = Path(__file__).resolve().parents[1] / "wayfinder" / "stage2-4" / "taste_gene_judge.py"
+    spec = importlib.util.spec_from_file_location("taste_gene_judge", p)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def test_judge_zeroed_side_taste_and_eta():
+    tj = _judge()
+    w = gene_world()
+    w.s.taste_g[w.s.alive] = 0.1
+    side = measure.side_from_world(w)
+    z = tj.zeroed_side(side, "taste")
+    assert np.allclose(z["genomes"]["taste_g"], -w.cfg.taste_rate)
+    assert np.allclose(side["genomes"]["taste_g"], 0.1)          # 원래 벌은 그대로
+    e = tj.zeroed_side(side, "eta")
+    assert (e["genomes"]["eta"] == 0).all() and np.allclose(e["genomes"]["taste_g"], 0.1)
+    with pytest.raises(ValueError):
+        tj.zeroed_side(measure.side_from_world(taste_world("taste")), "taste")   # 유전자 꺼진 세계
+
+
+def test_judge_observe(tmp_path):
+    from kkumteul import checkpoint as ckpt
+    tj = _judge()
+    w = gene_world()
+    w.run(300)
+    w.s.taste_g[w.s.alive] = -0.2
+    path = ckpt.save(w, tmp_path)
+    o = tj.observe(path, steps=300)
+    assert o["pop"] == int(w.s.alive.sum())
+    assert o["taste_rate"]["mean"] == pytest.approx(0.3)
+    # 같은 체크포인트를 300스텝 더 돌린 세계의 계수기 차이와 같다
+    w2, _ = ckpt.load(path)
+    e0, p0 = int(w2.s.counters[k.C_EATEN]), int(w2.s.counters[k.C_POISONED])
+    w2.run(300)
+    eaten = int(w2.s.counters[k.C_EATEN]) - e0
+    assert eaten > 0 and o["eaten"] == eaten
+    assert o["poison_frac"] == pytest.approx((int(w2.s.counters[k.C_POISONED]) - p0) / eaten)

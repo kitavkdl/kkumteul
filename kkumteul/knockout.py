@@ -47,8 +47,9 @@ CHANNELS = ("hear", "kin", "saweat", "social", "trail", "vision", "taste", "tast
 OFF_RULES = {"hear": ["social_enabled=false"], "kin": ["social_enabled=false"],
              "saweat": ["social_enabled=false"], "social": ["social_enabled=false"],
              "trail": ["niche_enabled=false"], "vision": None,
-             "taste": ["taste_enabled=false"], "taste_vis": ["taste_enabled=false"],
-             "taste_val": ["taste_enabled=false"]}
+             "taste": ["taste_enabled=false", "taste_gene_enabled=false"],
+             "taste_vis": ["taste_enabled=false", "taste_gene_enabled=false"],
+             "taste_val": ["taste_enabled=false", "taste_gene_enabled=false"]}
 
 
 def _base(cfg: Config) -> int:

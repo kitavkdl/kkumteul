@@ -455,6 +455,9 @@ class World:
                     # 다음 스텝 값인 good_kind와 독이 바뀌는 순간에는 어긋날 수 있다
                     bad = 1 - int(k.good_kind(cfg.seed, max(self.step_no - 1, 0), cfg.kind_flip_period))
                     out["taste_on_poison"] = float(s.taste_m[a, 1 if bad == k.KIND_B else 0].mean())
+                if cfg.taste_gene_enabled:
+                    # 산 개체의 실제 배움 속도 평균(유전자 장치). 추세는 판정이 아니라 단서
+                    out["taste_rate_mean"] = float(np.clip(cfg.taste_rate + s.taste_g[a], 0.0, 1.0).mean())
             if c[k.C_MIGRANTS] > 0 or (s.tag[a] != 0).any():
                 # 이주해 온 생물과 그 후손의 비율. 이주가 있었던 세계는 그 계통이 다 사라져도 0으로 적는다
                 out["migrant_frac"] = float((s.tag[a] != 0).mean())

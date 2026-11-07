@@ -51,6 +51,7 @@ S_CROSS = 27        # 교배
 S_PATHOGEN = 28     # 병원체
 S_RESERVOIR = 29    # 병원체 보균 자리
 S_SEX_SPARE = 30    # 암수용 예비
+S_TASTE_GENE = 31   # 맛 배움 속도 유전자의 변이
 
 
 @njit(cache=True, inline="always")

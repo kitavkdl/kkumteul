@@ -15,7 +15,7 @@ from numba import njit, prange
 from .config import (ACT_ATTACK, ACT_CARRY, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_THRUST, ACT_TURN, FIRST_MEALS, N_REWARD,
                      N_TASTE_IN, N_TASTE_VIS, TASTE_VAL, TASTE_VIS)
 from .rng import (S_BIRTH_ORDER, S_BIRTH_POS, S_FOOD, S_KIND, S_INIT_AGE, S_INIT_GENOME, S_INIT_POS, S_MUT_GENE,
-                  S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, normal, u01)
+                  S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, S_TASTE_GENE, normal, u01)
 
 # ---- 상태 묶음 ----
 AGENT_FIELDS = [
@@ -71,6 +71,7 @@ AGENT_FIELDS = [
     ("elig_rec", np.float32, ("EH", "EH"), True),
     ("a_held", np.int32, (), True),           # 든 물건의 먹이 칸 번호(-1이면 빈손)
     ("taste_m", np.float32, ("2",), True),    # 맛 기억: +로 보이는 먹이, -로 보이는 먹이(-1~+1, 태어날 때 0)
+    ("taste_g", np.float32, (), True),        # 맛 배움 속도 유전자: taste_rate에서 벗어난 몫(물려받음, 장치 꺼지면 안 쓰임)
     ("hnew", np.float32, ("H",), False),
     ("obs", np.float32, ("I",), False),
     ("act", np.float32, ("O",), False),
@@ -127,7 +128,7 @@ LIFETIME_FLEX = ("epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link", "
 PERTURB_FLEX = ("elig_in", "elig_rec")
 # 나중에 생긴 저장 필드의 기본값. 값이 모두 기본값이면 상태 해시에 넣지 않고(그 필드가 생기기 전 해시와 같게),
 # 이 필드가 없는 옛 체크포인트를 읽으면 기본값으로 둔다(alloc_state가 이 값으로 채운다). 새 저장 필드는 여기에 더한다.
-HASH_DEFAULTS = {"elig_in": 0, "elig_rec": 0, "a_held": -1, "f_holder": -1, "f_dropped": 0, "taste_m": 0}
+HASH_DEFAULTS = {"elig_in": 0, "elig_rec": 0, "a_held": -1, "f_holder": -1, "f_dropped": 0, "taste_m": 0, "taste_g": 0}
 OTHER_SCRATCH = ["a_start", "a_items", "f_start", "f_items", "cursor", "bbuf", "dbuf", "dbuf_f"]
 
 State = namedtuple(
@@ -217,12 +218,12 @@ DEATH_KILLED = 4         # 공격을 맞은 스텝에 에너지가 바닥남
  P_BIAS_THRUST, P_BIAS_REPRO, P_SIGMA_INIT, P_SIGMA_MIN, P_SIGMA_MAX, P_SIGMA_TAU,
  P_P_HIDDEN, P_COLOR_SIGMA, P_SYN, P_BACK_COST, P_ETA_INIT, P_ETA_MAX, P_ALPHA_INIT, P_POISON,
  P_KIND_RATIO, P_SPOIL_RATE, P_SPOIL_MIN, P_CARRY_COST, P_MEAT_SPOIL, P_HUDDLE_CAP, P_HUDDLE_EXP,
- P_TASTE_RATE, P_TASTE_DECAY, P_TASTE_INHERIT, N_FP) = range(58)
+ P_TASTE_RATE, P_TASTE_DECAY, P_TASTE_INHERIT, P_TASTE_GENE_SIGMA, P_TASTE_COST, N_FP) = range(60)
 
 # ---- 정수 설정 칸 ----
 (Q_SEED, Q_GW, Q_GH, Q_FOOD_CAP, Q_N_PATCH, Q_PATCH_LIFE, Q_MAX_AGE, Q_MIN_AGENTS,
  Q_SECTORS, Q_H_MAX, Q_H_INIT, Q_H_MIN, Q_REPRO_BRAIN, Q_REPRO_MIN_AGE, Q_MUT, Q_CORPSE,
- Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, Q_CAP_REPLACE, Q_SPOIL_AFTER, Q_FIELD_CAP, Q_TASTE_IN0, N_IP) = range(24)
+ Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, Q_CAP_REPLACE, Q_SPOIL_AFTER, Q_FIELD_CAP, Q_TASTE_IN0, Q_TASTE_GENE, N_IP) = range(25)
 
 
 def pack_params(cfg):
@@ -285,6 +286,8 @@ def pack_params(cfg):
     fp[P_TASTE_RATE] = cfg.taste_rate
     fp[P_TASTE_DECAY] = cfg.taste_decay
     fp[P_TASTE_INHERIT] = cfg.taste_inherit
+    fp[P_TASTE_GENE_SIGMA] = cfg.taste_gene_sigma
+    fp[P_TASTE_COST] = cfg.taste_cost
     ip[Q_SEED] = cfg.seed
     ip[Q_GW] = cfg.grid_w
     ip[Q_GH] = cfg.grid_h
@@ -310,6 +313,8 @@ def pack_params(cfg):
     # 맛 블록의 첫 입력 번호. 장치가 꺼져 있거나 입력 칸이 모자라면 -1(맛 블록에 쓰지 않는다)
     taste_on = cfg.taste_enabled and cfg.n_in >= cfg.taste_in0 + N_TASTE_IN
     ip[Q_TASTE_IN0] = cfg.taste_in0 if taste_on else -1
+    # 맛 배움 속도 유전자: 맛 블록이 실제로 쓰일 때만(아니면 배움도 비용도 없다)
+    ip[Q_TASTE_GENE] = int(cfg.taste_gene_enabled and taste_on)
     return fp, ip
 
 
@@ -1086,7 +1091,10 @@ def eat(step, s, fp, ip):
     e_max = fp[P_E_MAX]
     field_cap = ip[Q_FIELD_CAP]
     taste = ip[Q_TASTE_IN0] >= 0
-    rate = fp[P_TASTE_RATE]
+    rate0 = fp[P_TASTE_RATE]
+    rate = rate0
+    gene = taste and ip[Q_TASTE_GENE] != 0
+    cost = fp[P_TASTE_COST]
     keep = 1.0 - fp[P_TASTE_DECAY]
     for i in range(n):
         s.ate[i] = 0.0
@@ -1096,6 +1104,16 @@ def eat(step, s, fp, ip):
             # 잊기: 배부른 개체도 스텝마다 기억이 0 쪽으로 줄어든다
             s.taste_m[i, 0] *= keep
             s.taste_m[i, 1] *= keep
+            if gene:
+                # 실제 배움 속도 = clamp(taste_rate + taste_g, 0, 1). 빨리 배우는 만큼 스텝마다 값을 치른다(뇌의 값)
+                rate = rate0 + s.taste_g[i]
+                if rate < 0.0:
+                    rate = 0.0
+                elif rate > 1.0:
+                    rate = 1.0
+                c_learn = cost * rate
+                s.energy[i] -= c_learn
+                s.ledger[L_BRAIN] += c_learn
         if s.energy[i] >= e_max:
             continue
         xi = s.x[i]
@@ -1210,6 +1228,7 @@ def _reset_body(s, j, aid, parent, gen, tag, step, px, py, hd, e):
     s.a_held[j] = -1
     s.taste_m[j, 0] = 0.0
     s.taste_m[j, 1] = 0.0
+    s.taste_g[j] = 0.0
     s.n_meal[j] = 0
     s.n_poison[j] = 0
     s.n_poison10[j] = 0
@@ -1367,6 +1386,18 @@ def copy_genome(s, i, j, cid, fp, ip):
             s.Wrec[j, k, t] = 0.0
         for o in range(n_out):
             s.Wout[j, o, k] = 0.0
+    # 맛 배움 속도 유전자(맨 뒤에 덧붙임, 자기 난수 용도라 앞의 흐름은 그대로). 장치가 꺼져 있으면 변이 없이 베낀다.
+    # 선형 변이(0 근처가 덫이 되지 않게), 실제 속도가 [0, 1] 안에 들게 [−taste_rate, 1 − taste_rate]로 자른다
+    g = float(s.taste_g[i])
+    if mut and ip[Q_TASTE_GENE] != 0:
+        g += fp[P_TASTE_GENE_SIGMA] * normal(seed, S_TASTE_GENE, cid, 0)
+        lo = -fp[P_TASTE_RATE]
+        hi = 1.0 - fp[P_TASTE_RATE]
+        if g < lo:
+            g = lo
+        elif g > hi:
+            g = hi
+    s.taste_g[j] = g
 
 
 # ---- 죽음 ----
