@@ -212,6 +212,13 @@ class Config:
                                   # 주기 1500의 4분의 1, 독이 실제로 바뀌는 평균 간격 약 3,000의 8분의 1.
                                   # 잊어야 피하던 모양을 다시 맛본다. 임시 결정
     taste_inherit: float = 0.0    # 자연 출생 때 새끼가 받는 기억 = taste_inherit * 부모 기억. 0이면 0에서 시작. 임시 결정
+    # 맛 배움 속도 유전자 (기본은 꺼짐, 맛 기억이 켜져 있어야 한다. 설계 2026-11-07-individual-learning-design.md)
+    taste_gene_enabled: bool = False  # 켜면 실제 배움 속도 = clamp(taste_rate + 개체의 taste_g, 0, 1).
+                                      # taste_g는 물려받는 유전자(처음·옛 체크포인트는 0), 진화가 배움을 늘리고 줄일 수 있다
+    taste_gene_sigma: float = 0.02    # 출생 때 taste_g에 더하는 변이 폭(선형 — 0 근처가 덫이 되지 않게). 30만 스텝(약 400세대)
+                                      # 떠돌기만으로 약 0.4 퍼진다. 임시 결정
+    taste_cost: float = 0.0005        # 스텝당 비용 = taste_cost × 실제 배움 속도(장치를 켰을 때만). 속도 0.5면 한 생(약 1,100스텝)
+                                      # 약 0.28 — 끼니 한 번(1.0)의 4분의 1쯤, 독을 피한 이득(끼당 1.3 차이)보다 훨씬 작다. 임시 결정
 
     # --- 4단계: 판이 바뀌는 세계 (기본은 꺼짐) ---
     niche_enabled: bool = False   # 다닌 자리가 길이 되고, 쌓은 거름이 먹이를 끌어온다
@@ -391,6 +398,10 @@ class Config:
         for name in ("taste_rate", "taste_decay", "taste_inherit"):
             if not (0.0 <= getattr(self, name) <= 1.0):
                 raise ValueError(f"{name}은 0과 1 사이여야 한다")
+        if self.taste_gene_enabled and not self.taste_enabled:
+            raise ValueError("taste_gene_enabled는 맛 기억(taste_enabled)이 켜져 있어야 쓸 수 있다: preset=taste")
+        if self.taste_gene_sigma < 0 or self.taste_cost < 0:
+            raise ValueError("taste_gene_sigma와 taste_cost는 0 이상이어야 한다")
         for name in ("give_loss", "deposit_loss", "path_bonus", "fert_frac", "sleep_basal", "trace_decay",
                      "hormone_rate_hunger", "hormone_rate_stress", "hormone_rate_dopamine",
                      "hormone_rate_boredom", "reward_baseline_rate", "proto_lr", "sleep_forget",
