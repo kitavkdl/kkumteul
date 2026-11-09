@@ -5,6 +5,7 @@
 - 사용자가 다시 시작하라고 하실 때까지 실험·밤샘 체인·상주 세션(announcement·insight·research)을 띄우지 않는다.
 - 끈 것: 앱의 꿈틀 세션 셋 보관, RC 대기 창 `rc-kkumteul` 종료, 남아 있던 로그 보기 프로세스 종료. 서버 세계 둘(`kkumteul-main`·`kkumteul-world4`)은 11/09 이전에 이미 멈춤. 밤샘 체인 2026-11-07·07b는 둘 다 `stopped`.
 - 그대로 둔 것(지우지 않음): 밤샘 가지와 작업 폴더(`.claude/worktrees/night-*`), `runs/`, 아티팩트.
+- 11/06 판의 "다음 할 일"(맛 기억 다음·사냥·2부-다·암수 큰 순서)과 0번 스크립트 위치는 `archive/kkumteul-history.md` 맨 위 "2026-11-09 대청소에서 뺀 것"에 원문 그대로.
 - 마지막 결과(밤샘 가지 `night/2026-11-07b-kkumteul-learn`, **main에 안 합침**): 신호 판정 `e9ba9cb`(world4 경계, atk-a 쓰지 않음), 개인 학습 `a118582`(주기 500 쓴다 — 씨앗 둘은 500만, 15,000은 5/6 전멸; 독 비율 0.43~0.46으로 이긴 까닭 미확인; 고정 갈래는 겨루기가 깨져 볼드윈 보류). 정리 아티팩트 https://claude.ai/artifact/E1vteozVx5B4Tvwf5JUweg
 - 다시 시작할 때 먼저 할 것: ① 위 가지 합칠지 사용자에게 ② announcement가 11/07 11:17 ET에 꺼진 원인 — wrap-spawn이 띄운 백그라운드 데몬 세션은 8시간 입력이 없으면 Claude Code가 자동 정리한다(`~/.claude/daemon.log`의 `bg retire … idle-prompt, idle 8h`). 상주 세션은 tmux로 띄우거나 세션 안 예약 작업을 둬야 한다 — 사용자 결정 대기.
 
@@ -17,24 +18,13 @@
 ## ★ 먼저 할 것
 - **아티팩트 올리기**: 원래 폴더 `runs/replay-two.html`(13.9MB, `--artifact`로 만든 두 장면)을 다시 보기 주소 https://claude.ai/artifact/LJwqLAmdv8evuPTUj7W69Z 에 같은 주소로 올린다. 서버 32(wrap-spawn 백그라운드 세션)에는 아티팩트 도구가 없어 못 했다 — 도구가 없으면 사용자에게 앱 세션에서 올려 달라고 한 줄로. 여정 아티팩트(원본 `docs/journey.html`) "지금 상태"에 맛 기억 판정도 넣는다.
 - **합치기**: 사용자에게 드릴 한 줄(원래 폴더 터미널): `cd ~/git/kkumteul && git push -u origin night/2026-11-06-kkumteul-taste && bash scripts/merge-into-main.sh night/2026-11-06-kkumteul-taste && echo 저장됨`. 백그라운드가 아닌 세션이면 직접 합친다(메모리 `background-sessions-work-on-a-branch`). 옛 번호의 가지를 push하지 말 것. 새 세션은 이 작업 폴더(`.claude/worktrees/night-2026-11-06-kkumteul-taste`)에서 인수인계를 읽는다.
-- **맛 기억 다음**: ① 대조 b 가르기 — 대조 b 맛 칸(입력 50~59) 가중치 부호를 뒤집은 갈래로 같은 켬/끔(뒤집으면 −로 가야 "우연한 배선"), 막기 −0.33이 왜 반대인지도. ② 물려받기는 설계대로 `taste_rate` 0.2(배움이 비싼) 갈래로 한 번 더. 판정 도구는 `wayfinder/stage2-4/taste_judge.py`, 체인 꼴은 원래 폴더 `runs/taste-exp/judge.sh`.
-- 물어뜯기 갈래 넷은 모두 문턱 못 넘음(결과 문서 "결과 — 갈래 넷"). 그다음 손 개체로 "사냥감 곁에서만 치면 이득인가" → 빗나간 공격 비용.
 - 교대: 이 세션 꼴(wrap-spawn 백그라운드)은 wrap하면 wrap-spawn으로 새 세션. 알림 턴에서는 저장만 하고 다음 사용자 말씀 턴에 교대(전역 wrap.md, 사용자 11/05). 예외 규칙은 넣지 말라 하심(11/06 "ㄴㄴ"). ★ (11/06) 그렇다고 알림 턴에 할 일을 멈추지는 않는다(사용자 15:4x "왜 너 혼자 계속 진행을 안 하는 거야") — 일은 끝까지, 교대만 미룬다.
-- 큰 순서(사용자 14:4x ET): 혹독한 세계 → 암수 → 몸짓 → 기록 → 도구 — 여기에 맛 기억이 끼어들었다(사용자 11/06). 그 밖의 사용자 지시(암수 범위, 지구값·출처)는 보관 파일 맨 위 서버 18 절.
 
 ## 현재 상태
 - 설계: `docs/superpowers/specs/2026-11-05-harsh-world-design.md`(여섯째 판), `2026-11-05-sex-design.md`(셋째 판). 검토 기록 `-harsh-world-review.md`, `-sex-review.md`.
 - 계획: 1부 `…-part1.md`, 2부-가 `…-part2a.md`, 2부-나 `…-part2b.md`(둘째 판) — 모두 끝. 2부-다(⑤ 포식자·약탈자·헷갈림, 섞기 대조)는 계획 안 씀.
-- 새 SDD 지시문의 공통 규칙 틀은 `.superpowers/sdd/common-template.md`(git 밖, 세션 주소·job id를 고쳐 쓴다).
-- 0번 스크립트 `.superpowers/scratch/harsh/`(git 밖): 셋째는 `h2-run.sh <해시> [갈래]`(갈래 다섯), `h2-b0.py`(진단 손댐), `h2-read.sh <해시>`(읽기, 공격 출력 > 0 비율은 체크포인트에서 한 스텝 돌려 잼). 결과 `wayfinder/stage2-4/results.md` 끝 세 절. 갈래 `runs/h0-*`·`h1-*`·`h2-*`, 코드 사본 `runs/code-6140339` 등. 갈래 하나 1만 스텝이 1~3분(144~166 sps).
 - 서버 세계 둘 `kkumteul-main`, `kkumteul-world4`(원래 폴더 main `d0b7ead` 코드). 재부팅하면 원래 폴더에서 `memcap --bg kkumteul-main --log runs/main.log --max 1500M -- nice -n 15 .venv/bin/python -m kkumteul.run resume --run runs/main --quiet`(world4도 같게, 하나씩).
 - 아티팩트: 다시 보기 https://claude.ai/artifact/LJwqLAmdv8evuPTUj7W69Z(아직 11/05 판 — 새 파일 올리기 남음), 여정 https://claude.ai/artifact/EZUf6Mkz429VDmrkWddk3H (원본 `docs/journey.html`).
-
-## 다음 할 일 (위에서부터)
-1. **맛 기억 판정 마무리**(위) → 결과 문서·여정 아티팩트 "지금 상태" 갱신 → **다시 보기 두 장면**(작업 목록).
-2. **사냥 이어 가기**: 손 개체로 "사냥감 곁에서만 치면 이득인가"(물어뜯기 0/0.6/1.0) → 빗나간 공격 비용 → 필요하면 더 긴 갈래. "혼자는 손해"가 깨지는 대가는 설계 일곱째 판.
-3. 그다음 큰 순서: 2부-다(⑤ 포식자·약탈자·헷갈림, 섞기 대조) 설계 확인 → 계획 → 검토 두 갈래 → SDD. 그 뒤 암수(설계 셋째 판 있음).
-4. develop 후보: 신호 내는 쪽 판정, 재생 실험, 신호 값 기록.
 
 ## 일하는 방식
 - 서버가 바쁘다. 실험은 2스레드, 메모리 상한 1.5GB, 한 번에 하나, `memcap --bg`. 서브에이전트에게 시뮬레이션을 시키지 않는다(시험은 됨).
