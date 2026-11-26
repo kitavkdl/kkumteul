@@ -14,7 +14,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from test_stages import small  # noqa: E402
+from test_harsh import _place  # noqa: E402
+from test_stages import rel_residual, small  # noqa: E402
 from test_taste import PINNED_TASTE_SIZE_HASH_300, taste_world  # noqa: E402
 from kkumteul import config as cfgmod  # noqa: E402
 from kkumteul import kernels as k  # noqa: E402
@@ -292,3 +293,140 @@ def test_nonzero_show_feed_enters_state_hash():
     assert w.state_hash() != h0
     w.s.feed_g[:] = 0.0
     assert w.state_hash() == h0
+
+
+# ---- 과제 2: 미숙기(먹이 효율·속도 상한·독 배수) ----
+def _lone_juv(**kw) -> World:
+    """개체 하나·먹이 유입 없음. 미숙기 시험은 eat·move를 직접 부른다."""
+    w = taste_world("taste", init_agents=1, min_agents=0, food_inflow=0.0, **kw)
+    assert w.s.alive[0]
+    return w
+
+
+def _eat_one(w, kind, age, e=1.0):
+    """개체 0(나이 age = eat가 보는 증가 뒤 나이)의 자리에 kind 알 하나를 놓고 eat를 한 번 부른다.
+    (에너지 변화, eaten 변화, L_LOST 변화)를 돌려준다."""
+    s, cfg = w.s, w.cfg
+    s.age[0] = age
+    s.energy[0] = 2.0
+    eaten0 = float(s.eaten[0])
+    lost0 = float(s.ledger[k.L_LOST])
+    _place(w, e=e, kind=kind, x=float(s.x[0]), y=float(s.y[0]))
+    k.build_grid(s.fx, s.fy, s.f_alive, 1.0 / cfg.cell, cfg.grid_w, cfg.grid_h, s.f_start, s.f_items, s.cursor)
+    k.eat(w.step_no, s, w.fp, w.ip)
+    return float(s.energy[0]) - 2.0, float(s.eaten[0]) - eaten0, float(s.ledger[k.L_LOST]) - lost0
+
+
+def _good(w) -> int:
+    return k.good_kind(w.cfg.seed, w.step_no, w.cfg.kind_flip_period)
+
+
+def test_juv_ramp_hand_values():
+    assert k.juv_ramp(0, 0.5, 200) == pytest.approx(0.5)
+    assert k.juv_ramp(100, 0.5, 200) == pytest.approx(0.75)
+    assert k.juv_ramp(199, 0.5, 200) == pytest.approx(0.5 + 0.5 * 199 / 200)
+    assert k.juv_ramp(200, 0.5, 200) == 1.0
+    assert k.juv_ramp(500, 0.5, 200) == 1.0
+    assert k.juv_ramp(0, 0.3, 200) == pytest.approx(0.3)
+    assert k.juv_ramp(100, 0.3, 200) == pytest.approx(0.65)
+    assert k.juv_ramp(0, 1.0, 200) == 1.0          # 손잡이를 1로 두면 효과 없음
+
+
+@pytest.mark.parametrize("a", [0, 100, 200, 300])
+def test_eat_efficiency_by_age(a):
+    w = _lone_juv(juv_enabled=True)
+    dE, dEaten, dLost = _eat_one(w, _good(w), age=a + 1)       # eat는 증가 뒤 나이(a + 1)를 본다
+    ramp = 0.5 + 0.5 * min(1.0, a / 200.0)
+    assert dE == pytest.approx(1.0 * ramp)
+    assert dEaten == pytest.approx(1.0 * ramp)
+    assert dLost == pytest.approx(1.0 * (1.0 - ramp), abs=1e-12)
+    if a >= 200:
+        assert dE == 1.0 and dLost == 0.0                      # 어른은 옛 동작
+
+
+def test_eat_juv_off_is_old_behavior():
+    w = _lone_juv()
+    dE, dEaten, dLost = _eat_one(w, _good(w), age=1)
+    assert dE == 1.0 and dEaten == 1.0 and dLost == 0.0
+
+
+@pytest.mark.parametrize("kind", [k.KIND_CORPSE, k.KIND_MEAT])
+def test_eat_corpse_full_efficiency(kind):
+    w = _lone_juv(juv_enabled=True)
+    dE, dEaten, dLost = _eat_one(w, kind, age=1, e=3.0)        # 갓 태어난 새끼가 사체·고기를 먹는다
+    assert dE == 3.0 and dEaten == 3.0 and dLost == 0.0
+    # 같은 새끼가 들판 알을 먹으면 효율이 곱해진다(양성 대조)
+    dE, _, dLost = _eat_one(w, _good(w), age=1, e=3.0)
+    assert dE == pytest.approx(1.5) and dLost == pytest.approx(1.5)
+
+
+def test_eat_poison_mult_juvenile_only():
+    w = _lone_juv(juv_enabled=True, juv_poison_mult=3.0)
+    bad = 1 - _good(w)
+    p = float(w.cfg.poison)
+    dE, dEaten, dLost = _eat_one(w, bad, age=51)               # 미숙기
+    assert dE == pytest.approx(-p * 3.0) and dEaten == 0.0
+    assert dLost == pytest.approx(1.0 + p * 3.0)
+    dE, dEaten, dLost = _eat_one(w, bad, age=201)              # a = 200: 어른
+    assert dE == pytest.approx(-p) and dLost == pytest.approx(1.0 + p)
+    w2 = _lone_juv()                                           # 꺼짐이면 배수 없음
+    dE, _, dLost = _eat_one(w2, 1 - _good(w2), age=51)
+    assert dE == pytest.approx(-p) and dLost == pytest.approx(1.0 + p)
+
+
+def _speed_after_move(w, age, v0=10.0) -> float:
+    """개체 0이 age(증가 전 나이)에서 명령 없이 큰 속도로 한 스텝 움직인 뒤의 속력."""
+    s = w.s
+    s.age[0] = age
+    s.vx[0], s.vy[0] = v0, 0.0
+    s.act[0, :] = 0.0
+    k.move(s, w.fp, w.ip)
+    assert s.age[0] == age + 1                                 # age += 1은 그대로
+    return float(np.hypot(s.vx[0], s.vy[0]))
+
+
+def test_move_speed_cap_by_age():
+    w = _lone_juv(juv_enabled=True)
+    vmax = float(w.cfg.v_max)
+    assert _speed_after_move(w, 0) == pytest.approx(vmax * 0.3)
+    assert _speed_after_move(w, 100) == pytest.approx(vmax * 0.65)     # move는 증가 전 나이를 a로 쓴다
+    assert _speed_after_move(w, 199) == pytest.approx(vmax * (0.3 + 0.7 * 199 / 200))
+    assert _speed_after_move(w, 200) == pytest.approx(vmax)            # 어른
+    assert _speed_after_move(w, 900) == pytest.approx(vmax)
+    w2 = _lone_juv()
+    assert _speed_after_move(w2, 0) == pytest.approx(vmax)             # 꺼짐: 옛 동작
+
+
+def _neutral_pair(*presets, **kw):
+    off = taste_world(*presets, **kw)
+    on = taste_world(*presets, juv_enabled=True, juv_eat_floor=1.0, juv_move_floor=1.0, juv_poison_mult=1.0, **kw)
+    return off, on
+
+
+@pytest.mark.parametrize("presets,kw", [
+    (("taste",), {}),
+    (("taste", "conflict"), dict(soc_taste_enabled=True)),
+])
+def test_juv_knobs_neutral_hash_equals_off(presets, kw):
+    off, on = _neutral_pair(*presets, **kw)
+    off.run(300)
+    on.run(300)
+    assert on.cfg.juv_enabled and not off.cfg.juv_enabled
+    assert on.cfg.conflict_enabled == off.cfg.conflict_enabled == ("conflict" in presets)
+    assert on.state_hash() == off.state_hash()
+
+
+def test_juv_defaults_change_world():
+    # 양성 대조: 손잡이를 기본값으로 두면 세계가 달라진다(중립 시험이 아무것도 안 보는 시험이 아님을 확인)
+    off = taste_world("taste")
+    on = taste_world("taste", juv_enabled=True)
+    off.run(300)
+    on.run(300)
+    assert on.state_hash() != off.state_hash()
+
+
+def test_ledger_closes_with_juv():
+    w = taste_world("taste", juv_enabled=True, juv_poison_mult=2.0)
+    w.run(1500)
+    assert w.s.ledger[k.L_LOST] > 0
+    assert rel_residual(w) < 1e-9

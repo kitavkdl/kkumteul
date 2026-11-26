@@ -58,6 +58,7 @@ class World:
                 raise ValueError(f"{name}은 실행 중에 바꿀 수 없다(배열 크기가 달라진다)")
         cfg.validate()
         # taste_g·soc_g는 지우지 않는다(속도 유전자는 장치를 끄고 켜도 몸에 남는다, 설계 5절)
+        # juv_*를 런타임에 바꿔도 유전체는 그대로(미숙기 손잡이는 상태가 아니라 매 스텝 읽는 설정이다)
         if cfg.mind_enabled != old.mind_enabled or cfg.n_proto != old.n_proto:
             # 마음을 켜거나 끄면 평생 학습 배열의 크기가 바뀐다. 새로 만들고 0에서 시작한다
             fresh = k.alloc_state(cfg)

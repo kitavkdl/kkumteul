@@ -481,6 +481,15 @@ def pick_kind(seed, a, b, ratio):
 
 
 @njit(cache=True, inline="always")
+def juv_ramp(a, floor, steps):
+    """미숙기 비율: floor에서 시작해 a가 steps에 이르면 1. 연속·선형이다(문턱 아님).
+    a는 부르는 쪽이 맞춘다: move는 증가 전 나이(age), eat·계수는 age - 1."""
+    if a >= steps:
+        return 1.0
+    return floor + (1.0 - floor) * (a / steps)
+
+
+@njit(cache=True, inline="always")
 def always_edible(kind):
     """이 종류는 어느 쪽이 독이든 늘 먹을 수 있고 들판 알이 아닌가(사체·고기)."""
     for e in ALWAYS_EDIBLE:
@@ -965,9 +974,15 @@ def move(s, fp, ip, basal_mult=1.0):
     h_max = ip[Q_H_MAX]
     n_io = s.obs.shape[1] + s.act.shape[1]
     syn_max = h_max * h_max + h_max * n_io
+    juv = ip[Q_JUV] != 0
+    juv_steps = ip[Q_JUV_STEPS]
     for i in range(n):
         if not s.alive[i]:
             continue
+        # 미숙기 속도 상한: move는 age를 올리기 전이라 age가 곧 a
+        vm = vmax
+        if juv and s.age[i] < juv_steps:
+            vm = vmax * juv_ramp(s.age[i], fp[P_JUV_MOVE_FLOOR], juv_steps)
         thrust = float(s.act[i, ACT_THRUST])
         turn = float(s.act[i, ACT_TURN])
         hd = s.heading[i] + turn * fp[P_MAX_TURN]
@@ -979,9 +994,9 @@ def move(s, fp, ip, basal_mult=1.0):
         vx = (s.vx[i] + f * math.cos(hd)) * keep
         vy = (s.vy[i] + f * math.sin(hd)) * keep
         sp = math.sqrt(vx * vx + vy * vy)
-        if sp > vmax:
-            vx *= vmax / sp
-            vy *= vmax / sp
+        if sp > vm:
+            vx *= vm / sp
+            vy *= vm / sp
         s.vx[i] = vx
         s.vy[i] = vy
         s.x[i] = _wrap(s.x[i] + vx, w)
@@ -1185,11 +1200,21 @@ def eat(step, s, fp, ip):
     soc_rate0 = fp[P_SOC_RATE]
     soc_cost = fp[P_SOC_COST]
     keep = 1.0 - fp[P_TASTE_DECAY]
+    juv = ip[Q_JUV] != 0
+    juv_steps = ip[Q_JUV_STEPS]
     for i in range(n):
         s.ate[i] = 0.0
         s.meal_o[i] = 0.0       # 이번 스텝의 끼니 기록(보고 배우기용). 죽은 칸·배불러 건너뛰는 개체도 비운다
         if not s.alive[i]:
             continue
+        # 미숙기: eat는 move가 age를 올린 뒤라 a = age - 1이 move 시점 나이. 들판 알 효율 m, 독 배수 pm
+        m = 1.0
+        pm = 1.0
+        if juv:
+            a_juv = s.age[i] - 1
+            if a_juv < juv_steps:
+                m = juv_ramp(a_juv, fp[P_JUV_EAT_FLOOR], juv_steps)
+                pm = fp[P_JUV_POISON_MULT]
         if taste:
             # 잊기: 배부른 개체도 스텝마다 기억이 0 쪽으로 줄어든다
             s.taste_m[i, 0] *= keep
@@ -1267,13 +1292,19 @@ def eat(step, s, fp, ip):
                                 s.meal_o[i] = 1.0
                     if poison:
                         # 독: 먹이의 에너지는 사라지고 먹은 쪽도 에너지를 잃는다
-                        s.energy[i] -= fp[P_POISON]
-                        s.ledger[L_LOST] += s.f_energy[j] + fp[P_POISON]
+                        # (미숙기 새끼는 독 배수 pm만큼 더 잃는다. 어른·꺼짐은 pm = 1.0이라 비트가 같다)
+                        s.energy[i] -= fp[P_POISON] * pm
+                        s.ledger[L_LOST] += s.f_energy[j] + fp[P_POISON] * pm
                         s.counters[C_POISONED] += 1
                         s.ate[i] = 1.0
                         continue
-                    s.energy[i] += s.f_energy[j]
-                    s.eaten[i] += s.f_energy[j]
+                    # 들판 알은 미숙기 효율 m을 곱해 얻고 못 얻은 몫은 L_LOST로 간다(장부). 사체·고기는 효율 1
+                    gain = s.f_energy[j]
+                    if not always_edible(fk):
+                        gain = s.f_energy[j] * m
+                    s.energy[i] += gain
+                    s.eaten[i] += gain
+                    s.ledger[L_LOST] += s.f_energy[j] - gain
                     s.ate[i] = 1.0
                     if s.energy[i] >= e_max:
                         full = True
