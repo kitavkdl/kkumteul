@@ -763,3 +763,152 @@ def test_marks_not_set_by_measure_only():
     w.run(200)
     assert w.s.norm_tab[:, k.NT_TAKE].sum() > 0
     assert (w.s.mark_t == -1).all() and (w.s.pun_t == -1).all()
+
+
+# ======================= 과제 6: 조준·벌 분기·벌금·inert =======================
+def _tri(*presets, **kw):
+    """0(공격자), 4(가장 가까운 닿는 이웃), 5(더 먼 닿는 이웃). 4·5는 서로 안 닿는다."""
+    w = hand_world(*presets, **kw)
+    put(w, 0, 100.0, 100.0)
+    put(w, 4, 101.5, 100.0)
+    put(w, 5, 100.0, 102.3)
+    regrid(w)
+    w.s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    return w
+
+
+def test_pun_branch_pays_fine_not_take_gain():
+    w = _pair("norm")
+    s, cfg = w.s, w.cfg
+    s.tag[0], s.tag[4] = 1, 2
+    s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    s.mark_t[4] = 9                              # 4는 표시돼 있다(경과 1)
+    lost, moved = s.ledger[k.L_LOST], s.ledger[k.L_MOVE]
+    st.attack(10, s, w.fs, w.isp)
+    dmg, fine = cfg.attack_damage, cfg.attack_damage * cfg.norm_pun_return
+    assert s.energy[4] == pytest.approx(1.0 - dmg)
+    assert s.energy[0] == pytest.approx(1.0 - cfg.attack_cost + fine)
+    assert s.ledger[k.L_LOST] == pytest.approx(lost + dmg - fine)
+    assert s.ledger[k.L_MOVE] == pytest.approx(moved + cfg.attack_cost)
+    assert s.mark_t[0] == -1, "집행자는 표시되지 않는다"
+    assert s.pun_t[4] == 10 and s.touch[4] == k.TOUCH_HIT and s.mark_pun[4] == 1
+    assert nt(w, 1, k.NT_PUN) == 1 and nt(w, 1, k.NT_TAKE) == 0
+    assert nt(w, 2, k.NT_PUN_DMG_RECV) == pytest.approx(dmg) and nt(w, 2, k.NT_VIOL_DMG_RECV) == 0
+    assert nt(w, 1, k.NT_PUN_FINE) == pytest.approx(fine) and nt(w, 1, k.NT_PUN_COST) == pytest.approx(cfg.attack_cost)
+    assert nt(w, 1, k.NT_ATK_COST) == pytest.approx(cfg.attack_cost)
+    # 표시 안 된 대상이면 평소 가로채기이고 공격자가 표시된다
+    s.energy[:] = 1.0
+    s.mark_t[:] = -1
+    st.attack(11, s, w.fs, w.isp)
+    assert s.energy[0] == pytest.approx(1.0 - cfg.attack_cost + dmg * cfg.attack_gain)
+    assert s.mark_t[0] == 11 and s.pun_t[4] == 10
+    assert nt(w, 1, k.NT_TAKE) == 1 and nt(w, 2, k.NT_VIOL_DMG_RECV) == pytest.approx(dmg)
+
+
+def test_pun_return_equal_to_attack_gain_is_plain_attack():
+    w = _pair("norm", norm_pun_return=0.5)
+    s, cfg = w.s, w.cfg
+    s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    s.mark_t[4] = 10
+    lost = s.ledger[k.L_LOST]
+    st.attack(10, s, w.fs, w.isp)
+    assert s.pun_t[4] == 10
+    assert s.energy[0] == pytest.approx(1.0 - cfg.attack_cost + cfg.attack_damage * cfg.attack_gain)
+    assert s.ledger[k.L_LOST] == pytest.approx(lost + cfg.attack_damage * (1 - cfg.attack_gain))
+
+
+def test_inert_mode_all_attacks_are_takes():
+    w = _tri("norm", norm_mode="inert")
+    s, cfg = w.s, w.cfg
+    s.mark_t[5] = 20                             # 먼 쪽이 표시: 조준은 full과 같이 표시된 쪽
+    s.mem[0] = 0.5
+    st.attack(20, s, w.fs, w.isp)
+    assert s.energy[5] == pytest.approx(1.0 - cfg.attack_damage) and s.energy[4] == 1.0
+    assert s.energy[0] == pytest.approx(1.0 - cfg.attack_cost + cfg.attack_damage * cfg.attack_gain)
+    assert s.pun_t[5] == -1 and s.mark_t[0] == 20 and s.mark_vslot[0] == 5
+    assert nt(w, 0, k.NT_PUN) == 0 and nt(w, 0, k.NT_TAKE) == 1 and nt(w, 0, k.NT_TAKE_ON_MARKED) == 1
+    assert nt(w, 0, k.NT_VIOL_DMG_RECV) == 0     # 표시 있던 대상을 친 피해는 위반 피해가 아니다
+    assert s.mem[0] == 0.5 and s.mem[5] == 0     # 기억 갱신 없음
+
+
+def test_aim_marked_prefers_marked_neighbor():
+    w = _tri("norm")
+    s = w.s
+    s.mark_t[5] = 30
+    st.attack(30, s, w.fs, w.isp)
+    assert s.energy[5] < 1.0 and s.energy[4] == 1.0 and s.pun_t[5] == 30
+    # 표시가 없으면 가장 가까운 쪽(기존과 같음)
+    w2 = _tri("norm")
+    st.attack(30, w2.s, w2.fs, w2.isp)
+    assert w2.s.energy[4] < 1.0 and w2.s.energy[5] == 1.0
+    # nearest는 기존 동작
+    w3 = _tri("norm", norm_aim="nearest")
+    w3.s.mark_t[5] = 30
+    st.attack(30, w3.s, w3.fs, w3.isp)
+    assert w3.s.energy[4] < 1.0 and w3.s.energy[5] == 1.0
+
+
+def test_wrong_target_becomes_take_and_marks_me():
+    w = _tri("norm", norm_aim="nearest")
+    s, cfg = w.s, w.cfg
+    s.mark_t[5] = 40
+    st.attack(40, s, w.fs, w.isp)
+    assert s.pun_t[4] == -1 and s.mark_t[0] == 40 and s.mark_vslot[0] == 4 and s.mark_vid[0] == s.ids[4]
+    assert s.energy[0] == pytest.approx(1.0 - cfg.attack_cost + cfg.attack_damage * cfg.attack_gain)
+
+
+def test_kill_counters_pun_vs_take():
+    w = _pair("norm")
+    s = w.s
+    s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    s.mark_t[4] = 5
+    s.energy[4] = 0.05
+    st.attack(5, s, w.fs, w.isp)
+    assert s.energy[4] == 0.0 and nt(w, 0, k.NT_PUN_KILL) == 1 and nt(w, 0, k.NT_TAKE_KILL) == 0
+    w2 = _pair("norm")
+    w2.s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    w2.s.energy[4] = 0.05
+    st.attack(5, w2.s, w2.fs, w2.isp)
+    assert nt(w2, 0, k.NT_TAKE_KILL) == 1 and nt(w2, 0, k.NT_PUN_KILL) == 0
+
+
+def test_norm_world_lives_and_ledger_closes():
+    w = World(small("stage4", "conflict", "norm", norm_impulse=0.015))
+    w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5          # 처음 개체가 자발로도 치게 해서 벌 분기를 실제로 돌린다
+    w.run(1500)
+    w.check_sane()
+    assert rel_residual(w) < 1e-9
+    tab = w.s.norm_tab
+    assert tab[:, k.NT_PUN].sum() > 0 and tab[:, k.NT_TAKE].sum() > 0 and tab[:, k.NT_TAKE_IMP].sum() > 0
+    assert w.summary()["pop"] > 10
+
+
+def test_inert_isolated_hash_equals_off():
+    hashes = []
+    for kw in (dict(), dict(norm_enabled=True, norm_mode="inert", norm_impulse=0.0, norm_mark_src="none",
+                            norm_mark_noise=0.0)):
+        w = World(small("stage4", "conflict", "norm_size", **kw))
+        w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+        w.run(300)
+        hashes.append(w.state_hash())
+        if kw:
+            assert w.s.norm_tab[:, k.NT_TAKE].sum() > 0
+    assert hashes[0] == hashes[1]
+
+
+def test_cost_and_target_order_equivalent():
+    # 대상 고르기를 비용 앞으로 옮겨도(막기 없는 세계) 설계 순서(비용 → 대상)의 손셈과 같다: 비용으로 내 에너지가
+    # 0 아래로 가도 이미 차례를 받은 공격은 그대로 맞는다
+    w = _pair("norm")
+    s, cfg = w.s, w.cfg
+    s.act[0, cfgmod.ACT_ATTACK] = 0.5
+    s.energy[0] = 0.005
+    s.mark_t[4] = 3
+    lost, moved = s.ledger[k.L_LOST], s.ledger[k.L_MOVE]
+    st.attack(3, s, w.fs, w.isp)
+    cost, dmg = cfg.attack_cost * 0.5, cfg.attack_damage * 0.5
+    fine = dmg * cfg.norm_pun_return
+    assert s.energy[0] == pytest.approx(0.005 - cost + fine)
+    assert s.energy[4] == pytest.approx(1.0 - dmg)
+    assert s.ledger[k.L_MOVE] == pytest.approx(moved + cost) and s.ledger[k.L_LOST] == pytest.approx(lost + dmg - fine)
+    assert nt(w, 0, k.NT_PUN_COST) == pytest.approx(cost) and nt(w, 0, k.NT_PUN_FINE) == pytest.approx(fine)

@@ -18,8 +18,9 @@ from .config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT
                      SRC_SIG, SRC_TAKE, TASTE_VIS)
 from .kernels import (C_ATTACKS, C_FERTILE, C_GIFTS, C_NFIELD, C_NFOOD, KIND_A, L_BASAL, L_BRAIN, L_DISCARD, L_LOST,
                       L_MOVE, L_SPAWN, NT_ALIVE_STEPS, NT_ATK_COST, NT_ATK_VOL_MARKED, NT_ATK_VOL_PLAIN, NT_EXPO,
-                      NT_OPP_MARKED, NT_OPP_PLAIN, NT_TAKE, NT_TAKE_DMG_RECV, NT_TAKE_GAIN, NT_TAKE_IMP, NT_TAKE_KILL,
-                      NT_TAKE_KIN, NT_TAKE_LINE, NT_TAKE_SIM0, NT_VIOL_DMG_RECV, TAG_ROWS_NORM,
+                      NT_OPP_MARKED, NT_OPP_PLAIN, NT_PUN, NT_PUN_COST, NT_PUN_DMG_RECV, NT_PUN_FINE, NT_PUN_KILL,
+                      NT_TAKE, NT_TAKE_DMG_RECV, NT_TAKE_GAIN, NT_TAKE_IMP, NT_TAKE_KILL, NT_TAKE_KIN, NT_TAKE_LINE,
+                      NT_TAKE_ON_MARKED, NT_TAKE_SIM0, NT_VIOL_DMG_RECV, TAG_ROWS_NORM,
                       TOUCH_HIT, _kin_class, _place_food, _wdiff, _wrap, make_room, pick_kind)
 from .rng import S_ATTACK_ORDER, S_FERTILE, S_NORM_IMPULSE, S_NORM_NOISE, S_PERTURB, normal, u01
 
@@ -778,6 +779,8 @@ def attack(step, s, fs, isp):
     on = isp[I_NORM_ON] != 0
     tau = int(fs[F_NORM_TAU])
     mark_take = on and isp[I_NORM_SRC] == SRC_TAKE
+    aim_marked = isp[I_NORM_AIM] == AIM_MARKED
+    full = isp[I_NORM_MODE] == NORM_FULL
     for q in range(n):
         i = start + q
         if i >= n:
@@ -808,6 +811,16 @@ def attack(step, s, fs, isp):
                 a = 1.0
         if a <= 0.0 or s.energy[i] <= 0.0:
             continue
+        # 2. 대상 고르기(설계 순서는 비용 → 대상이나 비용 앞으로 옮겼다: 벌주기 막기가 "비용도 안 든다"를 요구해 취소 점검이
+        #    비용 앞에 있어야 한다. 대상은 훑기 결과만 읽고 내 에너지에 기대지 않아 결과가 같다).
+        #    충동 = 가장 가까운 nb(조준 안 씀). 자발은 marked 조준이면 닿는 표시된 이웃 nm, 없으면 nb
+        if count:
+            best = nb       # 훑기의 nb는 _nearest_touching과 같은 칸이다
+            if on and not imp and aim_marked and nm >= 0:
+                best = nm
+        else:
+            best = _nearest_touching(s, fs, isp, i, True)
+        # 3. 비용: 위축 전 출력 a로 낸다(빗나가도 든다)
         cost = fs[F_ATK_COST] * a
         s.energy[i] -= cost
         s.ledger[L_MOVE] += cost
@@ -819,39 +832,58 @@ def attack(step, s, fs, isp):
                     tab[ri, NT_ATK_VOL_MARKED] += 1.0
                 else:
                     tab[ri, NT_ATK_VOL_PLAIN] += 1.0
-            best = nb       # 훑기의 nb는 _nearest_touching과 같은 칸이다(내 비용은 이웃 고르기에 안 닿는다)
-        else:
-            best = _nearest_touching(s, fs, isp, i, True)
         if best < 0:
             continue
+        # 4. 분기: 충동은 늘 가로채기. 자발은 full 모드에서 맞은 순간 표시돼 있는 대상이면 벌. inert는 모두 가로채기
+        marked_t = on and _is_marked(step, s.mark_t[best], tau)
+        pun = marked_t and full and not imp
         dmg = fs[F_ATK_DMG] * a
         if dmg > s.energy[best]:
             dmg = s.energy[best]          # 가진 것보다 더 빼앗을 수는 없다
-        got = dmg * fs[F_ATK_GAIN]
+        if pun:
+            got = dmg * fs[F_NORM_PUN_RET]    # 벌금: 옮겨 가는 몫(≤ attack_gain), 나머지는 L_LOST
+        else:
+            got = dmg * fs[F_ATK_GAIN]
         s.energy[best] -= dmg
         s.energy[i] += got
         s.ledger[L_LOST] += dmg - got
         s.touch[best] = TOUCH_HIT
         s.counters[C_ATTACKS] += 1
-        if mark_take:
+        if pun:
+            s.pun_t[best] = step              # 집행자는 표시되지 않는다
+            s.mark_pun[best] = 1              # 이 표시 에피소드 안에 벌 받음
+        elif mark_take:
             _attach_mark(s, i, step, best, s.ids[best], tau)     # 가로채기가 맞으면 친 쪽에만 표시
         if count:
             rb = _norm_row(s.tag[best])
-            tab[ri, NT_TAKE] += 1.0
-            if imp:
-                tab[ri, NT_TAKE_IMP] += 1.0
-            tab[rb, NT_TAKE_DMG_RECV] += dmg
-            tab[ri, NT_TAKE_GAIN] += got
-            tab[rb, NT_VIOL_DMG_RECV] += dmg      # 표시가 없는 측정 세계는 모든 피해가 위반 피해다
-            sb = _sim_bin(_color_sim(s.color, i, best))
-            line = _kin_class(s, i, best) > 0
-            tab[ri, NT_TAKE_SIM0 + sb] += 1.0
-            if line:
-                tab[ri, NT_TAKE_LINE] += 1.0
-            if line or sb >= 2:
-                tab[ri, NT_TAKE_KIN] += 1.0
-            if s.energy[best] <= 0.0:
-                tab[ri, NT_TAKE_KILL] += 1.0
+            killed = s.energy[best] <= 0.0
+            if pun:
+                tab[ri, NT_PUN] += 1.0
+                tab[rb, NT_PUN_DMG_RECV] += dmg
+                tab[ri, NT_PUN_FINE] += got
+                tab[ri, NT_PUN_COST] += cost
+                if killed:
+                    tab[ri, NT_PUN_KILL] += 1.0
+            else:
+                tab[ri, NT_TAKE] += 1.0
+                if imp:
+                    tab[ri, NT_TAKE_IMP] += 1.0
+                if marked_t:
+                    tab[ri, NT_TAKE_ON_MARKED] += 1.0    # inert·충동이 표시된 대상을 침
+                tab[rb, NT_TAKE_DMG_RECV] += dmg
+                tab[ri, NT_TAKE_GAIN] += got
+                sb = _sim_bin(_color_sim(s.color, i, best))
+                line = _kin_class(s, i, best) > 0
+                tab[ri, NT_TAKE_SIM0 + sb] += 1.0
+                if line:
+                    tab[ri, NT_TAKE_LINE] += 1.0
+                if line or sb >= 2:
+                    tab[ri, NT_TAKE_KIN] += 1.0
+                if killed:
+                    tab[ri, NT_TAKE_KILL] += 1.0
+            if not marked_t:
+                # 위반 피해율의 분자: 때린 순간 표시가 없던 대상이 받은 피해(모드와 무관한 정의)
+                tab[rb, NT_VIOL_DMG_RECV] += dmg
 
 
 # =========================== 4단계: 땅 ===========================
