@@ -14,7 +14,8 @@ from numba import njit, prange
 
 from .config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT_SIG1, ACT_SLEEP, ACT_THRUST,
                      ACT_TURN, AIM_MARKED, IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL, N_INTERNAL, N_NORM_IN,
-                     N_TASTE_IN, N_TASTE_VIS, NORM_AIMS, NORM_FULL, NORM_MODES, NORM_OBS_MODES, NORM_SRCS, NORM_VIS,
+                     N_NORM_VIS, N_TASTE_IN, N_TASTE_VIS, NORM_AIMS, NORM_FULL, NORM_LOCAL, NORM_MEM, NORM_MODES,
+                     NORM_OBS_MODES, NORM_SAWPUN, NORM_SELF, NORM_SRCS, NORM_VIS,
                      SRC_SIG, SRC_TAKE, TASTE_VIS)
 from .kernels import (C_ATTACKS, C_FERTILE, C_GIFTS, C_NFIELD, C_NFOOD, KIND_A, L_BASAL, L_BRAIN, L_DISCARD, L_LOST,
                       L_MOVE, L_SPAWN, NT_ALIVE_STEPS, NT_ATK_COST, NT_ATK_VOL_MARKED, NT_ATK_VOL_PLAIN, NT_EXPO,
@@ -245,6 +246,7 @@ def _mind_par(fs, isp, alive, obs, energy, e_prev, ate, touch, horm, mod, exp_r,
     lr = fs[F_PROTO_LR]
     cap = fs[F_LINK_CAP]
     tv0 = isp[I_TASTE_VIS0]
+    nv0 = isp[I_NORM_VIS0]
     for i in prange(n):
         if not alive[i]:
             continue
@@ -258,6 +260,10 @@ def _mind_par(fs, isp, alive, obs, energy, e_prev, ate, touch, horm, mod, exp_r,
                 # 물든 시야는 시야에서 나온 것이라 같이 지운다. 기억 값 칸은 시야가 아니라 둔다
                 for k in range(N_TASTE_VIS):
                     obs[i, tv0 + k] = 0.0
+            if nv0 >= 0:
+                # 표시 시야도 시야에서 나온 것이라 지운다. 내 밝기·곁 밝기·방금 벌·내 기억은 둔다
+                for k in range(N_NORM_VIS):
+                    obs[i, nv0 + k] = 0.0
             for a in range(n_proto):
                 for b in range(n_proto):
                     link[i, a, b] *= 0.999
@@ -880,6 +886,120 @@ def norm_account(step, s, fs, isp):
             tab[_norm_row(s.tag[i]), NT_MARKED_STEPS] += 1.0
         elif e == tau + 1:
             _norm_close_episode(s, i)
+
+
+@njit(cache=True, inline="always")
+def _see_norm(obs, i, col0, nsec, ddx, ddy, d, rad, hi, fov, vrange, val):
+    """표시된 이웃 하나를 표시 시야 칸(col0부터 nsec칸)에 반영한다. 칸 범위는 kernels._see와 같은 식(복사; _see는 안 고친다).
+    값 = 가까움 × val(밝기). 칸마다 최댓값만 남긴다(순서 무관). 후보가 표시된 이웃뿐이라 표시 안 된 가까운 이웃이
+    가리지 않는다. 본 시야·other 채널은 건드리지 않는다(_see를 재사용하면 같은 이웃이 이미 같은 가까움으로 들어 있어
+    c > cur가 거짓이 되어 칸이 조용히 0이 된다)."""
+    ang = math.atan2(ddy, ddx) - hi
+    ang = ang - 6.283185307179586 * math.floor((ang + 3.141592653589793) / 6.283185307179586)
+    if d <= rad:
+        delta = 3.141592653589793
+    else:
+        delta = math.asin(rad / d)
+    half = 0.5 * fov
+    lo = ang - delta
+    hi_a = ang + delta
+    if hi_a < -half or lo > half:
+        return
+    s_lo = int(math.floor((lo + half) / fov * nsec))
+    s_hi = int(math.floor((hi_a + half) / fov * nsec))
+    if s_lo < 0:
+        s_lo = 0
+    if s_hi > nsec - 1:
+        s_hi = nsec - 1
+    gap = d - rad
+    if gap < 0.0:
+        gap = 0.0
+    c = np.float32(1.0 - gap / vrange)
+    if c <= 0.0:
+        return
+    v = c * val
+    for sec in range(s_lo, s_hi + 1):
+        if v > obs[i, col0 + sec]:
+            obs[i, col0 + sec] = v
+
+
+@njit(cache=True, parallel=True)
+def _norm_sense_par(fs, isp, t_now, alive, x, y, heading, mark_t, pun_t, mem, obs, a_start, a_items):
+    """규범 감각 블록(12칸): 표시 시야 8칸(가까움 × 밝기), 내 밝기, hear_range 안 이웃의 거리 가중 평균 밝기,
+    hear_range 안에 1스텝 전 벌 받은 이웃(거리 가중 최댓값), 내 삼가기 기억. 상태는 읽기만 하고 obs[i]에만 쓴다
+    (prange 안에서 상태 묶음을 거쳐 쓰지 않도록 배열을 직접 받는다)."""
+    n = x.shape[0]
+    gw = isp[I_GW]
+    gh = isp[I_GH]
+    w = fs[F_W]
+    hgt = fs[F_H]
+    inv_cell = fs[F_INV_CELL]
+    nsec = isp[I_SECTORS]
+    if nsec > N_NORM_VIS:
+        nsec = N_NORM_VIS
+    fov = fs[F_NORM_FOV]
+    vrange = fs[F_NORM_VRANGE]
+    vr2 = vrange * vrange
+    a_rad = fs[F_A_RAD]
+    hear = fs[F_HEAR]
+    h2 = hear * hear
+    tau = int(fs[F_NORM_TAU])
+    c0 = isp[I_NORM_IN0]
+    far = vrange
+    if hear > far:
+        far = hear
+    reach = int(math.ceil(far * inv_cell))
+    for i in prange(n):
+        if not alive[i]:
+            continue
+        for q in range(N_NORM_IN):
+            obs[i, c0 + q] = 0.0
+        xi = x[i]
+        yi = y[i]
+        hi = heading[i]
+        cx = int(xi * inv_cell)
+        cy = int(yi * inv_cell)
+        if cx >= gw:
+            cx = gw - 1
+        if cy >= gh:
+            cy = gh - 1
+        wsum = 0.0
+        bsum = 0.0
+        saw = 0.0
+        for oy in range(-reach, reach + 1):
+            yy = (cy + oy) % gh
+            for ox in range(-reach, reach + 1):
+                xx = (cx + ox) % gw
+                c = yy * gw + xx
+                for p in range(a_start[c], a_start[c + 1]):
+                    j = a_items[p]
+                    if j == i or not alive[j]:
+                        continue
+                    ddx = _wdiff(x[j] - xi, w)
+                    ddy = _wdiff(y[j] - yi, hgt)
+                    d2 = ddx * ddx + ddy * ddy
+                    b = _bright(t_now, mark_t[j], tau)
+                    if b > 0.0 and d2 <= vr2:
+                        _see_norm(obs, i, c0 + NORM_VIS, nsec, ddx, ddy, math.sqrt(d2), a_rad, hi, fov, vrange, b)
+                    if d2 > h2:
+                        continue
+                    wgt = 1.0 - math.sqrt(d2) / hear
+                    wsum += wgt
+                    bsum += wgt * b
+                    if pun_t[j] >= 0 and t_now - pun_t[j] == 1 and wgt > saw:
+                        saw = wgt
+        obs[i, c0 + NORM_SELF] = _bright(t_now, mark_t[i], tau)
+        if wsum > 0.0:
+            obs[i, c0 + NORM_LOCAL] = bsum / wsum
+        obs[i, c0 + NORM_SAWPUN] = saw
+        obs[i, c0 + NORM_MEM] = mem[i]
+
+
+@njit(cache=True)
+def norm_sense(step, s, fs, isp):
+    """규범 감각(상태 s가 둘째 인자: knockout이 같은 꼴로 감싼다). 격자는 스텝 처음에 지은 것(k.sense와 같다)."""
+    _norm_sense_par(fs, isp, step, s.alive, s.x, s.y, s.heading, s.mark_t, s.pun_t, s.mem, s.obs,
+                    s.a_start, s.a_items)
 
 
 # =========================== 다툼: 공격 ===========================

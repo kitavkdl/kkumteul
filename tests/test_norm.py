@@ -1415,3 +1415,220 @@ def test_summary_prevalence():
     wm = World(small("stage4", "conflict", "norm_size", norm_measure=True))
     wm.run(20)
     assert "norm_mark_prevalence" not in wm.summary() and "norm_punished_per_episode" not in wm.summary()
+
+
+# ======================= 과제 10: 감각 블록(_see_norm) =======================
+def _sense(w, t):
+    """세계의 감각 순서대로: 격자 → 본 감각 → norm_sense. 본 감각만 지난 obs 사본도 돌려준다."""
+    s = w.s
+    regrid(w)
+    k.sense(t, s, w.fp, w.ip)
+    before = s.obs.copy()
+    st.norm_sense(t, s, w.fs, w.isp)
+    return before
+
+
+def _ncols(w):
+    c0 = w.cfg.norm_in0
+    return c0, w.cfg.vision_sectors
+
+
+def _sense_scene(**kw):
+    w = hand_world("norm", **kw)
+    s = w.s
+    s.heading[:] = 0.0
+    put(w, 0, 100.0, 100.0)
+    return w
+
+
+def test_norm_vis_direction_and_brightness():
+    w = _sense_scene()
+    s = w.s
+    c0, ns = _ncols(w)
+    put(w, 4, 110.0, 102.0)
+    s.mark_t[4] = 97                                         # t = 100: 경과 3, 밝기 1 − 2/50
+    before = _sense(w, 100)
+    vis = s.obs[0, c0 + cfgmod.NORM_VIS:c0 + cfgmod.NORM_VIS + 8]
+    ch1 = before[0, ns:2 * ns]
+    assert (ch1 > 0).any(), "양성 확인: 본 시야가 그 이웃을 본다"
+    assert ((vis != 0) == (ch1 != 0)).all()
+    assert vis == pytest.approx(ch1 * (1 - 2 / 50), abs=1e-6)
+    s.mark_t[4] = -1
+    _sense(w, 100)
+    assert not s.obs[0, c0:c0 + 8].any()
+
+
+def test_norm_vis_equals_closeness_times_brightness():
+    for (dx, dy, e) in ((6.0, 0.0, 0), (12.0, 4.0, 1), (9.0, -5.0, 30), (14.5, 0.5, 50)):
+        w = _sense_scene()
+        s = w.s
+        c0, ns = _ncols(w)
+        put(w, 4, 100.0 + dx, 100.0 + dy)
+        s.mark_t[4] = 200 - e
+        before = _sense(w, 200)
+        b = st._bright(200, 200 - e, 50)
+        ch1 = before[0, ns:2 * ns]
+        assert (ch1 > 0).any()
+        assert s.obs[0, c0:c0 + 8] == pytest.approx(ch1 * b, abs=1e-6), (dx, dy, e)
+
+
+def test_norm_vis_unmarked_near_does_not_occlude_marked_far():
+    w = _sense_scene()
+    s = w.s
+    c0, ns = _ncols(w)
+    put(w, 4, 106.0, 100.0)                                   # 가깝고 표시 없음
+    put(w, 5, 113.0, 100.0)                                   # 멀고 표시됨, 같은 방향
+    s.mark_t[5] = 100
+    before = _sense(w, 100)
+    vis = s.obs[0, c0:c0 + 8]
+    assert vis.max() > 0
+    # 같은 칸의 본 시야는 가까운 4의 가까움, 표시 시야는 먼 5의 가까움(× 밝기 1)
+    sec = int(np.argmax(vis))
+    assert before[0, ns + sec] > vis[sec]
+    assert vis[sec] == pytest.approx(1.0 - (13.0 - w.cfg.agent_radius) / w.cfg.vision_range, abs=1e-6)
+    # 순서 무관: 칸마다 최댓값(먼 표시 + 가까운 표시면 가까운 쪽)
+    s.mark_t[4] = 100
+    _sense(w, 100)
+    assert s.obs[0, c0 + sec] == pytest.approx(1.0 - (6.0 - w.cfg.agent_radius) / w.cfg.vision_range, abs=1e-6)
+
+
+def test_norm_vis_leaves_ordinary_vision_untouched():
+    w = World(small("stage4", "conflict", "norm"))
+    s = w.s
+    a = np.flatnonzero(s.alive)
+    s.mark_t[a[::2]] = 0
+    s.pun_t[a[::3]] = 0
+    s.mem[a[::5]] = 0.7
+    before = _sense(w, 1)
+    c0 = w.cfg.norm_in0
+    cols = np.r_[0:c0, c0 + cfgmod.N_NORM_IN:s.obs.shape[1]]
+    assert (s.obs[:, cols] == before[:, cols]).all()
+    assert s.obs[a, c0:c0 + 8].any() and s.obs[a, c0 + cfgmod.NORM_MEM].any()
+
+
+def test_see_norm_sector_span_matches_see():
+    gen = np.random.default_rng(5)
+    hits = 0
+    for _ in range(40):
+        w = _sense_scene()
+        s = w.s
+        c0, ns = _ncols(w)
+        ang = gen.uniform(-np.pi, np.pi)
+        d = gen.uniform(0.5, 15.5)
+        put(w, 4, 100.0 + d * np.cos(ang), 100.0 + d * np.sin(ang))
+        s.mark_t[4] = 10
+        before = _sense(w, 10)
+        assert ((s.obs[0, c0:c0 + 8] != 0) == (before[0, ns:2 * ns] != 0)).all()
+        hits += (before[0, ns:2 * ns] != 0).any()
+    assert hits > 5
+
+
+def test_norm_vis_torus_and_self_excluded():
+    w = _sense_scene()
+    s = w.s
+    c0, ns = _ncols(w)
+    put(w, 0, 2.0, 100.0)
+    s.heading[0] = np.pi                                       # −x쪽을 본다
+    put(w, 4, 250.0, 100.0)                                    # 토러스 반대편(간격 8)
+    s.mark_t[4] = 50
+    s.mark_t[0] = 50                                           # 자기 표시는 NORM_SELF로만
+    _sense(w, 50)
+    assert s.obs[0, c0:c0 + 8].max() == pytest.approx(1.0 - (8.0 - w.cfg.agent_radius) / w.cfg.vision_range, abs=1e-6)
+    assert s.obs[0, c0 + cfgmod.NORM_SELF] == 1.0
+    s.mark_t[4] = -1
+    _sense(w, 50)
+    assert not s.obs[0, c0:c0 + 8].any()
+
+
+def test_norm_scalars():
+    w = _sense_scene()
+    s, cfg = w.s, w.cfg
+    c0, _ = _ncols(w)
+    hr = cfg.hear_range
+    put(w, 4, 110.0, 100.0)            # 거리 10
+    put(w, 5, 100.0, 80.0)             # 거리 20(시야 밖, 들리는 거리 안)
+    put(w, 6, 100.0, 130.0)            # 거리 30(들리는 거리 밖)
+    t = 300
+    s.mark_t[0] = t - 11               # 내 밝기 1 − 10/50
+    s.mark_t[4] = t - 1                # 밝기 1
+    s.mark_t[5] = t - 26               # 밝기 0.5
+    s.mark_t[6] = t                    # 밖이라 무시
+    s.pun_t[4] = t - 2                 # 방금(1스텝 전)이 아니다
+    s.pun_t[5] = t - 1                 # 방금 벌 받음
+    s.pun_t[6] = t - 1
+    s.mem[0] = 0.375
+    _sense(w, t)
+    w4, w5 = 1 - 10 / hr, 1 - 20 / hr
+    o = s.obs[0, c0:c0 + cfgmod.N_NORM_IN]
+    assert o[cfgmod.NORM_SELF] == pytest.approx(0.8)
+    assert o[cfgmod.NORM_LOCAL] == pytest.approx((w4 * 1.0 + w5 * 0.5) / (w4 + w5), abs=1e-6)
+    assert o[cfgmod.NORM_SAWPUN] == pytest.approx(w5, abs=1e-6)
+    assert o[cfgmod.NORM_MEM] == 0.375
+    # 이웃이 없으면 곁 값은 0
+    assert s.obs[1, c0 + cfgmod.NORM_LOCAL] == 0 and s.obs[1, c0 + cfgmod.NORM_SAWPUN] == 0
+
+
+def test_sleeping_norm_vis_zero_scalars_kept():
+    w = _sense_scene()
+    s = w.s
+    assert w.cfg.mind_enabled
+    c0, _ = _ncols(w)
+    put(w, 4, 108.0, 100.0)
+    s.mark_t[4] = 100
+    s.mark_t[0] = 100
+    s.mem[0] = 0.5
+    _sense(w, 100)
+    assert s.obs[0, c0:c0 + 8].any()
+    s.asleep[0] = 5.0
+    st.mind_update(s, w.fs, w.isp)
+    assert not s.obs[0, c0:c0 + 8].any()
+    assert s.obs[0, c0 + cfgmod.NORM_SELF] == 1.0 and s.obs[0, c0 + cfgmod.NORM_MEM] == 0.5
+
+
+def test_norm_block_all_zero_when_off(monkeypatch):
+    calls = []
+    orig = st.norm_sense
+
+    def wrap(*a):
+        calls.append(1)
+        return orig(*a)
+    monkeypatch.setattr(st, "norm_sense", wrap)
+    for kw in (dict(), dict(norm_measure=True)):
+        w = World(small("stage4", "conflict", "norm_size", **kw))
+        w.run(3)
+        c0 = w.cfg.norm_in0
+        assert not w.s.obs[:, c0:c0 + cfgmod.N_NORM_IN].any()
+    assert not calls
+    World(small("stage4", "conflict", "norm")).run(2)
+    assert len(calls) == 2
+
+
+def test_norm_sense_thread_determinism():
+    import numba
+    w = World(small("stage4", "conflict", "norm", norm_impulse=0.05))
+    w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+    w.run(80)
+    s = w.s
+    assert (s.mark_t[s.alive] >= 0).any()
+    outs = []
+    old = numba.get_num_threads()
+    try:
+        for nthr in sorted({1, numba.config.NUMBA_NUM_THREADS}):
+            numba.set_num_threads(nthr)
+            s.obs[:] = 0
+            st.norm_sense(w.step_no, s, w.fs, w.isp)
+            outs.append(s.obs.copy())
+    finally:
+        numba.set_num_threads(old)
+    for o in outs[1:]:
+        assert (o == outs[0]).all()
+
+
+def test_norm_sense_only_reads_state():
+    w = World(small("stage4", "conflict", "norm", norm_impulse=0.05))
+    w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+    w.run(80)
+    s = w.s
+    snap = (s.mark_t.copy(), s.pun_t.copy(), s.mem.copy())
+    st.norm_sense(w.step_no, s, w.fs, w.isp)
+    assert (s.mark_t == snap[0]).all() and (s.pun_t == snap[1]).all() and (s.mem == snap[2]).all()

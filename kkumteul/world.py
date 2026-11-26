@@ -227,6 +227,7 @@ class World:
             st.trail_sense(s, fs, isp)
         if isp[st.I_NORM_ON]:
             st.norm_tick(s, fs, isp)                # 규범: 삼가기 기억 감쇠(감각 블록 앞)
+            st.norm_sense(t, s, fs, isp)            # 규범 감각 블록(표시 시야·곁 밝기·방금 벌·내 기억)
         if cfg.season_enabled:
             k.write_ext2(s.alive, s.obs, cfg.ext_in0 + EXT_SEASON, sn, cs)
         if cfg.carry_enabled:
