@@ -222,6 +222,16 @@ class Config:
     taste_cost: float = 0.0005        # 스텝당 비용 = taste_cost × 실제 배움 속도(장치를 켰을 때만). 속도 0.5면 한 생(약 1,100스텝)
                                       # 약 0.28 — 끼니 한 번(1.0)의 4분의 1쯤, 독을 피한 이득(끼당 1.3 차이)보다 훨씬 작다. 임시 결정
 
+    # 보고 배우기 (사회 학습, 기본은 꺼짐, 맛 기억이 켜져 있어야 한다. 설계 2026-11-07-social-learning-design.md)
+    soc_taste_enabled: bool = False   # 켜면 가까이서 다른 개체의 끼니(어느 모양을 먹고 독이었나)를 보고 맛 기억이 조금 움직인다.
+                                      # 속도는 개체마다 물려받는 유전자 soc_g(처음·옛 체크포인트는 0)
+    soc_taste_mode: str = "outcome"   # outcome(결과를 보고 배움: 판정 대상), blind(눈가림 대조: 모양 칸을 동전으로 정함),
+                                      # inert(끼니 기록·변이·비용은 있고 기억은 안 바뀜: 드리프트 기준선), what(결과는 늘 +1: 시험용)
+    soc_rate: float = 0.05            # 보고 배울 때 기억이 결과 쪽으로 움직이는 비율의 바탕(직접 먹을 때 taste_rate보다 작다). 임시 결정
+    soc_gene_sigma: float = 0.02      # 출생 때 soc_g에 더하는 변이 폭(taste_gene_sigma와 같은 꼴). 임시 결정
+    soc_cost: float = 0.0005          # 스텝당 비용 = soc_cost × 보고 배우는 속도(장치를 켰을 때만, 뇌 유지비 칸에 더한다). 임시 결정
+    soc_radius: float = 8.0           # 끼니를 볼 수 있는 거리. cell 이하여야 한다(이웃 격자 한 칸 안). 임시 결정
+
     # --- 4단계: 판이 바뀌는 세계 (기본은 꺼짐) ---
     niche_enabled: bool = False   # 다닌 자리가 길이 되고, 쌓은 거름이 먹이를 끌어온다
     wear_rate: float = 0.002      # 지나갈 때 그 칸에 남는 흔적 = wear_rate * 속도.
@@ -404,6 +414,16 @@ class Config:
             raise ValueError("taste_gene_enabled는 맛 기억(taste_enabled)이 켜져 있어야 쓸 수 있다: preset=taste")
         if self.taste_gene_sigma < 0 or self.taste_cost < 0:
             raise ValueError("taste_gene_sigma와 taste_cost는 0 이상이어야 한다")
+        if self.soc_taste_enabled and not self.taste_enabled:
+            raise ValueError("soc_taste_enabled는 맛 기억(taste_enabled)이 켜져 있어야 쓸 수 있다: preset=taste")
+        if self.soc_taste_mode not in SOC_MODES:
+            raise ValueError(f"soc_taste_mode는 {sorted(SOC_MODES)} 중 하나여야 한다: {self.soc_taste_mode!r}")
+        if not (0.0 <= self.soc_rate <= 1.0):
+            raise ValueError("soc_rate는 0과 1 사이여야 한다")
+        if self.soc_cost < 0 or self.soc_gene_sigma < 0:
+            raise ValueError("soc_cost와 soc_gene_sigma는 0 이상이어야 한다")
+        if not (0.0 < self.soc_radius <= self.cell):
+            raise ValueError("soc_radius는 0보다 크고 cell 이하여야 한다(이웃 격자 한 칸 안)")
         for name in ("give_loss", "deposit_loss", "path_bonus", "fert_frac", "sleep_basal", "trace_decay",
                      "hormone_rate_hunger", "hormone_rate_stress", "hormone_rate_dopamine",
                      "hormone_rate_boredom", "reward_baseline_rate", "proto_lr", "sleep_forget",
@@ -469,6 +489,8 @@ class Config:
                 raise ValueError(f"모르는 설정: {k}")
             if types[k] == "bool":
                 d[k] = v.strip().lower() in ("1", "true", "yes", "on")
+            elif types[k] == "str":
+                d[k] = v.strip()
             elif types[k] == "int":
                 f = float(v)
                 if f != int(f):
@@ -513,6 +535,9 @@ EXT_PRED = 5
 EXT_SCAV = 7
 EXT_SEX = 9          # 네 칸
 # 맛 블록: 확장 블록 바로 뒤(절대 번호 = Config.taste_in0 + TASTE_*). 맛 기억 장치가 꺼져 있으면 칸은 0
+# 보고 배우기 모드(soc_taste_mode의 이름 -> 커널이 읽는 번호)
+SOC_OUTCOME, SOC_BLIND, SOC_INERT, SOC_WHAT = 0, 1, 2, 3
+SOC_MODES = {"outcome": SOC_OUTCOME, "blind": SOC_BLIND, "inert": SOC_INERT, "what": SOC_WHAT}
 N_TASTE_IN = 10      # 기억으로 물든 시야 8칸 + 기억 값 2칸
 TASTE_VIS = 0        # 물든 시야 여덟 칸(vision_sectors와 같은 수)
 TASTE_VAL = 8        # 기억 값 두 칸: +로 보이는 먹이, -로 보이는 먹이

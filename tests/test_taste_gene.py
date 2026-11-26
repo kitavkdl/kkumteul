@@ -52,9 +52,10 @@ def test_config_defaults_and_checks():
 
 
 def test_new_rng_stream_appended():
-    assert rng.S_TASTE_GENE == 31
-    others = [v for kk, v in vars(rng).items() if kk.startswith("S_") and kk != "S_TASTE_GENE"]
-    assert max(others) < 31
+    vals = [v for kk, v in vars(rng).items() if kk.startswith("S_")]
+    assert len(set(vals)) == len(vals)               # 용도 번호는 서로 겹치지 않는다
+    assert rng.S_TASTE_GENE == 31 and rng.S_SOC_GENE == 32 and rng.S_SOC_BLIND == 33
+    assert max(vals) == 33                           # 새 용도는 뒤에만 덧붙인다
 
 
 # ---- 먹기: 실제 배움 속도 ----

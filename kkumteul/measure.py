@@ -32,7 +32,9 @@ from . import kernels as k
 from .config import Config
 from .world import World
 
-GENOME = ("Win", "Wrec", "bh", "Wout", "bout", "n_hidden", "sigma", "color", "rw", "eta", "alpha", "taste_g")
+GENOME = ("Win", "Wrec", "bh", "Wout", "bout", "n_hidden", "sigma", "color", "rw", "eta", "alpha", "taste_g", "soc_g")
+# 나중에 생긴 유전체 배열: 이것이 없는 옛 묶음은 0으로 채워 읽는다(pack.read)
+OPTIONAL_GENOME = ("taste_g", "soc_g")
 _T95 = {1: 12.71, 2: 4.30, 3: 3.18, 4: 2.78, 5: 2.57, 6: 2.45, 7: 2.36, 8: 2.31, 9: 2.26, 10: 2.23,
         12: 2.18, 15: 2.13, 20: 2.09, 30: 2.04}
 
@@ -132,6 +134,10 @@ def inject_agent(world: World, genomes: dict, row: int, tag: int, x: float, y: f
     s.last_proto[j] = 0
     s.a_held[j] = -1
     s.n_meal[j] = s.n_poison[j] = s.n_poison10[j] = 0
+    s.meal_k[j] = 0
+    s.meal_o[j] = 0.0
+    s.n_seen[j] = s.n_seen_poison[j] = s.n_seen_kin[j] = 0
+    s.seen_age_sum[j] = 0
     for name in ("horm", "sig", "epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link",
                  "elig_in", "elig_rec", "taste_m"):
         getattr(s, name)[j] = 0.0

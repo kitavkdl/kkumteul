@@ -52,6 +52,11 @@ S_PATHOGEN = 28     # 병원체
 S_RESERVOIR = 29    # 병원체 보균 자리
 S_SEX_SPARE = 30    # 암수용 예비
 S_TASTE_GENE = 31   # 맛 배움 속도 유전자의 변이
+S_SOC_GENE = 32     # 보고 배우기 속도 유전자의 변이
+S_SOC_BLIND = 33    # 눈가림 대조의 모양 동전
+
+# 눈가림 동전의 (관찰자, 시연자) 묶음 키 = 관찰자 id × SOC_ID_STRIDE + 시연자 id. id < 2^32를 가정한다(상수는 이 한 곳에만 둔다)
+SOC_ID_STRIDE = 1 << 32
 
 
 @njit(cache=True, inline="always")
@@ -68,6 +73,12 @@ def hash_u64(seed, stream, a, b):
     z = _mix(z + _U(a) * _C3)
     z = _mix(z ^ (_U(b) * _C1 + _C2))
     return z
+
+
+@njit(cache=True, inline="always")
+def soc_pair_key(oid, eid):
+    """눈가림 동전의 b 인자: (관찰자 id, 시연자 id) 쌍마다 다른 값(id < 2^32이면 겹치지 않는다)."""
+    return _U(oid) * _U(SOC_ID_STRIDE) + _U(eid)
 
 
 @njit(cache=True, inline="always")

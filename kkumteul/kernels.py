@@ -13,7 +13,7 @@ import numpy as np
 from numba import njit, prange
 
 from .config import (ACT_ATTACK, ACT_CARRY, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_THRUST, ACT_TURN, FIRST_MEALS, N_REWARD,
-                     N_TASTE_IN, N_TASTE_VIS, TASTE_VAL, TASTE_VIS)
+                     N_TASTE_IN, N_TASTE_VIS, SOC_MODES, TASTE_VAL, TASTE_VIS)
 from .rng import (S_BIRTH_ORDER, S_BIRTH_POS, S_FOOD, S_KIND, S_INIT_AGE, S_INIT_GENOME, S_INIT_POS, S_MUT_GENE,
                   S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, S_TASTE_GENE, normal, u01)
 
@@ -72,6 +72,7 @@ AGENT_FIELDS = [
     ("a_held", np.int32, (), True),           # 든 물건의 먹이 칸 번호(-1이면 빈손)
     ("taste_m", np.float32, ("2",), True),    # 맛 기억: +로 보이는 먹이, -로 보이는 먹이(-1~+1, 태어날 때 0)
     ("taste_g", np.float32, (), True),        # 맛 배움 속도 유전자: taste_rate에서 벗어난 몫(물려받음, 장치 꺼지면 안 쓰임)
+    ("soc_g", np.float32, (), True),          # 보고 배우기 속도 유전자: 0이면 안 배움(물려받음, 장치 꺼지면 안 쓰임)
     ("hnew", np.float32, ("H",), False),
     ("obs", np.float32, ("I",), False),
     ("act", np.float32, ("O",), False),
@@ -83,6 +84,13 @@ AGENT_FIELDS = [
     ("n_meal", np.int32, (), False),          # 먹은 알 수
     ("n_poison", np.int32, (), False),        # 그 가운데 독
     ("n_poison10", np.int32, (), False),      # 첫 FIRST_MEALS끼 가운데 독
+    # 보고 배우기용(태어날 때 0, 저장하지 않는다)
+    ("meal_k", np.int8, (), False),           # 이번 스텝에 먹은 끼니의 보이는 모양 칸(0/1, 끼니가 없으면 0)
+    ("meal_o", np.float32, (), False),        # 그 끼니의 결과(독 -1, 아니면 +1)
+    ("n_seen", np.int32, (), False),          # 본 끼니 수
+    ("n_seen_poison", np.int32, (), False),   # 그 가운데 독
+    ("n_seen_kin", np.int32, (), False),      # 그 가운데 가까운 피붙이의 끼니
+    ("seen_age_sum", np.int64, (), False),    # 본 시연자의 나이 합
 ]
 FOOD_FIELDS = [
     ("fx", np.float64, True),
@@ -128,7 +136,7 @@ LIFETIME_FLEX = ("epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link", "
 PERTURB_FLEX = ("elig_in", "elig_rec")
 # 나중에 생긴 저장 필드의 기본값. 값이 모두 기본값이면 상태 해시에 넣지 않고(그 필드가 생기기 전 해시와 같게),
 # 이 필드가 없는 옛 체크포인트를 읽으면 기본값으로 둔다(alloc_state가 이 값으로 채운다). 새 저장 필드는 여기에 더한다.
-HASH_DEFAULTS = {"elig_in": 0, "elig_rec": 0, "a_held": -1, "f_holder": -1, "f_dropped": 0, "taste_m": 0, "taste_g": 0}
+HASH_DEFAULTS = {"elig_in": 0, "elig_rec": 0, "a_held": -1, "f_holder": -1, "f_dropped": 0, "taste_m": 0, "taste_g": 0, "soc_g": 0}
 OTHER_SCRATCH = ["a_start", "a_items", "f_start", "f_items", "cursor", "bbuf", "dbuf", "dbuf_f"]
 
 State = namedtuple(
@@ -218,13 +226,14 @@ DEATH_KILLED = 4         # 공격을 맞은 스텝에 에너지가 바닥남
  P_BIAS_THRUST, P_BIAS_REPRO, P_SIGMA_INIT, P_SIGMA_MIN, P_SIGMA_MAX, P_SIGMA_TAU,
  P_P_HIDDEN, P_COLOR_SIGMA, P_SYN, P_BACK_COST, P_ETA_INIT, P_ETA_MAX, P_ALPHA_INIT, P_POISON,
  P_KIND_RATIO, P_SPOIL_RATE, P_SPOIL_MIN, P_CARRY_COST, P_MEAT_SPOIL, P_HUDDLE_CAP, P_HUDDLE_EXP,
- P_TASTE_RATE, P_TASTE_DECAY, P_TASTE_INHERIT, P_TASTE_GENE_SIGMA, P_TASTE_COST, N_FP) = range(60)
+ P_TASTE_RATE, P_TASTE_DECAY, P_TASTE_INHERIT, P_TASTE_GENE_SIGMA, P_TASTE_COST,
+ P_SOC_RATE, P_SOC_COST, P_SOC_GENE_SIGMA, P_SOC_RADIUS, N_FP) = range(64)
 
 # ---- 정수 설정 칸 ----
 (Q_SEED, Q_GW, Q_GH, Q_FOOD_CAP, Q_N_PATCH, Q_PATCH_LIFE, Q_MAX_AGE, Q_MIN_AGENTS,
  Q_SECTORS, Q_H_MAX, Q_H_INIT, Q_H_MIN, Q_REPRO_BRAIN, Q_REPRO_MIN_AGE, Q_MUT, Q_CORPSE,
  Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, Q_CAP_REPLACE, Q_SPOIL_AFTER, Q_FIELD_CAP, Q_TASTE_IN0, Q_TASTE_GENE,
- Q_KIND_SEED, Q_KIND_STEP0, N_IP) = range(27)
+ Q_KIND_SEED, Q_KIND_STEP0, Q_SOC, Q_SOC_MODE, N_IP) = range(29)
 
 
 def pack_params(cfg):
@@ -289,6 +298,10 @@ def pack_params(cfg):
     fp[P_TASTE_INHERIT] = cfg.taste_inherit
     fp[P_TASTE_GENE_SIGMA] = cfg.taste_gene_sigma
     fp[P_TASTE_COST] = cfg.taste_cost
+    fp[P_SOC_RATE] = cfg.soc_rate
+    fp[P_SOC_COST] = cfg.soc_cost
+    fp[P_SOC_GENE_SIGMA] = cfg.soc_gene_sigma
+    fp[P_SOC_RADIUS] = cfg.soc_radius
     ip[Q_SEED] = cfg.seed
     ip[Q_GW] = cfg.grid_w
     ip[Q_GH] = cfg.grid_h
@@ -318,6 +331,9 @@ def pack_params(cfg):
     ip[Q_TASTE_IN0] = cfg.taste_in0 if taste_on else -1
     # 맛 배움 속도 유전자: 맛 블록이 실제로 쓰일 때만(아니면 배움도 비용도 없다)
     ip[Q_TASTE_GENE] = int(cfg.taste_gene_enabled and taste_on)
+    # 보고 배우기: 맛 블록이 실제로 쓰일 때만(아니면 배움도 비용도 없다)
+    ip[Q_SOC] = int(cfg.soc_taste_enabled and taste_on)
+    ip[Q_SOC_MODE] = SOC_MODES[cfg.soc_taste_mode]
     return fp, ip
 
 

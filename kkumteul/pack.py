@@ -28,7 +28,7 @@ from . import SOURCE_HASH, STATE_VERSION, __version__
 from . import checkpoint as ckpt
 from .config import Config
 from . import measure
-from .measure import GENOME
+from .measure import GENOME, OPTIONAL_GENOME
 
 MARK = "kkumteul_pack"    # 이 이름의 배열이 있으면 묶음이다(값은 형식 번호)
 PACK_VERSION = 1
@@ -111,8 +111,9 @@ def read(path: Path) -> tuple[dict, Config, dict]:
         if version != PACK_VERSION:
             raise ValueError(f"묶음 형식이 다르다: {version} != {PACK_VERSION}")
         genomes = {name: z[name] for name in GENOME + ("gen",) if name in z.files}
-        if "taste_g" not in genomes and "gen" in genomes:
-            genomes["taste_g"] = np.zeros(len(genomes["gen"]), dtype=np.float32)   # 맛 배움 속도 유전자 전의 묶음
+        for name in OPTIONAL_GENOME:
+            if name not in genomes and "gen" in genomes:    # 그 유전자가 생기기 전의 묶음
+                genomes[name] = np.zeros(len(genomes["gen"]), dtype=np.float32)
         missing = [name for name in GENOME + ("gen",) if name not in genomes]
         if missing:
             raise ValueError(f"묶음에 유전체 배열이 빠졌다: {missing}")
