@@ -59,22 +59,22 @@
 **시험 먼저**
 - `tests/test_taste_gene.py::test_new_rng_stream_appended`: 가르침이 고친 꼴(`max == 35`)에 `S_NORM_IMPULSE == 36`, `S_NORM_NOISE == 37`, `S_NORM_MIX == 38`, `S_NORM_BLIND == 39`를 더하고 `max(vals) == 39`로 올린다(모든 `S_*`가 서로 다르다).
 - `tests/test_norm.py`
-  - `test_norm_fields_registered`: `AGENT_FIELDS`에서 `mark_t`(int32)·`pun_t`(int32)·`mem`(float32)이 **저장**, 저장 필드 맨 끝(`feed_g` 뒤). 저장 안 함: `mark_vslot`(int32)·`mark_vid`(int64)(= 설계의 `mark_victim` 칸·id 쌍). `HASH_DEFAULTS`: `mark_t` −1, `pun_t` −1, `mem` 0. `alloc_state`의 새 상태에서 `mark_t`·`pun_t` 전부 −1, `mem` 0, `mark_vslot`·`mark_vid` 전부 **−2(피해자 미지)**.
-  - `test_norm_scratch_arrays`: `OTHER_SCRATCH`에 `norm_tab`(`(TAG_ROWS_NORM = 5, N_NT)`, float64: 행은 태그 0·1·2·3과 접힌 칸 4), `norm_tab_role`(`(3, N_RT)`: 2자·3자 친족·3자 남, float64), `norm_hist`(구간표용, 과제 9)가 있고 `SAVED_FIELDS`에는 없음. 가르침의 `grad_tab`은 그대로.
+  - `test_norm_fields_registered`: `AGENT_FIELDS`에서 `mark_t`(int32)·`pun_t`(int32)·`mem`(float32)이 **저장**, 저장 필드 맨 끝(`feed_g` 뒤). 저장 안 함: `mark_vslot`(int32)·`mark_vid`(int64)(= 설계의 `mark_victim` 칸·id 쌍), **`mark_pun`(int8: 이 표시 에피소드 안에 벌 받았는가, 기본 0)**, **`pun_role`(int8: 벌 받았을 때 집행자의 역할 0 2자·1 3자 친족·2 3자 남, 기본 −1)**. `HASH_DEFAULTS`: `mark_t` −1, `pun_t` −1, `mem` 0. `alloc_state`의 새 상태에서 `mark_t`·`pun_t` 전부 −1, `mem` 0, `mark_vslot`·`mark_vid` 전부 **−2(피해자 미지)**, `mark_pun` 0, `pun_role` −1.
+  - `test_norm_scratch_arrays`: `OTHER_SCRATCH`에 `norm_tab`(`(TAG_ROWS_NORM = 5, N_NT)`, float64: 행은 태그 0·1·2·3과 접힌 칸 4), `norm_tab_role`(`(3, N_RT)`: 2자·3자 친족·3자 남, float64), `norm_hist`(구간표용 `(4, 4, 2)` float64: 행 0~2 = **벌 받은 개체를 벌 준 집행자의 역할별**(`pun_role`), 행 3 = 표시됐으나 벌 안 받은 개체; 열 = 경과 구간 네 개; 마지막 축 = [노출, 가로채기]. 과제 9)가 있고 `SAVED_FIELDS`에는 없음. 가르침의 `grad_tab`은 그대로.
   - `test_norm_off_world_hash_unchanged`: 처음부터 꺼진 세계(`small("stage4", "conflict", "kinds")` 등)의 해시가 기존 박은 해시 시험과 같다(`tests/test_stages.py::test_worlds_without_harsh_keep_pinned_hash`가 그대로 통과).
   - `test_state_hash_skips_default_norm_fields`: 모두 기본값이면 해시에 안 들어가고(그 필드가 생기기 전과 같음), 하나라도 기본값이 아니면 들어간다.
   - `test_old_checkpoint_loads_norm_defaults`: 저장한 `.npz`에서 `mark_t`·`pun_t`·`mem`을 뺀 옛 묶음을 `load_arrays`로 읽으면 −1·−1·0이고 해시가 저장 때와 같다(`exact`가 True). 0 아닌 값이 저장·복원된다. `pack.py`로 낸 묶음 읽기가 그대로다(유전체 배열이 안 늘었다).
-  - `test_inject_agent_and_reset_body_init_norm_state`: `measure.inject_agent`로 넣은 개체와 `_reset_body`로 재사용한 칸이 `mark_t = −1`, `pun_t = −1`, `mem = 0`, `mark_vslot = mark_vid = −2`.
-  - `test_set_config_off_clears_norm_state`: `norm_enabled`를 True → False로 `set_config`하면 산 개체의 `mark_t`·`pun_t`가 −1, `mem`이 0, 피해자 칸이 −2로 지워진다(꺼지면 `norm_*` 패스가 안 불려 감쇠가 없어 낡은 표시가 되살아나는 것을 막는다 — 설계 "끄기·안전", 판단표 9). 다시 켜도 낡은 표시가 없다. `norm_impulse`는 지우는 것과 무관하다. `norm_measure`만 끄는 것은 지울 것이 없다.
+  - `test_inject_agent_and_reset_body_init_norm_state`: `measure.inject_agent`로 넣은 개체와 `_reset_body`로 재사용한 칸이 `mark_t = −1`, `pun_t = −1`, `mem = 0`, `mark_vslot = mark_vid = −2`, `mark_pun = 0`, `pun_role = −1`.
+  - `test_set_config_off_clears_norm_state`: `norm_enabled`를 True → False로 `set_config`하면 산 개체의 `mark_t`·`pun_t`가 −1, `mem`이 0, 피해자 칸이 −2, `mark_pun` 0·`pun_role` −1로 지워진다(꺼지면 `norm_*` 패스가 안 불려 감쇠가 없어 낡은 표시가 되살아나는 것을 막는다 — 설계 "끄기·안전", 판단표 9). 다시 켜도 낡은 표시가 없다. `norm_impulse`는 지우는 것과 무관하다. `norm_measure`만 끄는 것은 지울 것이 없다.
   - `test_norm_stage_params_packed`: `pack_stage_params`가 새 `F_NORM_*`·`I_NORM_*`에 설정값을 담고, 기존 칸의 값·순서는 그대로다(`N_FS`·`N_IS`만 늘었다).
 - 빨강 확인.
 
 **구현**
 1. `rng.py`: `S_NORM_IMPULSE = 36`("떨리는 손의 구간 상태"), `S_NORM_NOISE = 37`("엉뚱한 표시 잡음"), `S_NORM_MIX = 38`("섞기의 옮김·위치"), `S_NORM_BLIND = 39`("삼가기 눈가림 동전" — **설계는 36~38만 적었으나 `norm_mem_obs_mode=blind`가 난수를 쓰므로 4번째가 필요하다**. 인자 배치는 과제 12에서 정한다).
-2. `kernels.py`: `AGENT_FIELDS`에 `mark_t`·`pun_t`·`mem`(저장, `feed_g` 뒤)과 `mark_vslot`·`mark_vid`(저장 안 함). `HASH_DEFAULTS`에 `"mark_t": -1, "pun_t": -1, "mem": 0`. `alloc_state`: `mark_t`·`pun_t` −1, `mark_vslot`·`mark_vid` −2(저장 안 하는 필드의 기본값 채우기 줄이 필요하면 거기에), `OTHER_SCRATCH`에 `"norm_tab"`·`"norm_tab_role"`·`"norm_hist"`와 `alloc_state`의 `np.zeros`. 상수 `TAG_ROWS_NORM = 5`(접기 `min(max(tag, 0), 4)`), 계수 칸 `NT_*`(태그별 계수·에너지, 설계 9절 이름 그대로: `TAKE, TAKE_IMP, TAKE_ON_MARKED, PUN, TAKE_KILL, PUN_KILL, PUN_2ND, PUN_3_KIN, PUN_3_STR, PUN_3_SIM0..3, PUN_3_LINE, PUN_NOVICT, PUN_UNKNOWN, PUN_VGONE, EXPO, OPP_SELF, OPP_OTHER, OPP_OTHER_SIM0..3, OPP_OTHER_LINE, OPP_MARKED, OPP_PLAIN, ATK_VOL_MARKED, ATK_VOL_PLAIN, MARK_EPIS0..2, MARK_EPIS_PUN0..2, ALIVE_STEPS, MARKED_STEPS, SAW_PUN, TAKE_DMG_RECV, PUN_DMG_RECV, TAKE_GAIN, PUN_FINE, PUN_COST, ATK_COST, EATEN_DEAD, LIVES_DONE, N_NT`; `ATK_COST` = 모든 공격 비용(빗나감 포함), `PUN_COST` = 그 가운데 벌의 몫)와 이름표 `NT_NAMES`(소문자 튜플, 판정 도구가 씀), 역할 표 칸 `RT_*`(`PUN_FINE, PUN_COST, SAVED_EST, N_RT`)과 `RT_ROLES = ("self", "kin", "stranger")`. **행 규칙**: 행 = 행위 개체(공격자·집행자·관찰자)의 태그, 단 `*_RECV` 칸은 받은 개체의 태그. `_reset_body`: `mark_t = pun_t = −1`, `mem = 0`, `mark_vslot = mark_vid = −2`.
+2. `kernels.py`: `AGENT_FIELDS`에 `mark_t`·`pun_t`·`mem`(저장, `feed_g` 뒤)과 `mark_vslot`·`mark_vid`·`mark_pun`·`pun_role`(저장 안 함). `HASH_DEFAULTS`에 `"mark_t": -1, "pun_t": -1, "mem": 0`. `alloc_state`: `mark_t`·`pun_t` −1, `mark_vslot`·`mark_vid` −2, `mark_pun` 0, `pun_role` −1(저장 안 하는 필드의 기본값 채우기 줄이 필요하면 거기에), `OTHER_SCRATCH`에 `"norm_tab"`·`"norm_tab_role"`·`"norm_hist"`와 `alloc_state`의 `np.zeros`. 상수 `TAG_ROWS_NORM = 5`(접기 `min(max(tag, 0), 4)`), 계수 칸 `NT_*`(태그별 계수·에너지, 설계 9절 이름 그대로: `TAKE, TAKE_KIN, TAKE_SIM0..3, TAKE_LINE, TAKE_IMP, TAKE_ON_MARKED, PUN, TAKE_KILL, PUN_KILL, PUN_2ND, PUN_3_KIN, PUN_3_STR, PUN_3_SIM0..3, PUN_3_LINE, PUN_NOVICT, PUN_UNKNOWN, PUN_VGONE, EXPO, OPP_SELF, OPP_OTHER, OPP_OTHER_SIM0..3, OPP_OTHER_LINE, OPP_MARKED, OPP_PLAIN, ATK_VOL_MARKED, ATK_VOL_PLAIN, MARK_EPIS0..2, MARK_EPIS_PUN0..2, ALIVE_STEPS, MARKED_STEPS, SAW_PUN, TAKE_DMG_RECV, PUN_DMG_RECV, VIOL_DMG_RECV, TAKE_GAIN, PUN_FINE, PUN_COST, ATK_COST, EATEN_DEAD, LIVES_DONE, N_NT`; `ATK_COST` = 모든 공격 비용(빗나감 포함), `PUN_COST` = 그 가운데 벌의 몫, **`VIOL_DMG_RECV` = 때린 순간 표시가 없던 대상이 받은 피해(가로채기든 무엇이든) — 설계 9절 "위반 피해율"의 분자**(`full`의 벌 피해는 표시 있던 대상이 받으므로 자동으로 빠지고, `inert`에서 표시 있던 대상을 친 피해도 빠진다. `norm_measure`만 켠 세계는 표시가 없으니 모든 피해가 들어간다), `TAKE_KIN`·`TAKE_SIM0..3`·`TAKE_LINE` = `TAKE`를 피해자가 친족(부모·자식·형제)·닮음 구간·계보인지로 나눈 계수(과제 3의 `atk-a` 바닥값 시험이 요구한다))와 이름표 `NT_NAMES`(소문자 튜플, 판정 도구가 씀), 역할 표 칸 `RT_*`(`PUN_FINE, PUN_COST, N_PUN, N_RT`; **지킨 피해의 추정(`SAVED_EST`)은 시뮬레이션이 안 쌓고 판정 도구가 `norm_hist`에서 계산한다** — 과제 17)과 `RT_ROLES = ("self", "kin", "stranger")`. **행 규칙**: 행 = 행위 개체(공격자·집행자·관찰자)의 태그, 단 `*_RECV` 칸은 받은 개체의 태그. `_reset_body`: `mark_t = pun_t = −1`, `mem = 0`, `mark_vslot = mark_vid = −2`, `mark_pun = 0`, `pun_role = −1`.
 3. `stages.py`: `F_NORM_*`(`PUN_RET, INHIBIT, MEM_RATE, MEM_OBS, MEM_TAU, IMPULSE, NOISE, SIG_THETA, TAU, MIX_FRAC, RADIUS(= soc_radius 복사), VRANGE, FOV`)와 `I_NORM_*`(`MEASURE, ON, MODE, SRC, AIM, OBS_MODE, IMP_LEN, BLOCK, BLOCK3, MIX_PERIOD, IN0(= norm_in0, 꺼졌으면 −1), VIS0(= norm_in0 + NORM_VIS, 꺼졌으면 −1)`)를 `N_FS`·`N_IS` 앞에 덧붙이고 `range(...)` 개수를 올린다. `pack_stage_params`가 채운다(`I_NORM_ON = int(norm_enabled and n_in이 충분)`). 아직 아무도 안 읽는다.
-4. `world.py`: `set_config`에서 `old.norm_enabled and not cfg.norm_enabled`이면 산 개체의 `mark_t`·`pun_t`를 −1, `mem`을 0, `mark_vslot`·`mark_vid`를 −2로(`taste_m` 지우기 옆, 주석에 "유전체가 아니므로 후손에게는 안 간다"). `World.norm_table()`(`{태그: {NT_NAMES: 값}}`, 행 4는 "접힌 칸")·`norm_role_table()`·`reset_norm_tables()` API(과제 3부터 채워진다).
-5. `measure.py`: `inject_agent`의 초기화에 `mark_t = pun_t = −1`, `mem = 0`, `mark_vslot = mark_vid = −2`.
+4. `world.py`: `set_config`에서 `old.norm_enabled and not cfg.norm_enabled`이면 산 개체의 `mark_t`·`pun_t`를 −1, `mem`을 0, `mark_vslot`·`mark_vid`를 −2, `mark_pun`을 0, `pun_role`을 −1로(`taste_m` 지우기 옆, 주석에 "유전체가 아니므로 후손에게는 안 간다"). `World.norm_table()`(`{태그: {NT_NAMES: 값}}`, 행 4는 "접힌 칸")·`norm_role_table()`·`reset_norm_tables()` API(과제 3부터 채워진다).
+5. `measure.py`: `inject_agent`의 초기화에 `mark_t = pun_t = −1`, `mem = 0`, `mark_vslot = mark_vid = −2`, `mark_pun = 0`, `pun_role = −1`.
 
 **초록 확인**: `python3 -m pytest -q tests/test_norm.py tests/test_taste_gene.py tests/test_stages.py tests/test_taste.py tests/test_harsh.py tests/test_teach.py tests/test_soc_taste.py`. 커밋: "규범의 씨앗 2: 난수·저장 필드·계수 배열·옛 호환(동작 변화 없음)".
 
@@ -86,7 +86,7 @@
 **시험 먼저**(손 시험: `build_grid` 먼저, 이웃이 실제 보이는 양성 확인을 먼저)
 - `test_scan_matches_nearest_touching`: 무작위로 놓은 작은 세계의 모든 산 개체 i에서 훑기가 돌려주는 가장 가까운 닿은 이웃 `nb`가 `_nearest_touching(s, fs, isp, i, True)`와 **같은 칸**이다(같은 거리 2.5, 에너지 ≤ 0 이웃 건너뜀, 자기 제외, 토러스 반대편, 거리 동률의 처리 규칙까지). 손으로 `mark_t`를 붙이면 `nm`(가장 가까운 **표시된** 닿은 이웃)이 표시된 쪽 중 가장 가깝다.
 - `test_expo_counts_gap_neighbors_and_ignores_touch`: 거리 2.0~2.5의 이웃(겹치지 않아 `collide`의 `touch = 1`이 안 켜지는 것)도 `EXPO`에 세고, `attack`이 맞은 개체의 `touch`를 `TOUCH_HIT`로 덮어도 분모가 안 흔들린다(설계 판단표 5·22: `touch`를 안 쓴다).
-- `test_measure_counts_take_by_actor_tag`: `norm_measure`만 켠 세계에서 손으로 놓은 쌍이 한 번 맞히면 `TAKE`·`TAKE_DMG_RECV`(받은 쪽 태그 행)·`TAKE_GAIN`(친 쪽 태그 행)이 오르고, 친족(부모·자식·형제)이면 친족 계수가, 닮음 구간이면 그 구간 계수가 오른다(`atk-a` 바닥값 용도: 가로챈 횟수·피해자·친족 비율·노출).
+- `test_measure_counts_take_by_actor_tag`: `norm_measure`만 켠 세계에서 손으로 놓은 쌍이 한 번 맞히면 `TAKE`·`TAKE_DMG_RECV`(받은 쪽 태그 행)·`TAKE_GAIN`(친 쪽 태그 행)이 오르고, 친족(부모·자식·형제)이면 `TAKE_KIN`·`TAKE_LINE`이, 닮음 구간이면 그 구간 `TAKE_SIM0..3`이 오른다(`atk-a` 바닥값 용도: 가로챈 횟수·피해자·친족 비율·노출). **`VIOL_DMG_RECV`**(때린 순간 표시가 없던 대상이 받은 피해)가 같이 오른다 — 표시가 없는 `norm_measure` 세계는 모든 피해가 여기 들어가고, 이 열이 판정 0의 `off` 칸이 위반 피해율을 `base`·`full`과 **같은 정의로** 읽는 길이다(`test_viol_dmg_equals_total_in_measure_only`).
 - `test_norm_tag_fold_no_overflow`: 태그 −3·4·99인 개체의 계수가 `norm_tab` 밖 배열을 안 덮고 행 4에 접힌다(`tag`는 int32, numba는 범위를 안 검사한다).
 - `test_measure_only_hash_equals_off`: `norm_measure`만 켠 세계(같은 `preset=norm_size`)의 300스텝 해시가 꺼진 세계와 같다(동작을 안 바꾸고 계수기는 저장 안 함).
 - `test_scan_not_called_when_both_off`: `norm_measure`·`norm_enabled`가 둘 다 꺼진 세계에서 훑기 호출 0(감싸서 셈) — 옛 `attack`과 같은 분기만 돈다.
@@ -95,7 +95,7 @@
 
 **구현**
 1. `_scan_touching(s, fs, isp, i, t)`: `_nearest_touching`과 같은 3×3 칸 순회로 한 번에 `nb`(가장 가까운 닿은 이웃)와 `nm`(가장 가까운 표시된 닿은 이웃, `mark_t`가 아직 없는 이 과제에서는 항상 −1)을 돌려준다. 표시됨 판정은 과제 5의 `_is_marked(t, mark_t, tau)`(여기서는 `mark_t < 0`이면 거짓).
-2. `attack`: `isp[I_NORM_MEASURE] != 0 or isp[I_NORM_ON] != 0`이면 **산 모든 개체의 차례마다 먼저** 훑는다(그 개체가 `a ≤ 0`이어도). 에너지 ≤ 0인 개체는 차례가 없다(`ALIVE_STEPS`에는 세되 `EXPO`·`OPP_*`에는 안 센다 — 문서에 이 규칙을 적는다). `EXPO`(내 차례에 `nb`가 있음), `ALIVE_STEPS`를 센다. 꺼져 있으면 이 분기를 안 타고 옛 `attack`과 똑같다. 맞힌 공격은(표시·벌이 아직 없는 이 과제에서는 모두) `TAKE`·`TAKE_DMG_RECV`·`TAKE_GAIN`·친족/닮음 계수를 센다. 색 닮음 식은 `_social_sense_par`의 `IN_KIN`(`1 − √(색 거리)/√3`)과 **같은 식을 함수로 뽑아** 쓴다.
+2. `attack`: `isp[I_NORM_MEASURE] != 0 or isp[I_NORM_ON] != 0`이면 **산 모든 개체의 차례마다 먼저** 훑는다(그 개체가 `a ≤ 0`이어도). 에너지 ≤ 0인 개체는 차례가 없다(`ALIVE_STEPS`에는 세되 `EXPO`·`OPP_*`에는 안 센다 — 문서에 이 규칙을 적는다). `EXPO`(내 차례에 `nb`가 있음), `ALIVE_STEPS`를 센다. 꺼져 있으면 이 분기를 안 타고 옛 `attack`과 똑같다. 맞힌 공격은(표시·벌이 아직 없는 이 과제에서는 모두) `TAKE`·`TAKE_DMG_RECV`·`TAKE_GAIN`·`VIOL_DMG_RECV`·`TAKE_KIN`·`TAKE_SIM0..3`·`TAKE_LINE`을 센다(과제 5·6 뒤에는 `VIOL_DMG_RECV`를 "맞은 대상이 그 순간 표시돼 있지 않았을 때만" 올린다). 색 닮음 식은 `_social_sense_par`의 `IN_KIN`(`1 − √(색 거리)/√3`)과 **같은 식을 함수로 뽑아** 쓴다.
 3. `world.summary`: `norm_measure`일 때 `norm_expo_frac`(= `EXPO ÷ ALIVE_STEPS`, 설계의 `θ_t`)·`norm_take_per_step`.
 
 **초록 확인**: `python3 -m pytest -q tests/test_norm.py tests/test_stages.py -k "norm or attack or pinned"`. 커밋: "규범의 씨앗 3: 훑기·norm_measure 계수기(동작 불변)".
@@ -126,8 +126,9 @@
 
 **시험 먼저**
 - `test_mark_visibility_window_and_brightness`: 원천 사건이 있는 스텝 t에 `mark_t = t`. **표시됨 ⇔ `mark_t ≥ 0` 그리고 `경과 ≤ τ`**(τ + 1스텝 동안), 밝기 = `1 − max(0, 경과 − 1) ÷ τ`(경과 0·1이면 1, 경과 τ이면 1/τ). **τ = 5·49·50에서 경과 τ + 1에 정확히 표시 없음**(float32 잔여가 없다 — float32로 `1`에서 `1/τ`를 τ번 빼면 0에 안 닿던 첫째 판의 오류, 설계 판단표 4). `τ = 1`이어도 다음 스텝 감각에는 밝기 1.
-- `test_take_marks_only_the_taker`: `take` 원천: 벌이 아닌 공격이 **맞았을 때** 공격자에게만 `mark_t = t`(`mark_vslot`·`mark_vid` = 맞은 이의 칸·id). 빗나간 공격(이웃 없음)은 안 붙고, 맞은 쪽은 안 붙는다. 같은 원천이 또 나면 `mark_t`가 갱신된다.
-- `test_mark_source_sig`: `sig` 원천은 `tanh(sig1 출력) > norm_sig_theta`인 스텝에 붙고(아무에게도 해가 없는 행동, `ACT_SIG1`), 그 표시의 피해자는 −1("없음")이다. `social_enabled` 요구.
+- `test_take_marks_only_the_taker`: `take` 원천: 벌이 아닌 공격이 **맞았을 때** 공격자에게만 `mark_t = t`(`mark_vslot`·`mark_vid` = 맞은 이의 칸·id). 빗나간 공격(이웃 없음)은 안 붙고, 맞은 쪽은 안 붙는다.
+- `test_remark_extends_same_episode`: **표시 에피소드의 정의(설계 9절 본문과 괄호가 어긋나 이 계획이 정한다)**: 표시가 **없던** 개체에 붙을 때가 새 에피소드의 시작이고(`mark_pun = 0`으로 초기화), **아직 표시된 동안 같은 원천이 또 나면** `mark_t`·피해자만 새로 붙이고 **같은 에피소드의 연장**이다(`mark_pun`은 그대로). 에피소드는 "마지막으로 붙은 때부터 만료까지" 한 번 센다(과제 9). 설계 문장의 "새 에피소드로 센다"를 따르면 앞 에피소드가 만료도 사망도 없이 사라져 세어지지 않는다.
+- `test_mark_source_sig`: `sig` 원천은 **`act[i, ACT_SIG1] > norm_sig_theta`**인 스텝에 붙는다(아무에게도 해가 없는 행동). **`s.act`는 `_think_par`/`think_plastic`가 이미 `tanh`를 지난 값이고 `after_think`가 자는 개체의 출력을 0으로 만든 뒤라, 여기서 `tanh`를 한 번 더 씌우지 않는다**(설계의 "`tanh(sig1)` > θ"는 이 출력 값 그대로를 뜻한다. 두 번 씌우면 문턱이 어긋난다). 그 표시의 피해자는 −1("없음")이다. `social_enabled` 요구. 자는 개체는 안 붙는다. **`norm_mode=full`이면 트리거 값에 위축을 곱한다**: `act × (1 − norm_inhibit × mem[i]) > θ`(아래 구현 3).
 - `test_mark_noise_stateless`: `norm_mark_noise = q`이면 어떤 원천이든 개체 스텝마다 확률 q로 엉뚱한 표시(피해자 −1)가 붙고, 난수는 `S_NORM_NOISE`의 `u01(seed, S_NORM_NOISE, step, id)`라 같은 시나리오 두 번이 같다. `none` + q = 순수 임의 꼬리표.
 - `test_mark_events_run_after_think_before_attack`: `norm_mark_events`가 `after_think`(출력이 정해진 뒤) 뒤에 한 번 돈다. 꺼진 세계·`norm_enabled=false`에서 호출 0.
 - `test_marks_not_set_by_measure_only`: `norm_measure`만 켠 세계에서는 표시가 안 붙는다(계수기만).
@@ -135,8 +136,8 @@
 
 **구현**
 1. `_is_marked(t, mark_t, tau)`(= `mark_t ≥ 0 and t − mark_t ≤ τ`), `_bright(t, mark_t, tau)`: `@njit(cache=True, inline="always")`. 감쇠 패스가 없다(시각에서 계산).
-2. `attack`: `isp[I_NORM_ON]`이고 원천이 `take`일 때, 가로채기가 맞은 직후 공격자의 `mark_t = step`, `mark_vslot = best`, `mark_vid = ids[best]`. **`step`은 `attack`의 인자 그대로**(`world.step_no`).
-3. `norm_mark_events(step, s, fs, isp)` 순차 커널: `sig` 원천(`act[i, ACT_SIG1]`에서 `tanh`를 `F_NORM_SIG_THETA`와 비교)과 잡음(`F_NORM_NOISE`) — 어떤 원천이든 잡음은 여기서. 표시 대상은 산 개체뿐.
+2. `attack`: `isp[I_NORM_ON]`이고 원천이 `take`일 때, 가로채기가 맞은 직후 공격자에게 표시를 붙인다(`_attach_mark(s, i, step, vslot, vid)`: 표시돼 있지 않았으면 `mark_pun = 0`, 그다음 `mark_t = step`, `mark_vslot = best`, `mark_vid = ids[best]`). **`step`은 `attack`의 인자 그대로**(`world.step_no`).
+3. `norm_mark_events(step, s, fs, isp)` 순차 커널: `sig` 원천(`act[i, ACT_SIG1]`를 `F_NORM_SIG_THETA`와 직접 비교 — `tanh` 다시 안 씌움)과 잡음(`F_NORM_NOISE`) — 어떤 원천이든 잡음은 여기서. 표시 대상은 산 개체뿐, 붙이기는 `_attach_mark`(피해자 −1). **`sig` 세계의 위축(설계 7절 표는 "`norm_inhibit`이 신호 출력에도 곱해짐", 4절은 "가로채기에만"이라 어긋나 이 계획이 정한다)**: `norm_mode=full`이면 `sig` 표시 트리거에만 `(1 − norm_inhibit × mem)`을 곱한다(실제 신호 출력·`signal_cost`·이웃이 듣는 신호는 안 바뀐다 — 모형 단순화이고 결과 문서에 적는다). 4절의 "가로채기에만"은 공격 출력에 대해서라는 뜻으로 읽는다. `take`·`none` 세계는 이 곱이 없다.
 4. `world.step`: `after_think` 블록 뒤에 `if self.isp[st.I_NORM_ON]: st.norm_mark_events(t, s, fs, isp)`(마음·사회가 꺼진 세계에서도 도는 자리 — `after_think`가 `mind or social`일 때만 도는 것과 무관하게 `norm_enabled`일 때만).
 
 **초록 확인**: `python3 -m pytest -q tests/test_norm.py tests/test_stages.py`. 커밋: "규범의 씨앗 5: 표시(mark_t)와 원천".
@@ -147,7 +148,7 @@
 **바꾸는 파일**: `kkumteul/stages.py`(`attack`), `tests/test_norm.py`.
 
 **시험 먼저**(설계 시험 5·6·15)
-- `test_pun_branch_pays_fine_not_take_gain`: **자발** 공격(충동 아님)이 `full` 모드에서 **표시된 대상**을 치면 벌: 대상이 잃는 양은 같고(`attack_damage × a`, 가진 만큼까지) 집행자가 얻는 몫이 `dmg × norm_pun_return`(0.1), 나머지는 `L_LOST`, 집행자는 **표시되지 않는다**, 맞은 대상은 `pun_t = t`와 `TOUCH_HIT`. 표시 안 된 대상이면 평소 가로채기(`attack_gain` 0.5)이고 공격자가 표시된다.
+- `test_pun_branch_pays_fine_not_take_gain`: **자발** 공격(충동 아님)이 `full` 모드에서 **표시된 대상**을 치면 벌: 대상이 잃는 양은 같고(`attack_damage × a`, 가진 만큼까지) 집행자가 얻는 몫이 `dmg × norm_pun_return`(0.1), 나머지는 `L_LOST`, 집행자는 **표시되지 않는다**, 맞은 대상은 `pun_t = t`와 `TOUCH_HIT`, 그 대상의 `mark_pun = 1`(이 표시 에피소드 안에 벌 받음). 표시 안 된 대상이면 평소 가로채기(`attack_gain` 0.5)이고 공격자가 표시된다.
 - `test_pun_return_equal_to_attack_gain_is_plain_attack`: 같은 조건에서 `norm_pun_return = attack_gain`이면 집행자의 에너지·장부가 평소 공격과 같다(손익 표 4행: 0.5는 "벌이 아니라 표시된 자를 노린 약탈", 설계 1절).
 - `test_inert_mode_all_attacks_are_takes`: `norm_mode=inert`면 모든 공격이 가로채기(표시된 대상을 쳐도 가로채기이고 공격자가 표시된다), 위축·삼가기 기억 갱신이 없다. 입력·조준·비용은 `full`과 같다(표시가 입력으로 들어와 뇌가 읽을 수 있다는 점까지).
 - `test_aim_marked_prefers_marked_neighbor`: `norm_aim=marked`(기본)에서 가까운 비표시 이웃과 먼 표시 이웃이 닿는 거리 안에 둘 다 있으면 표시된 쪽을 친다. 표시가 없으면 가장 가까운 쪽(기존과 같음). `nearest`는 기존 동작. **충동은 항상 `nearest`**(과제 4 시험이 확인한 것과 같은 코드 경로).
@@ -155,9 +156,10 @@
 - `test_kill_counters_pun_vs_take`: 대상 에너지가 바닥나면 `TAKE_KILL`·`PUN_KILL`로 따로 센다(벌에 맞은 개체도 `TOUCH_HIT`라 `process_deaths`의 `DEATH_KILLED`에 가로채기 사망과 섞이므로 벌로 죽은 수를 따로 읽는다).
 - `test_norm_world_lives_and_ledger_closes`: `small("stage4", "conflict", "norm", norm_impulse=0.015)`를 1,500스텝 돌려 `rel_residual(w) < 1e-9`이고 `NT_PUN > 0`. **벌 분기의 벌금 줄을 틀리게 하면(예: `got`를 `attack_gain`으로) 실패하는 것을 구현 뒤 한 번 확인하고 되돌린다.**
 - `test_inert_isolated_hash_equals_off`(설계 시험 2): `norm_enabled=true` + `inert` + `norm_impulse=0` + `norm_mark_src=none` + `norm_mark_noise=0`인 세계의 해시가 꺼진 세계(**같은 `preset=norm_size`, 같은 `soc_*`·`taste_*` 설정**)와 같다. (과제 12에서 `attack` 뒤 격자 재구성이 들어오면 같은 시험을 다시 돌려 여전히 같은지 본다.)
+- `test_cost_and_target_order_equivalent`: 대상 고르기를 비용 앞으로 옮겨도(막기 없는 세계에서) 에너지·장부·계수가 설계 순서(비용 → 대상)로 계산한 손셈과 같다.
 - 빨강 확인.
 
-**구현**: `attack`을 설계 4절 순서 0~6대로 정리한다. 0 훑기(과제 3), 1 충동 여부(과제 4), 2 비용 `attack_cost × a`(`L_MOVE`, 기존), 3 대상 고르기(충동 = `nb`, 자발은 `AIM_NEAREST`면 `nb`, `AIM_MARKED`면 `nm`이 있으면 `nm` 없으면 `nb`), 4 분기(충동 = 가로채기, 자발 + `full` + 대상이 표시돼 있으면 벌, `inert`는 모두 가로채기), 가로채기는 기존 에너지 줄 + 표시(과제 5), 벌은 `dmg`는 같고 `got = dmg × F_NORM_PUN_RET`, 집행자 비표시, `pun_t[대상] = step`, `TOUCH_HIT`, 계수. `norm_enabled`가 꺼져 있으면 이 분기들을 못 타고 옛 `attack` 본문 그대로(해시 시험이 잡는다).
+**구현**: `attack`을 설계 4절 순서대로 정리하되 **대상 고르기를 비용 내기 앞으로 옮긴다**(설계는 비용 → 대상 순서이나, 과제 13의 막기가 "비용도 안 든다"를 요구해 취소 점검이 비용 앞에 있어야 한다. 대상 고르기는 훑기 결과(`nb`·`nm`)만 읽고 내 에너지·비용에 기대지 않아 순서를 바꿔도 결과가 같다 — 시험 `test_cost_and_target_order_equivalent`가 막기 없는 세계에서 옛 순서와 같은 에너지·장부를 확인한다). 0 훑기(과제 3), 1 충동 여부(과제 4), 2 대상 고르기(충동 = `nb`, 자발은 `AIM_NEAREST`면 `nb`, `AIM_MARKED`면 `nm`이 있으면 `nm` 없으면 `nb`; 과제 13이 여기에 취소 점검을 더한다), 3 비용 `attack_cost × a`(`L_MOVE`, 기존; **비용은 위축을 곱하기 전의 `a`로** 낸다 — 설계 4절 순서 2가 위축(순서 4의 `a_eff`)보다 앞이다. 위축은 피해 양에만 곱해지고 `test_inhibit_scales_damage_not_cost`가 확인한다), 4 분기(충동 = 가로채기, 자발 + `full` + 대상이 표시돼 있으면 벌, `inert`는 모두 가로채기), 가로채기는 기존 에너지 줄 + 표시(과제 5), 벌은 `dmg`는 같고 `got = dmg × F_NORM_PUN_RET`, 집행자 비표시, `pun_t[대상] = step`, **`mark_pun[대상] = 1`**, `TOUCH_HIT`, 계수. `VIOL_DMG_RECV`는 맞은 대상이 **그 순간 표시돼 있지 않았을 때**만 피해를 더한다(벌 피해는 정의상 안 들어가고 `inert`에서 표시된 대상을 친 가로채기 피해도 안 들어간다). `norm_enabled`가 꺼져 있으면 이 분기들을 못 타고 옛 `attack` 본문 그대로(해시 시험이 잡는다).
 
 **초록 확인**: `python3 -m pytest -q tests/test_norm.py tests/test_stages.py tests/test_taste.py`. 커밋: "규범의 씨앗 6: 조준·벌 분기·벌금·inert".
 
@@ -169,12 +171,14 @@
 **시험 먼저**(설계 시험 7)
 - `test_mem_rises_on_punishment_and_decays`: 벌 받으면 `mem += norm_mem_rate × (1 − mem)`(기본 1.0: 한 번에 최대), `norm_tick`이 스텝마다 `mem = max(0, mem − 1/norm_mem_tau)`로 줄이고 **`< 0.5/τ`면 0으로 자른다**(float32 잔여가 없다: τ = 50·49·5에서 정확히 0에 닿는다).
 - `test_inhibition_multiplies_takes_only`: 가로채기 출력에만 `a_eff = a × (1 − norm_inhibit × mem[i])`가 곱해진다(**충동 가로채기에도** 곱해진다 — 벌 받은 충동 상태는 곧 가만해진다, 설계 4절). **벌에는 안 곱해진다**(벌주는 쪽은 삼가지 않는다). `inert`는 위축·기억 갱신이 없다.
+- `test_inhibit_scales_damage_not_cost`: 위축된 개체(`mem = 1`, `norm_inhibit = 0.8`)가 가로채면 피해량·얻는 몫은 0.2배이고 비용 `attack_cost × a`는 그대로다(설계 4절 순서: 비용은 위축 전 `a`).
+- `test_inhibit_applies_to_sig_mark_trigger`: `norm_mark_src=sig`·`full`에서 `mem = 1`인 개체는 `act[SIG1] × 0.2`가 θ를 못 넘으면 표시가 안 붙고, 실제 신호 출력·`signal_cost`·`s.sig`는 그대로다. `take`·`none` 세계와 `inert`는 이 곱이 없다. (설계 7절 표와 4절의 어긋남을 이 계획이 푼 결정이다.)
 - `test_inhibit_zero_leaves_output_unchanged_memory_still_rises`: `norm_inhibit = 0`이면 가로채기 출력이 안 바뀌고 `mem`만 오른다(뇌가 `NORM_MEM` 입력으로 읽을 때만 행동을 바꾸는 측정 통로).
 - `test_norm_tick_runs_before_norm_sense_slot`: `world.step`에서 `norm_tick`이 `social_sense`·`trail_sense` 뒤, 생각 앞에 한 번 돈다. 꺼진 세계에서 호출 0.
 - `test_mem_not_inherited_by_default`: 새끼의 `mem`은 0(`norm_mem_inherit`는 과제 19).
 - 빨강 확인.
 
-**구현**: `attack` 가로채기 가지에서 출력 `a`에 위축을 곱해 에너지·비용 줄에 쓴다(벌 가지는 곱하지 않음). 벌 받은 대상의 `mem += F_NORM_MEM_RATE × (1 − mem)`. `norm_tick(s, fs, isp)` 순차: `mem = max(0, mem − 1/τ)`, `< 0.5/τ`면 0. `world.step`: `k.sense`·`social_sense`·`trail_sense` 뒤 `if isp[I_NORM_ON]: st.norm_tick(s, fs, isp)`. (`mem` 갱신은 float32에서 `1 − mem`을 곱해 [0, 1] 안에 머문다.)
+**구현**: `attack` 가로채기 가지에서 `a_eff = a × (1 − norm_inhibit × mem)`를 **피해량(`attack_damage × a_eff`)과 얻는 몫에만** 쓴다(비용 `attack_cost × a`는 과제 6대로 위축 전 `a` — 설계 4절 순서 2·4; 벌 가지는 곱하지 않음). 벌 받은 대상의 `mem += F_NORM_MEM_RATE × (1 − mem)`. `norm_tick(s, fs, isp)` 순차: `mem = max(0, mem − 1/τ)`, `< 0.5/τ`면 0. `world.step`: `k.sense`·`social_sense`·`trail_sense` 뒤 `if isp[I_NORM_ON]: st.norm_tick(s, fs, isp)`. (`mem` 갱신은 float32에서 `1 − mem`을 곱해 [0, 1] 안에 머문다.)
 
 **초록 확인**: `python3 -m pytest -q tests/test_norm.py tests/test_stages.py`. 커밋: "규범의 씨앗 7: 삼가기 기억·위축·norm_tick".
 
@@ -188,7 +192,7 @@
 - `test_pun_unknown_novict_vgone`: `PUN_NOVICT`(표시가 위반에서 오지 않음: `sig` 원천·잡음, 피해자 −1), **`PUN_UNKNOWN`**(피해자 미지 −2: 체크포인트를 이어 읽은 직후 이미 표시돼 있던 개체; 읽기·`inject_agent`·`_reset_body` 뒤의 피해자는 −2), `PUN_VGONE`(피해자가 이미 죽었거나 그 칸이 다른 개체로 바뀜 — **칸 번호와 id를 같이** 저장해 가린다: 칸 재사용 시나리오 포함). 둘 다(−1·−2)는 3자 분모에서 빠진다. `PUN_NOVICT ÷ PUN`은 판정에 안 쓴다(항등식, 판단표 14).
 - `test_opportunity_counts_self_other_sim_line`: 훑기에서 내 차례에 닿는 표시된 이웃 `nm`이 있으면 그 피해자가 나(`OPP_SELF`)인지 남(`OPP_OTHER`, 남이면 `OPP_OTHER_SIM[구간]`·`OPP_OTHER_LINE`)인지로 센다. 같은 훑기·같은 거리 2.5라 `p2 = PUN_2ND ÷ OPP_SELF`, `p3 = (PUN_3_KIN + PUN_3_STR) ÷ OPP_OTHER`가 1을 넘지 않는다(분모가 분자의 기회 전체).
 - `test_selectivity_denominators`: `OPP_MARKED`(`nm` 있음)와 `OPP_PLAIN`(닿는 이웃은 있으나 전부 표시 안 됨), 그때의 **자발 공격**(충동 아님, 뇌 출력 > 0) `ATK_VOL_MARKED`·`ATK_VOL_PLAIN`. 선택성 = (`ATK_VOL_MARKED ÷ OPP_MARKED`) ÷ (`ATK_VOL_PLAIN ÷ OPP_PLAIN`)이 합성 값에서 손셈과 같다.
-- `test_energy_tables_by_tag_and_role`: 태그별 `TAKE_DMG_RECV`·`PUN_DMG_RECV`·`TAKE_GAIN`·`PUN_FINE`·`PUN_COST`(벌 비용 몫 `attack_cost`)·`ATK_COST`가 에너지 줄과 같고(합 = 장부와 대조: 같은 스텝에 `L_MOVE` 증가 = `ATK_COST` 합, `L_LOST` 증가 = 피해 − 얻은 몫의 합), `norm_tab_role[역할]`에 벌금·벌 비용·지킨 피해의 추정이 역할(2자·3자 친족·3자 남) 안에서 쌓인다. 태그 접기(행 4)가 여기서도 안 넘친다.
+- `test_energy_tables_by_tag_and_role`: 태그별 `TAKE_DMG_RECV`·`PUN_DMG_RECV`·`TAKE_GAIN`·`PUN_FINE`·`PUN_COST`(벌 비용 몫 `attack_cost`)·`ATK_COST`가 에너지 줄과 같고(합 = 장부와 대조: 같은 스텝에 `L_MOVE` 증가 = `ATK_COST` 합, `L_LOST` 증가 = 피해 − 얻은 몫의 합), `norm_tab_role[역할]`에 벌금·벌 비용·벌 횟수(`N_PUN`)가 역할(2자·3자 친족·3자 남) 안에서 쌓이고, 벌 받은 개체의 `pun_role`이 그 집행자의 역할(0 2자, 1 3자 친족 — 닮음 구간 ⒜이 가장 높은 두 구간이거나 계보 ⒝일 때, 2 3자 남; 피해자 −1·−2·죽음이면 −1로 둠)로 정해진다. 태그 접기(행 4)가 여기서도 안 넘친다. (역할별 지킨 피해의 추정은 쌓지 않는다 — 과제 9의 `norm_hist` 행 0~2에서 판정 도구가 계산한다.)
 - `test_summary_norm_fields`: `world.summary()`에 `norm_pun_rate_2nd`·`norm_pun_rate_3rd`(`p2`·`p3`)가 켠 세계에서만 있다.
 - 빨강 확인.
 
@@ -202,9 +206,9 @@
 **바꾸는 파일**: `kkumteul/stages.py`(`norm_account`, `attack`의 구간 계수), `kkumteul/kernels.py`(`process_deaths` 훅, `Q_NORM`·`Q_NORM_TAU`, `pack_params`), `kkumteul/world.py`(`step`, summary), `tests/test_norm.py`.
 
 **시험 먼저**(설계 시험 11 뒤쪽)
-- `test_interval_table_boundaries_and_exclusions`: 노출 개체 스텝(`EXPO`)과 가로채기 횟수를 **벌 받은 뒤 경과 스텝**(`t − pun_t`) 구간(1~10, 10~50, 50~200, 200~·없음)으로 `norm_hist`에 센다. 경계가 설계 그대로고, **벌 받은 바로 그 스텝(경과 0)에 자기 차례가 오는 개체는 표에서 뺀다**(처리 순서에 따라 같은 스텝에 먼저 맞은 개체의 노출만 늘어나는 인공물). 표시됐으나 **벌 받지 않은** 개체의 같은 구간표가 짝으로 쌓인다. 구간별 가로채기율 = 횟수 ÷ 노출.
+- `test_interval_table_boundaries_and_exclusions`: 노출 개체 스텝(`EXPO`)과 가로채기 횟수를 **벌 받은 뒤 경과 스텝**(`t − pun_t`) 구간(1~10, 10~50, 50~200, 200~·없음)으로 `norm_hist`에 센다. 경계가 설계 그대로고, **벌 받은 바로 그 스텝(경과 0)에 자기 차례가 오는 개체는 표에서 뺀다**(처리 순서에 따라 같은 스텝에 먼저 맞은 개체의 노출만 늘어나는 인공물). 표시됐으나 **벌 받지 않은** 개체의 같은 구간표가 짝으로 쌓인다. 구간별 가로채기율 = 횟수 ÷ 노출. **행 구조**: `norm_hist[행, 구간, {노출, 가로채기}]`에서 행 0~2 = 벌 받은 개체를 벌 준 집행자의 역할(`pun_role`), 행 3 = 표시됐으나 그 에피소드에 벌 안 받은 개체(`mark_pun == 0`) — 행 0~2와 행 3의 구간별 가로채기율 차 × 평균 피해(`TAKE_DMG_RECV ÷ TAKE`)가 **역할별 지킨 피해의 추정(`SAVED_EST`)**이고 판정 도구가 낸다(`test_saved_est_hand_values`는 과제 17).
 - `test_interval_table_is_manipulation_check_only`: 문서(`norm_judge.py`·결과 문서 문구 상수)에 "엔진 위축이 있으면 규범 없이도 낮게 나온다 — 조작 확인용이지 뇌가 배운 삼감의 증거가 아니다"가 구간표 출력 라벨로 붙는다(과제 17에서 출력 문구 시험).
-- `test_prevalence_and_episode_counts`: `norm_account`(스텝 끝 순차 패스)가 표시 유병률 계수(`MARKED_STEPS ÷ ALIVE_STEPS`)를 세고, 표시가 **만료되는 스텝**(`t − mark_t == τ + 1`)에 `MARK_EPIS[종류]`를 1 올리고 `pun_t ≥ mark_t`이면 `MARK_EPIS_PUN[종류]`도 올린다. 종류 = 그 표시의 피해자 값으로 0 `take`(≥ 0), 1 피해자 없음(`sig`·잡음, −1), 2 미지(−2). 같은 원천이 또 나 `mark_t`가 갱신되면 새 에피소드로 센다.
+- `test_prevalence_and_episode_counts`: `norm_account`(스텝 끝 순차 패스)가 표시 유병률 계수(`MARKED_STEPS ÷ ALIVE_STEPS`)를 세고, 표시가 **만료되는 스텝**(`t − mark_t == τ + 1`)에 `MARK_EPIS[종류]`를 1 올리고 **`mark_pun == 1`이면**(이 에피소드 안에 벌 받음) `MARK_EPIS_PUN[종류]`도 올린다. 종류 = 그 표시의 (마지막) 피해자 값으로 0 `take`(≥ 0), 1 피해자 없음(`sig`·잡음, −1), 2 미지(−2). **"집행됨"을 `pun_t ≥ mark_t`로 가르지 않는다**: 벌 뒤 다시 가로채 `mark_t`가 갱신되면 `pun_t < mark_t`가 되어 집행이 있었던 에피소드가 "집행 안 됨"으로 세어져 `take` 원천만 낮게 치우친다. 그래서 에피소드 단위 플래그 `mark_pun`(과제 5의 새 에피소드 시작에서 0, 벌 받을 때 1)을 쓴다(`test_punished_then_remarked_counts_as_punished`: 표시 → 벌 → 재표시 → 만료가 `MARK_EPIS_PUN`에 센다). 같은 원천이 또 나 `mark_t`가 갱신되면 **같은 에피소드의 연장**이다(과제 5의 정의; 설계 괄호의 "새 에피소드"와 다르게 정한 이유는 과제 5).
 - `test_episode_closed_at_death_no_double_count`: **설계에 없던 구멍을 이 계획이 막는다**: 표시 에피소드를 "만료 때만" 세면, 표시된 채 죽는 개체(벌에 맞아 죽는 개체가 바로 그렇다)의 에피소드가 빠져 `MARK_EPIS_PUN ÷ MARK_EPIS`가 낮게 치우친다. 그래서 `process_deaths`의 `_remove` 호출 앞에서 `ip[Q_NORM] != 0`이고 아직 표시됨(`t − mark_t ≤ τ`)이면 그 에피소드를 닫아 센다. 만료 스텝에 이미 센 것(`t − mark_t == τ + 1`)은 안 센다. 죽은 개체가 만료 스텝과 같은 스텝에 죽어도 한 번만 센다. 노쇠·굶음·공격 사망 모두.
 - `test_death_hook_records_eaten_for_net_income`: `process_deaths` 훅이 죽는 개체의 `eaten`을 `NT_EATEN_DEAD`(태그 행)에 더하고 `NT_LIVES_DONE`을 1 올린다(과제 14·17의 개체 스텝당 순수입 계산이 쓴다 — 설계는 "생애 에너지"라고만 적어 계수 정의가 없었다).
 - `test_account_off_not_called`: 꺼진 세계·`norm_measure`만 켠 세계에서 `norm_account`와 `process_deaths` 훅 호출 0. 훅이 `process_deaths`의 기존 시험·해시에 안 닿는다.
@@ -214,7 +218,7 @@
 **구현**
 1. `kernels.py`: `Q_NORM`(= `int(cfg.norm_enabled)`)·`Q_NORM_TAU`(= `cfg.norm_mark_tau`)를 `N_IP` 앞(가르침의 `Q_FEED` 뒤)에 덧붙여 개수 +2, `pack_params`가 채운다. `process_deaths`: `_remove` 호출 앞에 `if ip[Q_NORM] != 0: _norm_death_hook(step, s, i, ip)`(에피소드 닫기 + `EATEN_DEAD`·`LIVES_DONE`). 주석에 "`strike`(운석) 사망은 안 센다"(가르침과 같은 줄).
 2. `stages.py`: `norm_account(step, s, fs, isp)` 순차(유병률 계수 + 만료 에피소드 + 구간표 경과 계수의 분모·분자 중 `attack` 밖에서 세는 것). `attack`의 구간 계수는 훑기 줄 옆.
-3. `world.step`: `st.attack` 바로 뒤(과제 12의 격자 재구성·`watch_pun` 자리 뒤)에 `if isp[I_NORM_ON]: st.norm_account(t, s, fs, isp)`, **`process_deaths` 앞**.
+3. `world.step`: **이 과제에서 `norm_account` 호출을 처음 넣는다** — `st.attack` 호출 블록 바로 뒤에 `if isp[I_NORM_ON]: st.norm_account(t, s, fs, isp)`, **`process_deaths` 앞**. (과제 12는 이 호출을 **다시 넣지 않고**, 이미 있는 `norm_account` 줄 **앞**에 격자 재구성과 `watch_pun` 두 줄을 끼워 넣을 뿐이다.)
 4. `world.summary`: 표시 유병률, 표시당 집행 확률(`MARK_EPIS_PUN ÷ MARK_EPIS`).
 
 **초록 확인**: `python3 -m pytest -q tests/test_norm.py tests/test_stages.py tests/test_harsh.py tests/test_prey.py`. 커밋: "규범의 씨앗 9: 구간표·표시 에피소드·유병률(죽을 때 닫기)".
@@ -272,15 +276,16 @@
 **시험 먼저**(설계 시험 8·19; 사회 학습 시험 2번과 같은 이유로 **`build_grid`를 먼저 부르고 양성 확인 먼저** — 칸 경계의 이웃이 격자 다시 짓기로 보인다)
 - `test_watch_pun_raises_neighbor_mem_within_radius`: 이번 스텝에 `pun_t == t`인 개체를 `soc_radius` 안의 이웃이 보면 `mem += norm_mem_obs × (1 − mem)`(0.2). 반지름 밖·죽은 이웃은 그대로, 벌 받은 본인은 `norm_mem_rate`로 이미 올랐고 여기서 또 안 오른다. **칸 경계 0.5 안쪽 쌍**(예: x = 7.8과 8.2), 거리 `soc_radius` 바로 안(7.99)·바로 밖(8.01), 토러스 반대편이 정확히 센다.
 - `test_watch_pun_order_is_deterministic`: 적용 순서 = 벌 받은 개체 칸 번호 오름차순(같은 관찰자의 `mem`을 여러 벌이 차례로 올리는 지수평활은 비가환이라 순서가 값을 가른다). 같은 시나리오 두 번이 같은 해시.
-- `test_mem_obs_mode_blind_and_off`: `outcome` = 본 벌로 올린다. **`blind` = 벌을 본 스텝과 상관없이 같은 기대 비율로** 올린다 — **설계는 "같은 확률"이라고만 적고 정의가 없어 이 계획이 정한다**: 그 스텝에 (관찰자, 본 벌) 쌍의 수를 `m`, 산 개체 수를 `n`이라 하면 개체마다 `u01(seed, S_NORM_BLIND, step, id) < m ÷ n`이면 `mem += norm_mem_obs × (1 − mem)`(관찰 횟수의 기대는 같고 정보는 0). 시험: 같은 시나리오 두 번 같음, 벌이 없는 스텝은 `m = 0`이라 안 오름, 큰 표본에서 평균 상승 횟수가 `outcome`과 같다. `off` = 안 바뀐다.
+- `test_mem_obs_mode_blind_and_off`: `outcome` = 본 벌로 올린다. **`blind` = 벌을 본 스텝과 상관없이 같은 기대 비율로** 올린다 — **설계는 "같은 확률"이라고만 적고 정의가 없어 이 계획이 정한다. 이 스텝의 벌 수로 비율을 정하면 벌이 난 스텝에만 `mem`이 올라 "벌이 났다"는 시간 정보가 남아 눈가림이 아니다**(검토 지적). 그래서 **비율을 이 스텝의 사건과 무관하게 정한다**: `p` = (이전 스텝들까지 쌓인 본 벌 관찰 수 `SAW_PUN` 전 태그 합) ÷ (같은 구간의 개체 스텝 `ALIVE_STEPS` 합)(이 스텝의 계수를 더하기 **전** 값), 개체마다 `u01(seed, S_NORM_BLIND, step, id) < p`이면 `mem += norm_mem_obs × (1 − mem)`. 모든 스텝에 같은 비율이라(벌이 없는 스텝에도 올라간다) 시간·공간 정보가 없고 장기 평균 상승 횟수는 `outcome`과 같다. 처음(`SAW_PUN` 0)에는 `p = 0`이라 `reset_norm_tables()`(겨루기 창 시작) 뒤 초반에는 `outcome`보다 덜 오르는 편향이 있다 — 결과 문서에 적고 판정은 끝 구간 값으로 읽는다. 시험: 같은 시나리오 두 번 같음, **같은 스텝에 벌이 났을 때와 안 났을 때 동전 집합(개체별 상승 여부)이 같다**, 큰 표본에서 장기 평균 상승 횟수가 `outcome`과 같다(허용 오차). `SAW_PUN`은 `blind`에서도 실제 관찰 수를 센다. `off` = 안 바뀐다.
 - `test_saw_pun_counter`: 본 벌 수(`SAW_PUN`)가 모든 모드에서 같게 센다.
 - `test_grid_rebuild_after_attack_only_when_norm_on`: `k.build_grid`와 `st.attack`·`st.watch_pun`을 감싸 호출 순서를 기록: `norm_enabled=false`면 `attack` 뒤 격자 호출 0, 켜지면 **정확히 한 번**(`attack` 뒤·`watch_pun` 앞).
 - `test_attack_neighbor_set_unchanged_by_rebuild`: `attack`이 보는 이웃 집합이 꺼진 세계와 같다(**격자를 `attack` 앞에 지으면 달라지는 것을 한 번 확인**하고 뒤로 되돌린다 — 앞에 두면 불활성 = 꺼짐 해시 주장이 깨진다, 설계 순서절).
 - `test_inert_isolated_hash_equals_off_still_holds`: 과제 6의 불활성 해시 시험이 격자 재구성을 켠 뒤에도 같다(격자 배열이 해시 밖인지 확인).
 - `test_watch_pun_off_not_called`.
+- `test_resume_gives_same_result_for_saved_fields`(설계 시험 14, 과제 2에는 장치가 아직 없어 여기서): 장치를 켠 세계(`norm_impulse`·`full`·`take`)를 N스텝 돌려 저장·복원한 뒤 M스텝 더 돌린 해시가 끊김 없이 N + M스텝 돈 해시와 같다(저장 필드 `mark_t`·`pun_t`·`mem`만 영향). **저장 안 하는 `mark_vid`·`mark_pun`·`pun_role`은 복원 뒤 −2·0·−1이라 이어 읽은 직후 τ스텝 안에서 다음이 끊김 없는 실행과 다를 수 있다 — 계수기(`PUN_UNKNOWN`·표시당 집행 확률)와 `norm_block3_tag` 세계(2자 판정이 `mark_vid`에 기댐)**. 그래서 시험은 `norm_block3_tag = −1`·계수기를 제외한 상태 해시로 하고, `block3` 세계에서는 차이가 생김을 `test_resume_block3_documented_difference`가 확인해 문서화한다(겨루기 마당과 진화 갈래는 `block3` 없이 이어 돌리거나 아예 새로 시작하므로 판정에는 안 닿는다 — 결과 문서에 적는다).
 - 빨강 확인.
 
-**구현**: `watch_pun(step, s, fs, isp)` 순차(`prange` 금지): 이웃 순회는 `kernels.watch_meals`의 3×3 칸 순회와 좁은 격자 중복 방지(`oy == 1 and gh <= 2` 건너뛰기)를 그대로. 반지름은 `F_NORM_RADIUS`. `blind`는 두 패스(쌍 수 세기 → 동전). `world.step`: `st.attack` 호출 바로 뒤에 `if cfg.norm_enabled: k.build_grid(...); st.watch_pun(t, s, fs, isp); st.norm_account(...)`. 이 순서가 `process_deaths` 앞. **`soc_taste_enabled`가 켜지면 `eat` 뒤에 이미 격자를 다시 지어 `give`·`attack`이 새 격자를 본다**(`soc` 갈래) → `soc_*`·`taste_*`는 모든 규범 갈래에서 같게 박는다(체인의 사전 검사, 과제 18).
+**구현**: `watch_pun(step, s, fs, isp)` 순차(`prange` 금지): 이웃 순회는 `kernels.watch_meals`의 3×3 칸 순회와 좁은 격자 중복 방지(`oy == 1 and gh <= 2` 건너뛰기)를 그대로. 반지름은 `F_NORM_RADIUS`. `blind`는 먼저 이전 스텝까지의 `p`를 읽고 동전을 던진 뒤 이 스텝의 실제 관찰 수를 센다. `world.step`: 과제 9가 이미 넣은 `norm_account` 줄 **앞**(= `st.attack` 호출 블록 바로 뒤)에 `if cfg.norm_enabled: k.build_grid(...); st.watch_pun(t, s, fs, isp)` 두 줄을 끼운다(`norm_account`를 다시 넣지 않는다). 순서는 `attack` → 격자 재구성 → `watch_pun` → `norm_account` → `process_deaths`. **`soc_taste_enabled`가 켜지면 `eat` 뒤에 이미 격자를 다시 지어 `give`·`attack`이 새 격자를 본다**(`soc` 갈래) → `soc_*`·`taste_*`는 모든 규범 갈래에서 같게 박는다(체인의 사전 검사, 과제 18).
 
 **초록 확인**: `python3 -m pytest -q tests/test_norm.py tests/test_stages.py tests/test_soc_taste.py`. 커밋: "규범의 씨앗 12: watch_pun·눈가림·attack 뒤 격자 재구성".
 
@@ -298,7 +303,7 @@
 - `test_block_requires_norm_enabled`(과제 1 검사의 재확인).
 - 빨강 확인.
 
-**구현**: `attack` 순서 3(대상 고르기)와 4(분기) 사이: 자발이고 대상이 표시돼 있고 `isp[I_NORM_BLOCK] == tag[i]`면 취소, `isp[I_NORM_BLOCK3] == tag[i]`이고 `mark_vid[대상] != ids[i]`면 취소(비용 내기 **앞**에서 — "비용도 안 든다"). 취소 때는 대체 대상(가장 가까운 비표시 이웃)으로 넘어가지 않는다("집행 능력만 뺀 쌍둥이").
+**구현**: `attack`의 대상 고르기와 비용 내기 사이(과제 6이 대상 고르기를 비용 앞으로 옮겨 이 자리가 생긴다): 자발이고 대상이 표시돼 있고 `isp[I_NORM_BLOCK] == tag[i]`면 취소, `isp[I_NORM_BLOCK3] == tag[i]`이고 `mark_vid[대상] != ids[i]`면 취소(비용 내기 **앞**에서 — "비용도 안 든다"). 취소 때는 대체 대상(가장 가까운 비표시 이웃)으로 넘어가지 않는다("집행 능력만 뺀 쌍둥이").
 
 **초록 확인**: `python3 -m pytest -q tests/test_norm.py tests/test_stages.py`. 커밋: "규범의 씨앗 13: 벌주기 막기(전부·3자만)".
 
@@ -312,8 +317,8 @@
 - `test_resident_attack_row_fixed_and_arena_has_no_violence`: 마당용 유전체에서 `bout[:, ACT_ATTACK] == −1`, `Wout[:, ACT_ATTACK, :] == 0`이고, `norm_impulse = 0`인 겨루기 마당(거주민만)을 몇백 스텝 돌리면 `TAKE == 0`·`PUN == 0`(**관문 −1e**: 음성 대조의 전제). 합성 체크포인트의 공격 편향을 **+7로 일부러 틀리게** 해서 편향만 고치면(`world.calm_attack` 꼴) 가로채기가 남아 실패하고 출력 행까지 0으로 하면 통과하는 것을 한 번 확인한다(`Wout·h`가 자라며 양수가 되는 길이 있다).
 - `test_compete_multi_groups_and_same_seed_pairs`: `measure.compete_multi(cfg, groups, steps, seed)`(`groups = [(genomes, tag, count), ...]`)가 태그별 개체 수대로 넣고(`n_total > max_agents`면 오류), 같은 `seed`는 같은 위치·방향·나이 배치와 같은 결과를 낸다(칸마다 같은 마당 난수 — 같은 씨앗 짝으로 칸끼리 비교해 검출 한계를 줄인다), 넣는 순서를 섞어 칸 번호가 한 태그에 유리하지 않다. 기존 `measure.compete`·`assay_sides`는 **그대로**다(기존 시험 통과).
 - `test_compete_multi_reports_norm_tables`: 결과에 태그별 `norm_by_tag`(`NT_NAMES` 사전)·`role_by_tag`·태그별 산 개체 수·끝 시점 `eaten` 합·`mark_prevalence`가 들어 있다. 겨루기 세계는 `mutation_enabled = False`(`arena_config`가 이미 끈다).
-- `test_net_income_per_step_by_tag_hand_values`: `measure.net_income_by_tag(world)` = (`EATEN_DEAD` + 산 개체 `eaten` 합 + `TAKE_GAIN` + `PUN_FINE` − `TAKE_DMG_RECV` − `PUN_DMG_RECV` − `ATK_COST`) ÷ `ALIVE_STEPS`(개체 스텝당 순수입, 태그별)가 합성 값에서 손셈과 같다. **설계의 "생애 에너지 차"(`N_ind`)를 개체 스텝당 순수입의 차로 정의하고(같은 몸 쌍둥이끼리라 수명 차이는 스텝으로 정규화), 한 생 값은 × 평균 수명(1,560스텝, 설계 "판정 −2")으로 환산해 설계의 +0.05~+0.3과 견준다.**
-- `test_reseed_attack_row_matches_new_agent_distribution`: `World.reseed_attack_row(b0=-1.0, seed)`가 산 개체의 `bout[:, ACT_ATTACK] = b0`(−1, 새 개체의 값)와 `Wout[:, ACT_ATTACK, :]`을 새 개체의 초기 분포(`init_wout` × 표준정규)로 다시 뽑는다. 다른 출력 행·다른 배열은 그대로이고(전후 비교), 평균 0·표준편차 ≈ `init_wout`(통계 허용 오차). 난수는 `numpy` 생성기(`cfg.seed`에서 파생, 선례: `load_arrays`의 `alpha` 다시 뽑기)라 `rng.py` 용도 번호를 안 쓴다. `b0 = −0.3`(기울기 시작판, 관문 −2b가 쓴다)도 받는다.
+- `test_net_income_per_step_by_tag_hand_values`: `measure.net_income_by_tag(world)` = (`EATEN_DEAD` + 산 개체 `eaten` 합 + `TAKE_GAIN` + `PUN_FINE` − `TAKE_DMG_RECV` − `PUN_DMG_RECV` − `ATK_COST`) ÷ `ALIVE_STEPS`(개체 스텝당 순수입, 태그별)가 합성 값에서 손셈과 같다. **설계의 "생애 에너지 차"(`N_ind`)를 개체 스텝당 순수입의 차로 정의하고(같은 몸 쌍둥이끼리라 수명 차이는 스텝으로 정규화), 한 생 값은 × 평균 수명(1,560스텝, 설계 "판정 −2")으로 환산해 설계의 +0.05~+0.3과 견준다.** **알려진 편향(검토 지적, 한 줄로 못 박는다)**: 개체 스텝으로 정규화하면 **맞아 죽어 수명이 줄어드는 몫**이 순수입에 안 들어간다(죽으면 개체 스텝이 멈출 뿐이다). 그래서 `N_ind`의 짝으로 **태그별 `EATEN_DEAD ÷ LIVES_DONE`(끝난 생의 평균 먹은 양)과 평균 수명(`ALIVE_STEPS ÷ (LIVES_DONE + 끝 시점 산 개체 수)`)을 같이 보고**하고(`net_income_by_tag`의 출력 칸), 집행자 쪽이 맞아 죽는 몫이 더 큰 방향의 편향이므로 `N_ind`는 **집행자에게 불리하게(보수적으로) 치우친다**고 결과 문서에 한 줄 쓴다(`N_ind3 > 0`은 더 믿을 만하고 `≤ 0`은 수명 몫을 같이 읽어야 한다).
+- `test_reseed_attack_row_matches_new_agent_distribution`: `World.reseed_attack_row(b0=-1.0, seed)`가 산 개체의 `bout[:, ACT_ATTACK] = b0`(−1, 새 개체의 값)와 `Wout[:, ACT_ATTACK, :]`을 새 개체의 초기 분포(`init_wout` × 표준정규)로 다시 뽑는다. **열은 `n_hidden`까지가 아니라 `h_max` 전체를 `kernels.random_genome`과 같게 뽑는다**(`random_genome`이 `range(hm)` 전체를 채운다 — 나중에 은닉이 늘어 새로 쓰이는 열도 새 개체와 같은 분포여야 한다; 시험이 `n_hidden` 밖 열의 표준편차도 확인). 다른 출력 행·다른 배열은 그대로이고(전후 비교), 평균 0·표준편차 ≈ `init_wout`(통계 허용 오차). 난수는 `numpy` 생성기(`cfg.seed`에서 파생, 선례: `load_arrays`의 `alpha` 다시 뽑기)라 `rng.py` 용도 번호를 안 쓴다. `b0 = −0.3`(기울기 시작판, 관문 −2b가 쓴다)도 받는다.
 - `test_branch_reseed_option_recorded_and_applies_to_all`: `Runner.branch(..., reseed_attack=True, attack_b0=-1.0)`와 CLI `--reseed-attack-row [--attack-b0 −0.3]`가 갈래 시작에 이 편집을 걸고 **meta의 `edits`에 남긴다**. 갈래가 새로 `conflict`를 켜 `attack_newly_on`의 `calm_attack`(편향 −1)이 이미 걸려도 그 **뒤에** 걸려 겹쳐도 결과가 정의된다. `--reseed-attack-row` 없는 갈래는 이전과 똑같다.
 - `test_branch_resizes_to_norm_size`: 옛 크기 체크포인트에서 `preset=norm_size`로 갈라도 `ckpt.load`가 크기를 올려 읽고(새 입력 열의 가중치는 0) 이어 돈다(`Runner.branch`가 `enlarged_in`을 처리).
 - 빨강 확인.
@@ -368,22 +373,25 @@
 **바꾸는 파일**: 새 `wayfinder/stage2-4/norm_gate.py`(순수 계산), 새 `wayfinder/stage2-4/norm_judge.py`(명령줄), 새 `tests/test_norm_judge.py`. (`taste_gene_judge.py`는 안 고친다 — 가르침 과제 9와 같은 파일을 두 곳에서 건드리지 않는다. `measure.t95`·`knockout._neutral`·`taste_gene_judge`의 Welch 패턴은 가져다 쓴다.)
 
 **시험 먼저**(`tests/test_norm_judge.py`; 시뮬레이션 없이 도는 것을 최대로)
-- `test_cells_table_complete`: `norm_judge.CELLS`가 설계 판정 0 표의 칸을 이름·설정·마당 종류·φ로 정의한다: `hand-phi0.1/0.3/1.0`, `hand3-phi0.3`, `hand-phi0.3-inert/-nearest/-ret0/-ret0.5/-inh0/-inh0.4/-L1/-L10/-tau1/-sig(ret0·ret0.1)/-none-q(ret0·ret0.1)/-noise0.0005/-noise0.002`, `off`(`norm_enabled=false`, 충동은 켠 채), `noimp`(`norm_impulse=0`), 기준선 `base`(φ = 0, 전원 거주민), 전원 마당 `grp-1/grp-2/grp-3`(φ = 1.0). **설계의 `sig`/`none-q`는 "각각 `ret0`·`ret0.1`"이라 적었는데 판정 δ는 `ret0`에서 읽으므로 두 `ret` 값을 모두 도는 네 칸으로 읽는다**(설계 작성 의도와 어긋나면 고친다). 핵심 칸 목록(`CORE`)과 나머지(`REST`) 구분.
+- `test_cells_table_complete`: `norm_judge.CELLS`가 설계 판정 0 표의 칸을 이름·설정·마당 종류·φ로 정의한다: `hand-phi0.1/0.3/1.0`, `hand3-phi0.3`, `hand-phi0.3-inert/-nearest/-ret0/-ret0.5/-inh0/-inh0.4/-L1/-L10/-tau1/-sig(ret0·ret0.1)/-none-q(ret0·ret0.1)/-noise0.0005/-noise0.002`, `off`(`norm_enabled=false`, 충동은 켠 채), `noimp`(`norm_impulse=0`), 기준선 `base`(φ = 0, 전원 거주민), 전원 마당 `grp-1/grp-2/grp-3`(φ = 1.0). **설계의 `sig`/`none-q`는 "각각 `ret0`·`ret0.1`"이라 적었는데 판정 δ는 `ret0`에서 읽으므로 두 `ret` 값을 모두 도는 네 칸으로 읽는다**(설계 작성 의도와 어긋나면 고친다). **칸마다 설정을 명시한다**: 기본은 `norm_enabled=true`, `off` = `norm_enabled=false` + **`norm_measure=true`**(표시가 없는 칸의 위반 피해율을 `VIOL_DMG_RECV`로 같은 정의로 읽는 길 — 이게 없으면 `off`가 계수기 없이 돌아 관문 α가 "도구 깨짐"으로 거짓 판정된다), `noimp` = `norm_enabled=true` + `norm_impulse=0`(계수기가 이미 켜져 있어 `norm_measure`가 필요 없지만 설정을 CELLS에 그대로 적는다). **세 묶음**: `CORE` 열네 칸(`base`, `hand-phi0.1/0.3/1.0`, `grp-1/2/3`, `hand3-phi0.3`, `hand-phi0.3-inert/-ret0/-ret0.5/-L1`, `off`, `noimp`), **`DELTA` 네 칸(`hand-phi0.3-sig-ret0/-sig-ret0.1/-none-q-ret0/-none-q-ret0.1` — 관문 δ가 읽는 칸이라 관문 판정 전에 돌아야 한다)**, `REST` 일곱 칸(`-nearest/-inh0/-inh0.4/-L10/-tau1/-noise0.0005/-noise0.002`). `sig` 칸의 `norm_sig_theta`와 `none-q` 칸의 `norm_mark_noise`는 CELLS에 값을 박지 않고 `--calib <calib.json>`(아래 `calibrate`의 출력)에서 읽는다.
 - `test_arena_composition_and_settings`: 마당 갑(φ 0.1·0.3: 태그 1 = φ·800, 태그 2 = φ·800, 나머지 거주민 태그 0, `norm_block_tag = 2`)·마당 을(φ 0.3: 태그 1·태그 3 = 240씩, `norm_block3_tag = 3`)·전원 마당(전원 태그 1 / 전원 태그 2 / 전원 태그 3)·`base`의 개체 수와 설정이 설계 그대로. 섞은 마당은 같은 구성에 `norm_mix_period = 200`·`norm_mix_frac = 0.2`. 모든 칸은 `mutation_enabled = False`이고 같은 칸 안 태그끼리 한 마당에서 읽는다.
-- `test_damage_rate_definition_mode_independent`: **위반 피해율 = 때린 순간 표시가 없던 대상이 받은 피해 ÷ 개체 스텝**이 합성 계수에서 손셈과 같고, `inert`에서 표시 있던 대상을 친 피해(`TAKE_ON_MARKED`)는 빠진다(`full`·`inert`·`off`를 같은 정의로 견준다, 판단표 18).
+- `test_damage_rate_definition_mode_independent`: **위반 피해율 = 때린 순간 표시가 없던 대상이 받은 피해 ÷ 개체 스텝**이 합성 계수에서 손셈과 같고(분자 = `VIOL_DMG_RECV`), `inert`에서 표시 있던 대상을 친 피해(`TAKE_ON_MARKED`)는 빠진다(`full`·`inert`·`off`를 같은 정의로 견준다, 판단표 18). `off`·`noimp` 칸의 결과에도 같은 열이 있어 `damage_rate`가 계수 없음으로 실패하지 않는다.
 - `test_net_income_levels_hand_values`: `N_ind` = 태그 1 − 태그 2의 개체 스텝당 순수입(마당 갑), `N_ind3` = 태그 1 − 태그 3(마당 을), `N_grp`·`N_grp3` = 전원 마당 쌍의 끝 개체 수 로그 비와 평균 에너지 차(같은 씨앗 반복 6쌍), 한 생 환산(× 1,560), 반복별 t 구간(`measure.t95`, df = n − 1)이 손셈과 같다. 2차 딜레마의 크기는 `N_grp3 > 0 ≥ N_ind3`일 때 `N_grp3`.
 - `test_gate_alpha_beta_gamma_delta`: **관문 α**(작동): `hand-phi0.3`의 위반 피해율이 `base`보다 Welch로 낮고 7% 이상 낮으며, φ 단조(6반복 중 5반복 이상 `0.1 ≥ 0.3 ≥ 1.0`), `inert`·`off`가 `base` ± 검출 한계(양쪽 전멸 2판 이하) → "작동", 음성 대조가 깨지면 "도구 깨짐". **관문 β**(가·나·다): (가) `N_ind` 아래끝 > 0, (나) `N_ind3` 아래끝 > 0 — **"벌주기 씨앗이 이득이 된다"는 (나)가 0 위일 때만**, (다) `N_grp3` 아래끝 > 0, 2차 딜레마 = (나) ≤ 0 이고 (다) > 0. 관문 −2의 검출 가능성이 1 아래인 칸은 β를 안 쓴다("검출 한계 아래"). **관문 γ**(첫걸음): `hand-phi0.1`이 `base`보다 낮고 `inert`와 가를 수 있을 때만 "만족", `L1` 칸이 `L5`와 같으면 "기울기는 억지가 아닌 곳에서", `L1`이 0이면 "상습 위반자 가정에서". **관문 δ**(임의 대 기능): `ret0`에서 `sig`·`none-q`의 표시당 집행 확률이 `take`보다 Welch로 낮고 `N_ind`도 작으면 "기능에서 값을 얻는다", 같으면 "표시 자체가 약탈 대상"; 세 원천의 끝 유병률이 2배를 넘게 갈리면 "유병률이 달라 가를 수 없음". 합성 결과로 "작동 + 이득"·"작동 + 이득을 가를 수 없음"·"작동 아님"·"도구 깨짐" 네 경우.
 - `test_detectability_minus2_and_threshold`: **관문 −2**: 예상 순이득(`N`)과 검출 한계(음성 대조 칸 반복별 순이득 차의 sd × t95 ÷ √n)의 비가 1 아래인 d는 β를 안 쓴다. 진화 선택 강도 `N × 순이득 ÷ 한 생 수입(9.8)`이 1 이상인지(N = 무리 크기 입력). **관문 −2b**: 저장된 `h`로 근사한 `pre-act > 0`인 개체 비율(문턱 위 비율)과 `NORM_VIS` → 공격·회전 출력 가중치 분포를 계산하고, 1% 아래면 기울기 시작판(`b0 = −0.3`) 플래그를 올린다.
 - `test_gate_world_minus1`: −1a(켠 무리 ≥ 끈 무리의 0.9·재주입 급증/멸종 없음·장부 통과), −1b(`θ_t` = `EXPO ÷ 개체 스텝`, `take_loss_frac` = 맞은 피해 ÷ 먹이 수입이 0.08~0.15면 통과, 밖이면 `norm_impulse` 조정 권고 — 최대 세 번), −1c(표시 유병률 0.5%~10%, 세 표지 원천 유병률이 서로 50% 이내, 넘으면 τ 50 → 25 → 12 권고), −1d(표시된 개체 근처 개체의 `NORM_VIS`가 0이 아닌 비율이 시야 안 표시 존재 비율과 맞음), −1e(거주민 공격 0)가 합성 값에서 각각 통과·실패로 갈린다. 종료 코드: 0 통과, 3 세계 못 섬(−1a·−1c·−1d·−1e), 4 딜레마 크기 밖(−1b).
 - `test_bottom_judgment`: `p2 = PUN_2ND ÷ OPP_SELF`, `p3 = (PUN_3_KIN + PUN_3_STR) ÷ OPP_OTHER`, **친족 부풀림** = (`PUN_3_KIN ÷ (PUN_3_KIN + PUN_3_STR)`) ÷ (3자 기회의 친족 비율), 2자 대 3자 몫을 **같은 끝 무리의 표준 마당·섞은 마당** 값의 차로 낸다(서로 다른 두 진화 갈래의 계수기 차는 "단서"로만 — 판정 문장에 못 쓴다). 닮음 구간 ⒜와 계보 ⒝가 **같은 쪽으로 읽힐 때만** 친족 부풀림을 쓴다. 평판(늦은 집행 비율: 경과 10~τ ÷ 0~10)은 `tau1` 칸과 견준다.
 - `test_main_judgment_sentence_and_codes`: **판정 나**(주): 같은 끝 무리를 태그 A(전부 못 침)·B(3자만 못 침)·C(원래)로 나눈 겨루기 `r(C−A)`·`r(C−B)`·`min_detectable`, `N_ind`·`N_ind3`(표준·섞은 마당), 위반 피해율 태그별 차, **선택성**(`ATK_VOL_MARKED ÷ OPP_MARKED` ÷ `ATK_VOL_PLAIN ÷ OPP_PLAIN`)의 구간 아래끝. 주 판정 문장 "**`N_ind3`(또는 `N_ind`)의 구간 아래끝이 0 위, 선택성 아래끝이 1 위, 감각 막기 겨루기가 `inert` 끝 무리와 가를 수 있는 방향, `inert` 끝 무리 null과 구분됨, 음성 대조(위반 공급 끔)가 0 ± 한계, 두 씨앗이 같은 쪽**"일 때만 "그 수준(2자 맞대응 / 3자 집행)의 벌주기 씨앗이 개인에게 이득"이다. `N_grp3`만 0 위면 "모두가 하면 집단이 이득인데 개인이 이득이 아닌 칸(2차 딜레마가 열려 있음)"으로 **따로** 쓴다(OR로 묶지 않음). A쪽이 비용을 안 내 유리하므로 이기거나 비기면 "벌주기 값이 이득보다 크거나 같다"까지만. 합성 결과에서 이 조합들과 한 바탕이라도 통과/모두 "가를 수 없음"/깨짐 종료 코드(0·3·4).
+- `test_calibrate_prevalence_bisect`(**표지 원천 사이 유병률 맞추기 — 설계 7절이 맡은 과제 없이 남았던 일**): `norm_gate.calibrate_sig_theta(measure_fn, target, lo, hi, iters=6)`가 단조 합성 함수(θ가 크면 유병률이 내려감)에서 목표 유병률의 20% 안으로 6번 안에 수렴하고, `none` 세계의 잡음 확률은 닫힌 식 `q0 = P ÷ (τ + 1)`(표시 하나가 τ + 1스텝 지속, 겹침을 무시한 근삿값)으로 시작해 한 번 확인 측정으로 고친다(P = `take`(`full`) 세계의 측정 유병률, B1 셈으로 P ≈ 8%, τ = 50이면 q0 ≈ 0.0016 — 설계의 혼합 칸 q 0.0005·0.002와 같은 자리). 출력 `calib.json`: `{"sig_theta": .., "noise_q": .., "target": .., "measured": {"take": .., "sig": .., "none": ..}}`. 세 원천 유병률이 서로 **2배 안**일 때만(설계 7절: 차이 ≤ 50%의 맞춤 관문과 갈래 끝의 2배 규칙은 별개다) 관문 δ를 읽는다는 규칙이 `gate_world`의 −1c에 있다.
+- `test_saved_est_hand_values`: `norm_hist` 행 0~2(역할별 벌 받은 개체)와 행 3(표시됐으나 안 벌받음)의 구간별 가로채기율 차 × 평균 피해(`TAKE_DMG_RECV ÷ TAKE`)로 역할별 지킨 피해의 추정(`SAVED_EST`)이 합성 값에서 손셈과 같다.
+- `test_net_income_reports_lifetime_companions`: `N_ind`의 출력에 태그별 `EATEN_DEAD ÷ LIVES_DONE`·평균 수명이 같이 들어 있고 "집행자에게 불리한 보수 편향" 문구가 붙는다(과제 14의 편향 한 줄).
 - `test_output_labels_fixed`: 출력에 한계 문구가 붙는다 — 구간표에 "조작 확인용(엔진 위축이 있으면 규범 없이도 낮게 나온다)", ④ "부여된 위축 아래서", 판정 라에 "이득 구조 확인이지 관습이 아니다", 결과 문서 머리 한계 문구 상수(과제 18이 그대로 옮긴다).
 - `test_observe_window_resets_and_reports`: 작은 세계 `observe --steps N`이 창 시작에 `reset_norm_tables()`하고 표시 유병률·`θ_t`·`take_loss_frac`·표시당 집행 확률·`p2`·`p3`·구간표·이웃 쌍 대 아무 쌍의 색 닮음 분포(친척 경계를 사후에 정하는 자료, 과제 8)를 낸다(장치를 켠 설정일 때만).
 - 빨강 확인.
 
 **구현**
 1. `norm_gate.py`(순수): 위 계산 — `damage_rate`, `net_income_diff`, `level_intervals`, `gate_alpha`, `gate_beta`, `gate_gamma`, `gate_delta`, `detectability`, `threshold_above`, `gate_world`, `bottom`, `main_judgment`, `combine_tags`. 문턱은 코드 상수 한 곳(`THRESHOLDS`)에 두고 결과 문서의 예측 절과 **같은 값**이다.
-2. `norm_judge.py` 하위 명령: `threshold <체크포인트>`(−2b, 시뮬레이션 없이 저장된 `h`로), `observe <체크포인트> --steps N`, `arena-check <체크포인트>`(−1e), `hand-dose <체크포인트> --cell 이름 --arena std|mix`(판정 0 한 칸: 마당 구성대로 `compete_multi`를 반복 6번 + 같은 씨앗 짝, 중립 6은 `base` 칸에서만), `gate-world --dir <폴더> --tags a b`(−1), `gate-hand --dir <폴더>`(α·β·γ·δ·−2), `block-compete <끝 체크포인트>`(판정 나: 태그 A/B/C 겨루기 + 선택성 + `inert`·`off` 끝 무리 null 인자), `bottom <끝 체크포인트>`(판정 다·라), `final --dir <폴더> --tags a b`(주 판정 문장과 종료 코드). 원자료 이름 규칙은 과제 18의 체인.
+2. `norm_judge.py` 하위 명령: `threshold <체크포인트>`(−2b, 시뮬레이션 없이 저장된 `h`로), `observe <체크포인트> --steps N`, `arena-check <체크포인트>`(−1e), `calibrate --base <체크포인트> --from <w-full-*.json> --out <calib.json>`(표지 원천 유병률 맞추기: `sig_theta`를 이분 탐색으로 — 짧은 3,000스텝 `observe` 창을 최대 여섯 번 — 하고 `noise_q`를 `P ÷ (τ + 1)`에서 시작해 한 번 확인), `hand-dose <체크포인트> --cell 이름 --arena std|mix [--calib <calib.json>]`(판정 0 한 칸: 마당 구성대로 `compete_multi`를 반복 6번 + 같은 씨앗 짝, 중립 6은 `base` 칸에서만), `gate-world --dir <폴더> --tags a b`(−1, 세 원천 유병률 비교 포함), `gate-hand --dir <폴더>`(α·β·γ·δ·−2; **δ가 읽는 `DELTA` 칸의 json이 없으면 "δ 미판정"으로 끝내고 종료 코드를 0으로 두지 않는다**), `block-compete <끝 체크포인트>`(판정 나: 태그 A/B/C 겨루기 + 선택성; **`on`·`inert`·`off`·`noimp` 네 끝 무리 모두에 돌려** `inert`·`off`를 null 분포로, `noimp`를 음성 대조로 쓴다), `bottom <끝 체크포인트>`(판정 다·라: **`on`·`mix`·`arb` 끝 무리**), `final --dir <폴더> --tags a b`(주 판정 문장과 종료 코드; 필요한 원자료가 하나라도 없으면 그 항목을 "미판정"으로 적고 통과로 안 센다). 원자료 이름 규칙은 과제 18의 체인.
 3. **문서의 실제 사용 예를 시간 제한을 걸고 직접 돌린다**(시험 통과만으로 "됐다"고 하지 않는다): 시험 보조 함수로 만든 작은 세계의 체크포인트(`preset=norm`)를 저장하고
    `PYTHONPATH=. timeout 600 python3 wayfinder/stage2-4/norm_judge.py hand-dose <작은 체크포인트> --cell hand-phi0.3 --arena std --n 60 --steps 400 --reps 2 --json <임시 폴더>/x.json`
    결과 JSON에 태그별 `norm_by_tag`와 위반 피해율이 들어 있고 `gate-hand`가 합성이 아닌 이 파일을 읽어 오류 없이 끝나는지까지 본다. 서버의 큰 실행은 건드리지 않는다. 멈추면 내 코드부터 의심한다.
@@ -399,8 +407,8 @@
 
 **작업**
 1. `norm_chain.sh`를 아래 초안대로 쓴다. `bash -n wayfinder/stage2-4/norm_chain.sh`와 `DRY=1`로 명령이 맞는지 본다(경로는 변수, 레포 상대 경로만).
-2. 시간 어림은 **추정**이고 미측정이다: 구현 끝에 작은 갈래(3,000스텝)와 겨루기 한 칸(800마리 × 8,000스텝)의 실제 시간을 재서 스크립트 머리 주석을 고친다. 판정 0 핵심 칸 열한 개를 표준·섞은 마당에서 반복 6씩 돌리는 것이 가장 크다 — 시간이 모자라면 `CORE`만 먼저 돌리고 `REST`는 뒤로 미룬다(사회 학습 체인이 핵심 넷을 두 바탕 먼저 돌린 것과 같은 방식).
-3. `results.md`에 **"규범의 씨앗 — 예측" 절**을 쓴다(실행 전 날짜·시각 ET 표시): (a) **첫 줄에 한계를 한 번에**: "①②와 벌의 물리·위축은 부여, ⑤⑥과 벌주기 성향은 측정, ④의 뇌 삼감과 소통·전달은 이 판 밖. 위반은 엔진이 주는 떨리는 손(뇌가 못 말림)이고 표시는 정직·즉시·전원 공개의 엔진 방송이다. 이 판에서는 '규범'이라는 말을 쓰지 않는다(쓰는 말: 벌주기 씨앗, 집행, 맞대응 방어)." (b) 설계 판정 절의 **예측 표 그대로**(`θ_t` 0.2~0.5, 유병률 5~13%(τ = 50) 등 — 숫자를 옮길 뿐 새로 정하지 않는다), 억지 셈(s = 1~3, 위축 0.8, 구간 L = 5)과 "L은 계산의 입력이 아니라 모형의 가정", (c) **판정 규칙 옮기기**: 관문 −1a~e·−2·−2b·α·β(가·나·다)·γ·δ, 진화 판정 문장(주 판정 나)·판정 다·라, 단서의 정의, τ 조정 규칙(50 → 25 → 12), `norm_impulse` 조정(최대 세 번), 문턱 상수(`norm_gate.THRESHOLDS`와 같은 값), (d) "서로 다른 두 진화 갈래의 계수기 차는 단서"(형질 추세 금지 규칙), (e) 이번 판 밖(섬·5단계·다음 후보)은 한 줄.
+2. 시간 어림은 **추정**이고 미측정이다: 구현 끝에 작은 갈래(3,000스텝)와 겨루기 한 칸(800마리 × 8,000스텝)의 실제 시간을 재서 스크립트 머리 주석을 고친다. 판정 0 핵심 칸 열네 개(`CORE`)와 δ 칸 네 개(`DELTA`)를 표준·섞은 마당에서 반복 6씩 돌리는 것이 가장 크다 — 시간이 모자라면 `CORE`·`DELTA`만 먼저 돌리고(관문 판정에 필요한 전부) `REST`는 뒤로 미룬다(사회 학습 체인이 핵심 넷을 두 바탕 먼저 돌린 것과 같은 방식).
+3. `results.md`에 **"규범의 씨앗 — 예측" 절**을 쓴다(실행 전 날짜·시각 ET 표시): (a) **첫 줄에 한계를 한 번에**: "①②와 벌의 물리·위축은 부여, ⑤⑥과 벌주기 성향은 측정, ④의 뇌 삼감과 소통·전달은 이 판 밖. 위반은 엔진이 주는 떨리는 손(뇌가 못 말림)이고 표시는 정직·즉시·전원 공개의 엔진 방송이다. 이 판에서는 '규범'이라는 말을 쓰지 않는다(쓰는 말: 벌주기 씨앗, 집행, 맞대응 방어)." (b) 설계 판정 절의 **예측 표 그대로**(`θ_t` 0.2~0.5, 유병률 5~13%(τ = 50) 등 — 숫자를 옮길 뿐 새로 정하지 않는다), 억지 셈(s = 1~3, 위축 0.8, 구간 L = 5)과 "L은 계산의 입력이 아니라 모형의 가정", (c) **판정 규칙 옮기기**: 관문 −1a~e·−2·−2b·α·β(가·나·다)·γ·δ, 진화 판정 문장(주 판정 나)·판정 다·라, 단서의 정의, τ 조정 규칙(50 → 25 → 12: 체인은 `TAU`·`IMP` 변수와 새 `OUT` 폴더로 다시 부른다), `norm_impulse` 조정(최대 세 번), **표지 원천 유병률 맞춤 규칙**(`calibrate`: `take`(`full`) 세계의 측정 유병률을 목표로 `norm_sig_theta`와 `none`의 잡음 확률을 정하고, 세 원천의 점검 유병률이 서로 50% 이내일 때만 관문 δ를 읽는다), 문턱 상수(`norm_gate.THRESHOLDS`와 같은 값), (d) "서로 다른 두 진화 갈래의 계수기 차는 단서"(형질 추세 금지 규칙), (e) 이번 판 밖(섬·5단계·다음 후보)은 한 줄.
 4. `docs/status.md`에 이 단계의 막힌 점·다음 후보 칸 한 줄과 마지막 갱신일을 고친다(관찰에는 잰 값만, 해석에는 추정만).
 5. 전체 시험을 한 번: `python3 -m pytest -q`(메모리 상한 도구 `--max 2G`, `NUMBA_NUM_THREADS=2`, `nice`). 실패는 이 과제에서 고친다. 박은 해시 시험이 **모두 그대로**여야 한다.
 6. **제출 전 직접 실행**: `norm_chain.sh`를 `DRY=1`로 돌려 명령 목록을 본다(실제 체인은 서버 상황 — 사회 학습·가르침 체인이 안 돌고 있는가 — 을 보고 정한다. **한 번에 하나, 2스레드, 메모리 상한 1,500M, `nice -n 15`.**)
@@ -412,15 +420,21 @@
 #!/bin/bash
 # 규범의 씨앗(가로채기·벌주기) 실험 체인. 설계: docs/superpowers/specs/2026-11-26-norms-seed-design.md 둘째 판.
 # 예측·문턱: wayfinder/stage2-4/results.md "규범의 씨앗 — 예측"(실행 전에 적어 둔다. 없으면 이 스크립트는 멈춘다).
-# 앞 실험(사회 학습·가르침 체인 포함)이 끝난 뒤 한 번에 하나(2스레드, nice).
-# 순서: 바탕 확인 → 관문 −2b(문턱) → 세계 점검(−1) → 판정 0(용량 반응, 핵심 칸 먼저) → 관문(α·β·γ·δ·−2) → 진화 갈래 → 판정 나·다·라·단서.
+# 앞 실험(사회 학습·가르침 체인)이 끝난 뒤 한 번에 하나(2스레드, nice). WAIT_FOR 기본값이 그 체인들을 기다린다(비우려면 WAIT_FOR=).
+# 순서: 바탕 확인 → 관문 −2b(문턱) → 세계 점검(−1: take·inert·full·noimp + 유병률 맞춘 sig·none) → 판정 0(핵심·δ 칸 먼저)
+#       → 관문(α·β·γ·δ·−2) → 나머지 칸 → 진화 갈래 → 판정 나·다·라·단서.
 #
 #   ROOT=<레포 원래 폴더> CODE=<커밋한 코드 사본 폴더> [BASE=<바탕 체크포인트>] [WAIT_FOR=<pgrep -f 패턴>] [DRY=1] [OUT=<기록 폴더>] \
-#     <메모리 상한 도구> --max 1500M --bg norm-chain --log "$ROOT/runs/norm-exp/chain.log" -- bash wayfinder/stage2-4/norm_chain.sh
-# 상한은 묶음 전체에 걸린다. 칸·갈래·판정마다 done/json 표시가 있어 다시 불러도 이어 간다.
-# DRY=1이면 명령만 찍고(표준출력) 아무것도 돌리지 않는다. 이때 기록 폴더는 임시 폴더(OUT으로 바꿀 수 있다).
-# 시간 어림(미측정 — 과제 18에서 작은 갈래·겨루기 한 칸을 재서 고친다): 세계 점검 여덟 갈래, 판정 0 핵심 열한 칸 × 표준·섞은 마당,
-#   진화 갈래 한 개당 30만 스텝(1단계 세계보다 입력이 72칸이라 더 느릴 것). 관문에서 닫히면 판정 0까지만 돈다.
+#     [TAU=50] [IMP=0.015] <메모리 상한 도구> --max 1500M --bg norm-chain --log "$ROOT/runs/norm-exp/chain.log" -- bash wayfinder/stage2-4/norm_chain.sh
+# 상한은 묶음 전체에 걸린다. 같은 기록 폴더에서 두 번 띄우면 flock이 막는다.
+# 다시 불러도 이어 가는 범위(정직하게): 칸·판정은 json이 있으면 건너뛰고 없는 것만 돈다. 갈래(세계 점검·진화)는 done 표시가 있으면 건너뛴다.
+#   done은 **종료 코드 0이고 끝 체크포인트가 있을 때만** 만든다. 도는 중에 끊겨 run.json만 남은 갈래는 자동으로 이어 돌리지 않는다 —
+#   note에 "끊긴 흔적"을 남기고 건너뛴다(폴더를 지우고 다시 부르거나, python -m kkumteul.run resume으로 이어 간 뒤 done을 손으로 만든다).
+# 관문 −1에서 τ·norm_impulse를 조정해 다시 돌릴 때는 TAU=25 IMP=...로 **OUT을 다른 폴더**로 불러 같은 폴더의 done·json과 안 섞는다
+#   (조정은 결과 문서에 먼저 적고 한다).
+# DRY=1이면 명령만 찍고(표준출력) 아무것도 돌리지 않는다. 이때 기록 폴더는 임시 폴더(OUT으로 바꿀 수 있다)이고 갈래 로그도 거기에 쓴다.
+# 시간 어림(미측정 — 과제 18에서 작은 갈래·겨루기 한 칸을 재서 고친다): 세계 점검 열두 갈래, 판정 0 핵심 열네 칸 + δ 네 칸 × 표준·섞은 마당,
+#   진화 갈래 한 개당 30만 스텝(입력이 72칸이라 1단계 세계보다 느릴 것). 관문에서 닫히면 그 앞까지만 돈다.
 set -u
 R=${ROOT:?ROOT=레포 원래 폴더}
 C=${CODE:?CODE=코드 사본 폴더}
@@ -433,6 +447,8 @@ fi
 PY=$R/.venv/bin/python
 J=wayfinder/stage2-4/norm_judge.py
 BASE=${BASE:-$R/runs/world4/checkpoints/ckpt_000089611957.npz}   # 바탕 B1(마음·사회·판, 공격 선택압 없음)
+TAU=${TAU:-50}
+IMP=${IMP:-0.015}
 bn=$(basename "$BASE" .npz); S0=$((10#${bn#ckpt_}))
 W_END=$(printf 'ckpt_%012d.npz' $((S0 + 30000)))     # 세계 점검 갈래(3만 스텝) 끝
 END=$(printf 'ckpt_%012d.npz' $((S0 + 300000)))      # 진화 갈래(30만 스텝) 끝
@@ -443,8 +459,16 @@ runit() {  # DRY=1이면 명령만 찍는다
   if [ -n "${DRY:-}" ]; then echo "DRY: $*" >&3; return 0; fi
   "$@"
 }
+logf() {   # 갈래 로그 경로. DRY에서는 진짜 로그를 자르지 않게 임시 기록 폴더로 돌린다
+  if [ -n "${DRY:-}" ]; then echo "$E/dry-$(basename "$1")"; else echo "$1"; fi
+}
 
-if [ -n "${WAIT_FOR:-}" ] && [ -z "${DRY:-}" ]; then
+if [ -z "${DRY:-}" ]; then
+  exec 9>"$E/.lock"
+  flock -n 9 || { echo "같은 기록 폴더($E)에서 이미 체인이 돈다"; exit 1; }
+fi
+WAIT_FOR=${WAIT_FOR-'soc_chain.sh|teach_chain.sh'}    # 기본: 앞의 두 체인. (kkumteul.run을 기다리면 상시 도는 세계에 영영 걸린다)
+if [ -n "$WAIT_FOR" ] && [ -z "${DRY:-}" ]; then
   while pgrep -f "$WAIT_FOR" >/dev/null; do sleep 30; done
   note "앞 실험 끝남 확인 — 체인 시작"
 fi
@@ -468,29 +492,38 @@ PYEOF
 }
 
 # 모든 갈래·점검에 같은 설정을 박는다(soc_*·taste_*는 갈래마다 섞지 않는다: 격자 재구성이 attack 이웃을 바꾼다)
-G="preset=conflict preset=norm_size norm_impulse=0.015"
+G="preset=conflict preset=norm_size norm_impulse=$IMP norm_mark_tau=$TAU"
 
 # ---- 관문 −2b(진화 시작점의 공격 문턱): 시뮬레이션 없이 저장된 h로 문턱 위 개체 비율을 잰다
 if [ ! -s "$E/threshold.json" ]; then
   runit "$PY" $J threshold "$BASE" --json "$E/threshold.json" > "$E/threshold.log" 2>&1
   note "관문 −2b: $(tail -1 "$E/threshold.log" 2>/dev/null | cut -c1-160)"
 fi
-# 문턱 위가 1% 아래면(threshold.json의 slope_start) 진화 갈래에 기울기 시작판(--attack-b0 -0.3) 넷을 더한다(아래 4번)
-SLOPE=$("$PY" -c "import json; print(int(json.load(open('$E/threshold.json')).get('slope_start', 0)))" 2>/dev/null || echo 0)
+# 문턱 위가 1% 아래면(threshold.json의 slope_start) 진화 갈래에 기울기 시작판(공격 편향 b0 = −0.3) 넷을 더한다(아래 3번)
+SLOPE=${SLOPE:-$("$PY" -c "import json; print(int(json.load(open('$E/threshold.json')).get('slope_start', 0)))" 2>/dev/null || echo 0)}
 
 # ---- 세계 점검(판정 −1): 같은 체크포인트에서 갈라 3만 스텝, 끝에서 5,000스텝 창을 읽는다(씨앗 a·b)
-wbranch() {  # 씨앗 이름 설정...   (이름: meas=끔+계수만, inert, full, noimp=위반 공급 끔)
+wbranch() {  # 씨앗 이름 설정...   (이름: meas=끔+계수만, inert, full=take 원천, noimp=위반 공급 끔, sig·none=유병률 맞춘 임의 표지)
   local seed=$1 name=$2; shift 2
-  local dir=$R/runs/n-w-$name-$seed ck out=$E/w-$name-$seed
+  local dir=$R/runs/n-w-$name-$seed ck out=$E/w-$name-$seed rc
   local extra=(); [ "$seed" = b ] && extra=(--new-stream)
   local kv sets=(); for kv in "$@"; do sets+=(--set "$kv"); done   # 반복 변수를 local로(호출자의 s를 덮어쓰지 않게)
+  ck=$dir/checkpoints/$W_END
   if [ ! -f "$dir/done" ]; then
+    if [ -f "$dir/run.json" ]; then
+      note "세계 $name-$seed: 끊긴 흔적(run.json 있고 done 없음) — 건너뜀. 폴더를 지우고 다시 부르거나 resume으로 이어 간 뒤 done을 만든다"
+      return 0
+    fi
     note "세계 $name-$seed 시작 ($*)"
     runit nice -n 15 "$PY" -m kkumteul.run branch --from "$BASE" --run "$dir" --steps 30000 --quiet \
-      --reseed-attack-row "${extra[@]}" "${sets[@]}" > "$dir.log" 2>&1
+      --reseed-attack-row "${extra[@]}" "${sets[@]}" > "$(logf "$dir.log")" 2>&1
+    rc=$?
+    if [ -z "${DRY:-}" ] && { [ "$rc" != 0 ] || [ ! -f "$ck" ]; }; then
+      note "세계 $name-$seed 실패(종료 코드 $rc 또는 끝 체크포인트 없음) — done을 안 만든다"
+      return 0
+    fi
     runit touch "$dir/done"
   fi
-  ck=$dir/checkpoints/$W_END
   [ -s "$out.json" ] && return 0
   [ -f "$ck" ] || { note "세계 $name-$seed: 체크포인트 없음 $ck"; return 0; }
   runit nice -n 15 "$PY" $J observe "$ck" --steps 5000 --json "$out.json" > "$out.log" 2>&1
@@ -499,16 +532,16 @@ wbranch() {  # 씨앗 이름 설정...   (이름: meas=끔+계수만, inert, ful
 
 # ---- 판정 0: 용량 반응(진화 없이 겨루기만). 칸 정의는 norm_judge.CELLS에 있다
 CORE=(base hand-phi0.1 hand-phi0.3 hand-phi1.0 grp-1 grp-2 grp-3 hand3-phi0.3 hand-phi0.3-inert hand-phi0.3-ret0
-      hand-phi0.3-ret0.5 hand-phi0.3-L1 off noimp)
+      hand-phi0.3-ret0.5 hand-phi0.3-L1 off noimp)                                  # 열네 칸
+DELTA=(hand-phi0.3-sig-ret0 hand-phi0.3-sig-ret0.1 hand-phi0.3-none-q-ret0 hand-phi0.3-none-q-ret0.1)  # 관문 δ가 읽는 칸: 관문 전에
 REST=(hand-phi0.3-nearest hand-phi0.3-inh0 hand-phi0.3-inh0.4 hand-phi0.3-L10 hand-phi0.3-tau1
-      hand-phi0.3-sig-ret0 hand-phi0.3-sig-ret0.1 hand-phi0.3-none-q-ret0 hand-phi0.3-none-q-ret0.1
-      hand-phi0.3-noise0.0005 hand-phi0.3-noise0.002)
+      hand-phi0.3-noise0.0005 hand-phi0.3-noise0.002)                               # 나머지 일곱 칸: 관문 뒤에
 dose() {  # 칸 마당(std|mix)
   local cell=$1 arena=$2 out=$E/h-$1-$2
   [ -s "$out.json" ] && { note "용량 반응 $cell-$arena 이미 있음"; return 0; }
   note "용량 반응 $cell-$arena 시작"
   runit nice -n 15 "$PY" $J hand-dose "$BASE" --cell "$cell" --arena "$arena" --n 800 --steps 8000 --reps 6 \
-    --json "$out.json" > "$out.log" 2>&1
+    --calib "$E/calib.json" --json "$out.json" > "$out.log" 2>&1
   local rc=$?
   note "용량 반응 $cell-$arena 끝 ($rc): $(tail -1 "$out.log" 2>/dev/null | cut -c1-160)"
 }
@@ -517,22 +550,27 @@ dose_list() {  # 칸 이름들
   for c in "$@"; do dose "$c" std; dose "$c" mix; done
 }
 
-run_branch() {  # 이름 씨앗(a=같은 흐름, b=--new-stream) 설정...
+run_branch() {  # 이름 씨앗(a=같은 흐름, b=--new-stream) 설정...   (환경변수 ATTACK_B0가 있으면 공격 편향 b0를 그 값으로 다시 뽑는다)
   local name=$1 seed=$2; shift 2
-  local dir=$R/runs/n-$name-$seed
+  local dir=$R/runs/n-$name-$seed rc
   [ -f "$dir/done" ] && { note "$name-$seed 이미 끝남, 건너뜀"; return 0; }
-  [ -f "$dir/run.json" ] && { note "$name-$seed 중간에 끊긴 흔적 — 건너뜀"; return 0; }
+  [ -f "$dir/run.json" ] && { note "$name-$seed 끊긴 흔적(run.json 있고 done 없음) — 건너뜀. 폴더를 지우고 다시 부르거나 resume으로 이어 간 뒤 done을 만든다"; return 0; }
   local extra=(); [ "$seed" = b ] && extra=(--new-stream)
-  local kv sets=(); for kv in "$@"; do sets+=(--set "$kv"); done   # 반복 변수를 local로(호출자의 s를 덮어쓰지 않게)
+  local b0=(); [ -n "${ATTACK_B0:-}" ] && b0=(--attack-b0 "$ATTACK_B0")
+  local kv sets=(); for kv in "$@"; do sets+=(--set "$kv"); done
   note "$name-$seed 시작 ($*)"
   runit nice -n 15 "$PY" -m kkumteul.run branch --from "$BASE" --run "$dir" --steps 300000 --quiet \
-    --reseed-attack-row "${extra[@]}" "${sets[@]}" > "$dir.log" 2>&1
-  local rc=$?
+    --reseed-attack-row "${b0[@]}" "${extra[@]}" "${sets[@]}" > "$(logf "$dir.log")" 2>&1
+  rc=$?
+  if [ -z "${DRY:-}" ] && { [ "$rc" != 0 ] || [ ! -f "$dir/checkpoints/$END" ]; }; then
+    note "$name-$seed 실패(종료 코드 $rc 또는 끝 체크포인트 없음) — done을 안 만든다"
+    return 0
+  fi
   runit touch "$dir/done"
-  note "$name-$seed 끝 (종료 코드 $rc): $(tail -1 "$dir.log" 2>/dev/null | cut -c1-160)"
+  note "$name-$seed 끝 (종료 코드 $rc): $(tail -1 "$(logf "$dir.log")" 2>/dev/null | cut -c1-160)"
 }
 
-judge() {  # 갈래-씨앗 무엇(block|bottom|obs|kin|knock-norm|knock-vis)
+judge() {  # 갈래-씨앗 무엇(block|bottom|obs|knock-norm|knock-vis)
   local tag=$1 what=$2
   local ck=$R/runs/n-$tag/checkpoints/$END out=$E/j-$what-$tag
   [ -s "$out.json" ] && { note "판정 $what-$tag 이미 있음"; return 0; }
@@ -551,24 +589,35 @@ judge() {  # 갈래-씨앗 무엇(block|bottom|obs|kin|knock-norm|knock-vis)
 
 pre_check || { note "바탕 확인 실패 — 체인 중단"; exit 1; }
 
-# 1. 세계 점검(−1)
+# 1. 세계 점검(−1). 먼저 take 원천 넷(meas·inert·full·noimp)
 for t in a b; do
   wbranch $t meas  $G norm_measure=true
   wbranch $t inert $G norm_enabled=true norm_mode=inert
   wbranch $t full  $G norm_enabled=true
   wbranch $t noimp $G norm_enabled=true norm_impulse=0
 done
+# 1b. 표지 원천 유병률 맞추기(설계 7절): take(full) 세계의 유병률을 목표로 sig 임계와 none의 잡음 확률을 정하고, 그 값으로 두 세계를 점검한다
+if [ ! -s "$E/calib.json" ]; then
+  runit "$PY" $J calibrate --base "$BASE" --from "$E/w-full-a.json" --out "$E/calib.json" > "$E/calib.log" 2>&1
+  note "유병률 맞춤(calib.json): $(tr -d '\n ' < "$E/calib.json" 2>/dev/null | cut -c1-200)"
+fi
+SIG_THETA=$("$PY" -c "import json; print(json.load(open('$E/calib.json'))['sig_theta'])" 2>/dev/null || echo 0.5)
+NOISE_Q=$("$PY" -c "import json; print(json.load(open('$E/calib.json'))['noise_q'])" 2>/dev/null || echo 0.0016)
+for t in a b; do
+  wbranch $t sig  $G norm_enabled=true norm_mark_src=sig norm_sig_theta=$SIG_THETA norm_pun_return=0
+  wbranch $t none $G norm_enabled=true norm_mark_src=none norm_mark_noise=$NOISE_Q norm_pun_return=0
+done
 runit "$PY" $J arena-check "$BASE" > "$E/arena-check.json" 2> "$E/arena-check.log"
 runit "$PY" $J gate-world --dir "$E" --tags a b > "$E/gate-world.json" 2> "$E/gate-world.log"
 rc=$?
 note "관문 −1 종료 코드 $rc (0 통과, 3 세계 못 섬, 4 딜레마 크기 밖): $(tr -d '\n ' < "$E/gate-world.json" 2>/dev/null | cut -c1-200)"
 if [ "$rc" != 0 ] && [ -z "${DRY:-}" ]; then
-  note "관문 −1 못 넘음 — 판정 0을 돌리지 않고 닫는다(τ·norm_impulse 조정은 결과 문서를 고쳐 쓰고 정한다)"
+  note "관문 −1 못 넘음 — 판정 0을 돌리지 않고 닫는다(τ·IMP 조정은 결과 문서를 고쳐 쓰고 TAU·IMP를 바꿔 OUT을 새 폴더로 다시 부른다)"
   exit 0
 fi
 
-# 2. 판정 0: 핵심 칸 먼저, 나머지는 뒤에
-dose_list "${CORE[@]}"
+# 2. 판정 0: 핵심 칸과 δ 칸을 먼저(관문이 읽는 전부), 관문 판정 뒤에 나머지 칸
+dose_list "${CORE[@]}" "${DELTA[@]}"
 runit "$PY" $J gate-hand --dir "$E" > "$E/gate.json" 2> "$E/gate.log"
 rc=$?
 note "관문(α·β·γ·δ·−2) 종료 코드 $rc (0 통과, 3 가를 수 없음, 4 도구 깨짐): $(tr -d '\n ' < "$E/gate.json" 2>/dev/null | cut -c1-200)"
@@ -589,30 +638,35 @@ done
 for s in a b; do
   run_branch altr  $s $G norm_enabled=true norm_pun_return=0           # 순이타(2차 딜레마가 가장 아픈 칸)
   run_branch mix   $s $ON norm_mix_period=200
-  run_branch arb   $s $G norm_enabled=true norm_mark_src=sig norm_pun_return=0   # 임의-관습
+  run_branch arb   $s $G norm_enabled=true norm_mark_src=sig norm_sig_theta=$SIG_THETA norm_pun_return=0   # 임의-관습(유병률 맞춘 임계)
   run_branch blind $s $ON norm_mem_obs_mode=blind
 done
 if [ "$SLOPE" = 1 ]; then   # 문턱 위가 1% 아래였을 때만: 기울기 시작판(공격 편향 b0 = −0.3)
   for s in a b; do
-    for arm in on inert off noimp; do
-      note "기울기 시작판 $arm-$s: run_branch에 --attack-b0 -0.3을 더해 별도 이름(slope-$arm)으로 돈다(구현 때 채운다)"
-    done
+    ATTACK_B0=-0.3 run_branch slope-on    $s $ON
+    ATTACK_B0=-0.3 run_branch slope-inert $s $G norm_enabled=true norm_mode=inert
+    ATTACK_B0=-0.3 run_branch slope-off   $s $G norm_enabled=false
+    ATTACK_B0=-0.3 run_branch slope-noimp $s $G norm_enabled=true norm_impulse=0
   done
 fi
 
-# 4. 판정: on 갈래는 판정 나(주)·다·라·감각 막기, 나머지는 단서(observe)만
+# 4. 판정(설계 판정 나·다·라): 주 판정은 켠 갈래의 겨루기 + inert·off 끝 무리 null + noimp 음성 대조 + inert 끝 무리와의 감각 막기 비교
 for s in a b; do
-  judge on-$s block
-  judge on-$s bottom
-  judge on-$s knock-norm
-  judge on-$s knock-vis
-  for arm in inert off noimp altr mix arb blind; do judge $arm-$s obs; done
+  for arm in on inert off noimp; do judge $arm-$s block; done     # 판정 나: 켬 / null(inert·off) / 음성 대조(noimp)
+  for arm in on inert; do judge $arm-$s knock-norm; done          # 감각 막기 겨루기: 켠 갈래와 inert 끝 무리
+  judge on-$s knock-vis                                           # 양성 대조(시야 막기)
+  for arm in on mix arb; do judge $arm-$s bottom; done            # 판정 다(on·mix)·라(arb)
+  for arm in on inert off noimp altr mix arb blind; do judge $arm-$s obs; done   # 단서
+  if [ "$SLOPE" = 1 ]; then
+    for arm in on inert off noimp; do judge slope-$arm-$s obs; done
+    judge slope-on-$s block
+  fi
 done
 runit "$PY" $J final --dir "$E" --tags a b > "$E/final.json" 2> "$E/final.log"
 note "최종 판정 종료 코드 $?: $(tr -d '\n ' < "$E/final.json" 2>/dev/null | cut -c1-200)"
 note "체인 끝"
 ```
-(체인은 갈래 폴더 `runs/n-<갈래>-<씨앗>`, 판정 원자료 `runs/norm-exp/h-*.json`·`w-*.json`·`j-*.json`을 쓴다 — 모두 `runs/` 아래라 git에 안 올라간다. 칸·갈래마다 `done`/json 표시가 있어 끊겨도 다시 불러 이어 간다. 기울기 시작판의 실제 명령은 과제 14의 `--attack-b0` 옵션으로 구현 때 채운다 — 초안에서는 자리만 둔다.)
+(체인은 갈래 폴더 `runs/n-<갈래>-<씨앗>`, 판정 원자료 `runs/norm-exp/h-*.json`·`w-*.json`·`j-*.json`을 쓴다 — 모두 `runs/` 아래라 git에 안 올라간다. 칸·판정은 json이 있으면 건너뛰고, 갈래는 `done`(종료 코드 0과 끝 체크포인트가 있을 때만 만든다)이 있으면 건너뛴다. **끊겨 `run.json`만 남은 갈래는 자동으로 이어 돌리지 않고** note로 알리며 건너뛴다(손으로 처리). 기울기 시작판은 과제 14의 `--attack-b0` 옵션을 `ATTACK_B0` 환경변수로 넘긴다. `DRY=1`은 갈래 로그도 임시 기록 폴더에 써서 진짜 로그를 자르지 않는다(초안을 `DRY=1 SLOPE=1`로 돌려 확인했다: 문법 통과, 명령 128줄, 기존 로그 파일 그대로, `gate-hand`가 δ 칸 뒤·나머지 칸 앞에 놓임). `block-compete`는 겨루기 설정에 `norm_enabled=true`와 막기 키를 스스로 덮어써, 장치를 끈 `off` 끝 무리도 같은 마당에서 견준다.)
 
 ---
 
@@ -683,13 +737,19 @@ note "체인 끝"
 | 26 | `vision_sectors` 기본 8 등 확인 | 0(바탕 설정 확인), 1(`vision_sectors == 8` 검사) |
 
 ## 이 계획이 설계와 코드를 맞추며 정한 것(검토 때 먼저 볼 곳)
-1. 설정 키는 설계 표 20줄 + `norm_mix_frac` = **21개**(과제 1). 난수 용도는 36~38에 더해 **`S_NORM_BLIND = 39`**가 필요하다(과제 2). `blind`의 "같은 확률"은 (본 벌 쌍 수 ÷ 산 개체 수)로 정했다(과제 12).
+1. 설정 키는 설계 표 20줄 + `norm_mix_frac` = **21개**(과제 1). 난수 용도는 36~38에 더해 **`S_NORM_BLIND = 39`**가 필요하다(과제 2). `blind`의 "같은 확률"은 **이 스텝의 사건과 무관한 비율** = (이전 스텝까지의 `SAW_PUN` 합 ÷ `ALIVE_STEPS` 합)으로 정했다(이 스텝의 벌 수로 정하면 벌이 난 스텝에만 올라 시간 정보가 남는다 — 과제 12).
 2. 표시 에피소드는 만료 때만 세면 표시된 채 죽는 개체(벌에 맞아 죽는 개체)가 빠져 표시당 집행 확률이 치우친다 → **`process_deaths`에서 닫는다**(과제 9, `Q_NORM`·`Q_NORM_TAU`).
 3. 설계는 `bench.py`·`pack.py`를 "바꾸는 파일"에 적었으나 `bench`의 `kernel_breakdown`은 `stages.attack`을 안 지나고 새 유전체 배열이 없어 `pack.py`도 안 바뀐다 → 둘 다 안 고친다(과제 3·2).
 4. `N_ind`("생애 에너지 차")를 **개체 스텝당 순수입의 태그 차**로 정의하고 죽는 개체의 `eaten`을 `process_deaths` 훅으로 모은다(과제 9·14). 설계의 한 생 값은 × 1,560으로 환산해 견준다.
 5. 구현 순서를 바꿨다: 섞기(설계 ⑥)를 **판정 도구 앞**(과제 16)으로. 섞은 마당 칸이 도구에 들어가기 때문이다. `watch_pun`의 부모 boost용 집행자 기록(`pun_by`)과 boost 식은 과제 19에서 정했다(설계가 안 적음). 충동은 `norm_block_tag`에 안 막힌다(과제 13).
 6. 설계의 `sig`·`none-q` "각각 `ret0`·`ret0.1`"은 두 값 모두 도는 네 칸으로 읽었다(과제 17). `norm_hand`의 회전 부호·θ·G는 양성 시험으로 구현 때 정한다.
-7. 호출 위치는 "`st.attack` 바로 뒤"처럼 상대 위치로만 적었다. 가르침 구현이 `world.step`에 끼운 자리와 어긋나면 과제 0에서 고친다.
+7. 호출 위치는 "`st.attack` 바로 뒤"처럼 상대 위치로만 적었다. 가르침 구현이 `world.step`에 끼운 자리와 어긋나면 과제 0에서 고친다. `norm_account`는 과제 9에서 처음 넣고 과제 12는 그 앞에 두 줄을 끼운다(중복 호출 없음).
+8. **(둘째 판)** 설계 7절 표("`norm_inhibit`이 신호 출력에도 곱해짐")와 4절("가로채기에만")이 어긋난다 → `sig` 세계에서는 **표시 트리거에만** 위축을 곱한다(실제 신호 출력·비용·이웃이 듣는 신호는 그대로. 과제 5·7). `take`·`none`·`inert`는 곱이 없다.
+9. **(둘째 판)** 표시 에피소드의 정의: 표시가 없던 개체에 붙을 때 시작, 표시된 동안 같은 원천이 또 나면 **같은 에피소드의 연장**(설계 9절 괄호의 "새 에피소드"는 앞 에피소드가 세어지지 않는 구멍이라 따르지 않음), 집행됨은 에피소드 단위 플래그 `mark_pun`으로(`pun_t ≥ mark_t`로 가르면 벌 뒤 재표시가 "집행 안 됨"이 되어 `take`만 낮게 치우친다 — 과제 5·9).
+10. **(둘째 판)** `sig` 원천 트리거는 `act[ACT_SIG1]`를 θ와 직접 비교한다(`act`는 이미 `tanh`를 지난 값, 두 번 씌우지 않음). 표지 원천 유병률 맞추기는 과제 17의 `calibrate`와 체인 1b가 맡고(`none`의 q 초기값 = P ÷ (τ + 1), `sig` 임계는 이분 탐색) `sig`·`none` 세계 점검을 체인에 더했다.
+11. **(둘째 판)** `attack`에서 대상 고르기를 비용 앞으로 옮기고(막기가 "비용도 안 든다"를 요구) 비용은 위축 전 `a`로 낸다(위축은 피해량·얻는 몫에만). 위반 피해율의 분자는 `VIOL_DMG_RECV`, `off` 칸은 `norm_measure=true`로 돌린다.
+12. **(둘째 판)** `N_ind`는 맞아 죽어 수명이 줄어드는 몫이 안 들어가는 보수 편향이 있어 `EATEN_DEAD ÷ LIVES_DONE`·평균 수명을 같이 보고한다. 이어 돌린 결과 같음 시험(설계 시험 14)은 과제 12에 두되 `mark_vid`·`mark_pun`·`pun_role`이 저장 안 돼 `block3` 세계·계수기는 이어 읽은 직후 τ스텝 동안 다를 수 있음을 문서화한다. 역할별 지킨 피해(`SAVED_EST`)는 시뮬레이션이 안 쌓고 판정 도구가 `norm_hist`(행 = 벌 받은 개체의 집행자 역할 + 표시됐으나 안 벌받음)로 계산한다.
+13. **(둘째 판)** `norm_mem_inherit`를 과제 19로 미룬 것은 설계 8절·"끄기·안전"이 "부모의 가르침 구현을 요구한다"고 적은 데 따른 결정이며, 그때까지는 설정 검사 가드로 조용한 무동작을 막는다(과제 1). 체인은 `WAIT_FOR` 기본값으로 앞 체인들을 기다리고 `flock`으로 같은 체인의 이중 실행을 막으며, `done`은 성공(종료 코드 0 + 끝 체크포인트)일 때만 만든다.
 
 ## 과제 요약
 0. 전제 확인(사회 학습 1~7·가르침 1~8 커밋·초록, 번호 읽기, 호출 순서 읽기, B1 설정)
@@ -709,7 +769,34 @@ note "체인 끝"
 14. 겨루기 마당 준비(크기 올림·거주민 공격 행 고정)·다태그 겨루기·순수입·`reseed_attack_row`
 15. 손 집행자(`norm_hand.py`)와 양성 확인(`NORM_VIS` 막으면 못 함)
 16. 섞기(`norm_mix`)
-17. 판정 도구(`norm_gate.py`·`norm_judge.py`: 관문 −1·−2·α·β·γ·δ·판정 나·다·라)
+17. 판정 도구(`norm_gate.py`·`norm_judge.py`: 관문 −1·−2·α·β·γ·δ·판정 나·다·라, 표지 원천 유병률 맞춤 `calibrate`)
 18. 체인 스크립트 초안·예측 기록(실행 전)·전체 시험·직접 실행
 19. 삼가기 물려받기와 부모가 보여 준 벌(둘째 단계, 조건부)
+
+## 검토 판단표(계획 둘째 판)
+첫째 판 계획을 맥락 없는 검토(명세 축·규칙 축)에 보였다. 지적마다 계획·설계·코드로 확인해 판단했다. 합계(22줄): 반영 21건, 일부 반영 1건, 기각 0건(확인 근거는 "확인한 것" 칸).
+| # | 축 | 지적 요지 | 확인한 것 | 판단 | 반영 위치 |
+|---|---|---|---|---|---|
+| 1 | 명세 | 체인 judge가 `on`에만 block·bottom·knock을 돌림 | 설계 319~321줄: 주 판정이 `inert`·`off` 끝 무리 null과 `noimp` 음성 대조, `inert` 끝 무리와의 감각 막기 비교, 판정 라는 `arb` 끝 무리를 요구 | **반영** | 체인 4번(`block`을 on·inert·off·noimp, `knock-norm`을 on·inert, `bottom`을 on·mix·arb), 과제 17 `block-compete`·`bottom`·`final` |
+| 2 | 명세 | δ가 쓰는 `sig`·`none-q` 칸이 REST이고 `gate-hand`가 CORE 뒤 한 번 | 초안 확인: 맞음 | **반영** | `DELTA` 묶음을 관문 앞으로, 과제 17 CELLS·`gate-hand`의 "δ 미판정" 규칙 |
+| 3 | 명세 | 표지 원천 유병률 맞추기를 맡은 과제 없음, `none-q`의 q 미정, `sig`·`none` 세계 점검 없음 | 설계 7절 맞춤 관문(차이 ≤ 50%): 맡은 과제가 없었음 | **반영** | 과제 17 `calibrate`(`q0 = P ÷ (τ + 1)`, `sig` 임계 이분 탐색)·시험, 체인 1b와 `sig`·`none` 점검 갈래, 결정 10 |
+| 4 | 명세 | "집행됨"을 `pun_t ≥ mark_t`로 가르면 벌 뒤 재표시가 집행 안 됨으로 셈 | 맞음(재표시가 `mark_t`를 갱신). 설계 9절 본문("마지막으로 붙은 때부터 만료까지")과 괄호("새 에피소드")도 어긋남 | **반영** | 에피소드 단위 플래그 `mark_pun`(과제 2·5·6·9), 재표시 = 같은 에피소드의 연장, 결정 9 |
+| 5 | 명세 | `NT_*`에 `TAKE_KIN`·`TAKE_SIM`·`TAKE_LINE` 없음, 위반 피해율용 열 필요 | 과제 3 시험이 요구했는데 칸이 없었음 | **반영** | 과제 2의 `NT_*`에 `TAKE_KIN`·`TAKE_SIM0..3`·`TAKE_LINE`·`VIOL_DMG_RECV` |
+| 6 | 명세 | `off` 칸은 표시·계수기가 없어 위반 피해율 정의가 갈림, `off`·`noimp`에 `norm_measure=true` 없음 | `off`는 `norm_enabled=false`라 계수기가 안 돎: 맞음. `noimp`는 `norm_enabled=true`라 계수기가 이미 돌아 `norm_measure`가 필요 없음 | **일부 반영**(`off` 반영, `noimp`는 필요 없지만 설정을 CELLS에 명시) | 과제 3(`VIOL_DMG_RECV`)·17(CELLS) |
+| 7 | 명세 | `blind`(`u01 < m÷n`)가 벌이 난 스텝에만 `mem`을 올려 시간 정보가 남음 | 맞음 — 설계 "벌을 본 스텝과 상관없이"와 다름 | **반영** | 과제 12: 이전 스텝까지의 누적 비율(스텝 무관), 시험에 동전 집합 불변 |
+| 8 | 명세 | "열한 개"와 `CORE` 14개 불일치 | 맞음 | **반영** | 과제 18 문구 "열네 개 + δ 네 개", 체인 머리 주석 |
+| 9 | 명세 | 설계 7절 표 "신호 출력에도 곱해짐"과 4절 "가로채기에만" 모순 | 설계 197줄과 4절 145줄 대조: 맞음 | **반영(결정)** | 과제 5·7: `sig` 표시 트리거에만 위축, 결정 8 |
+| 10 | 명세 | `N_ind` 스텝당 정규화는 맞아 죽어 수명이 줄어드는 몫을 뺌 | 맞음 | **반영** | 과제 14: `EATEN_DEAD ÷ LIVES_DONE`·평균 수명 동반 보고와 "집행자에게 불리한 보수 편향" 한 줄, 과제 17 시험 |
+| 11a | 명세 | 이어 돌린 결과 같음 시험(설계 시험 14)이 없고 `mark_vid` 미저장이 `block3` 세계를 바꿈 | 설계 414줄에 있는 시험이 과제 2에 없었음 | **반영** | 과제 12 `test_resume_...`와 문서화된 차이 |
+| 11b | 명세 | `SAVED_EST`·`norm_hist` 역할별 계산식 미정 | 맞음 | **반영** | `norm_hist (4,4,2)` + `pun_role`, 계산은 판정 도구(과제 2·8·9·17) |
+| 11c | 명세 | `sig` 원천 `act`는 이미 `tanh`를 지난 값(`kernels.py` `_think_par`의 `act = tanh(acc)`)이라 `tanh` 두 번 문제 | 코드 확인: 맞음 | **반영** | 과제 5: `act[ACT_SIG1]`를 θ와 직접 비교 |
+| 11d | 명세 | `norm_mem_inherit`를 과제 19로 미룬 것을 결정 목록에 | 맞음 | **반영** | 결정 13 |
+| 12 | 명세(사소) | 과제 13의 "비용 앞 취소"와 과제 6 순서(비용 → 대상 → 분기) 모순, `a_eff`가 비용에 쓰이는지 | 맞음 | **반영** | 과제 6: 대상 고르기를 비용 앞으로(순서 동등 시험), 비용은 위축 전 `a`·피해량만 `a_eff`(`test_inhibit_scales_damage_not_cost`), 과제 13 문구, 결정 11 |
+| 13 | 명세(사소) | `norm_account`를 과제 9·12 둘 다 `world.step`에 넣음 | 맞음 | **반영** | 과제 9가 처음 넣고 과제 12는 그 앞에 두 줄을 끼움 |
+| 14 | 명세(사소) | `reseed_attack_row`가 `n_hidden` 밖 열까지 뽑는지 | `kernels.random_genome`이 `range(hm)` 전체를 채움 | **반영** | 과제 14: `h_max` 전체 열을 같은 분포로 |
+| 15 | 명세(사소) | 같은 원천 `mark_t` 갱신을 새 에피소드로 세는 문구가 설계와 다름 | 설계 괄호와 본문이 서로 어긋남 | **반영** | #4와 같은 결정(연장으로 정의) |
+| A | 규칙 | DRY에서도 `> "$dir.log"`가 진짜 로그를 자름 | 맞음(`runit`이 안 돌아도 리다이렉트는 셸이 함) | **반영** | `logf`: DRY면 임시 기록 폴더로. `DRY=1`로 돌려 기존 로그가 그대로인 것을 확인 |
+| B | 규칙 | "다시 불러도 이어 간다" 주석과 코드 불일치 | `run_branch`는 `run.json`이 있으면 영영 건너뜀, `wbranch`는 `Runner.branch`의 `FileExistsError`, 실패해도 `touch done` | **반영** | `done`은 종료 코드 0 + 끝 체크포인트일 때만, 끊긴 갈래는 건너뛰며 note, 주석을 실제 동작대로 고침 |
+| C | 규칙(사소) | `WAIT_FOR` 기본 없음, 같은 체인 두 번 띄우기 막는 `flock` 없음 | 맞음 | **반영** | `WAIT_FOR` 기본 = 앞 체인 둘(`kkumteul.run`은 상시 도는 세계에 걸려 넣지 않음), `flock -n` |
+| D | 규칙(사소) | `SLOPE=1`이면 `--attack-b0`를 안 넘김, τ 조정 변수 없음 | 맞음 | **반영** | `ATTACK_B0` 환경변수와 `slope-*` 갈래 넷, `TAU`·`IMP` 변수 |
 
