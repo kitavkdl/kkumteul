@@ -163,6 +163,7 @@ def compete(cfg: Config, ga: dict, gb: dict, n_each: int, steps: int, seed: int,
     rng = np.random.default_rng(seed)
     acfg = arena_config(cfg, seed, 2 * n_each)
     world = World(acfg, populate=False)
+    world.reset_grad_table()      # 졸업표는 이 겨루기에서 태어난 새끼만(inject_agent로 들어온 개체는 기록에 안 든다)
     # 빈 세계에 먹이를 절반쯤 미리 깔아 둔다
     for _ in range(int(0.5 * acfg.food_cap * acfg.food_energy / max(acfg.food_inflow, 1e-9))):
         k.spawn_food(0, world.s, world.fp, world.ip)
@@ -200,7 +201,8 @@ def compete(cfg: Config, ga: dict, gb: dict, n_each: int, steps: int, seed: int,
     else:               # 표본이 모자라면 시작(1:1)에서 그 시점까지의 평균 기울기
         r = float(y[-1] / keep[-1, 0])
     return {"n_a": int(arr[-1, 1]), "n_b": int(arr[-1, 2]), "r": r, "series": series,
-            "extinct": extinct_label(int(arr[-1, 1]), int(arr[-1, 2])), "first10": first10}
+            "extinct": extinct_label(int(arr[-1, 1]), int(arr[-1, 2])), "first10": first10,
+            "grad_by_tag": world.grad_table()}   # {태그 행: {GT_NAMES 이름: 값}}, 0=A·1=B(장치가 꺼진 세계는 전부 0)
 
 
 def _first10(world: World) -> dict:
@@ -251,6 +253,7 @@ def assay_sides(a: dict, b: dict, n_each: int = 400, steps: int = 8000, reps: in
         "first10_by_tag": {str(tag): [sum(x["first10"][tag][i] for x in runs) for i in (0, 1)]
                            for tag in (0, 1)},            # 태그별 첫 10끼 [독 합, 끼니 합](반복을 합침)
         "final_counts": [[x["n_a"], x["n_b"]] for x in runs],
+        "grad_by_tag_list": [x["grad_by_tag"] for x in runs],   # 반복 순서대로 태그별 졸업표
         "a_extinct_runs": sum(x["extinct"] == "a" for x in runs),
         "b_extinct_runs": sum(x["extinct"] == "b" for x in runs),
         "both_extinct_runs": sum(x["extinct"] == "both" for x in runs),

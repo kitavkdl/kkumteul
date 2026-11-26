@@ -1715,3 +1715,110 @@ def test_feed_off_not_called(monkeypatch):
     assert calls == []
     taste_world("taste", juv_enabled=True, feed_enabled=True).run(5)
     assert len(calls) == 5                                                              # 양성 대조
+
+
+# ---- 과제 8: 끄는 규칙 정리·겨루기 졸업표 출력·옛 도구 ----
+def _old_tools():
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "wayfinder" / "stage2-4"))
+    import hand_learner
+    import taste_judge
+    return taste_judge, hand_learner
+
+
+def test_flip_diff_and_hand_learner_taste_off_with_teach(monkeypatch):
+    from kkumteul import knockout as ko
+    from kkumteul import replay
+    tj, hl = _old_tools()
+    seen = []
+
+    class _Rep:
+        steps = np.zeros(0, dtype=np.int64)
+        good_kind = np.zeros(0, dtype=np.int64)
+        blind = np.zeros(0)
+
+    def fake_record(path, steps, every, from_flip=True, overrides=None):
+        seen.append(list(overrides))
+        return _Rep()
+
+    monkeypatch.setattr(replay, "record", fake_record)
+    monkeypatch.setattr(tj, "flip_deltas", lambda *a, **kw: [])
+    tj.flip_diff("x.npz", steps=10)
+    assert seen[0] == ["taste_enabled=true"]
+    assert seen[1] == ko.TASTE_OFF
+    c = teach_cfg(taste_gene_enabled=True)                     # juv·soc·teach·taste_gene을 모두 켠 설정
+    assert c.juv_enabled and c.soc_taste_enabled and c.teach_enabled
+    off = c.with_overrides(seen[1])                            # flip_diff의 끔 쪽: 설정 검사에 안 걸린다
+    assert not (off.taste_enabled or off.taste_gene_enabled or off.soc_taste_enabled or off.teach_enabled)
+    assert off.juv_enabled
+    assert hl.knockout is ko
+    hoff = hl.with_set(c, ",".join(ko.TASTE_OFF))              # hand_learner의 끔 쪽도 마찬가지
+    assert not (hoff.taste_enabled or hoff.soc_taste_enabled or hoff.teach_enabled) and hoff.juv_enabled
+    assert "TASTE_OFF" in Path(hl.__file__).read_text() and "TASTE_OFF" in Path(tj.__file__).read_text()
+
+
+def _capture_worlds(monkeypatch):
+    worlds = []
+
+    class _W(World):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            worlds.append(self)
+
+    monkeypatch.setattr(measure, "World", _W)
+    return worlds
+
+
+def _juv_side(**kw):
+    w = taste_world("taste", juv_enabled=True, init_agents=80, food_inflow=12.0, food_cap=1500, **kw)
+    w.run(200)
+    return measure.side_from_world(w)
+
+
+def test_compete_reports_grad_by_tag(monkeypatch):
+    worlds = _capture_worlds(monkeypatch)
+    side = _juv_side()
+    res = measure.compete(side["cfg"], side["genomes"], side["genomes"], 30, 700, 5, sample_every=100)
+    assert {"n_a", "n_b", "r", "series", "extinct", "first10"} <= set(res)       # 옛 키는 그대로
+    g = res["grad_by_tag"]
+    assert {0, 1} <= set(g)
+    assert tuple(g[0]) == k.GT_NAMES and tuple(g[1]) == k.GT_NAMES
+    w = worlds[-1]
+    assert g == w.grad_table()                                                  # 세계의 졸업표 그대로
+    # inject_agent로 들어온 개체는 기록에 안 든다: 졸업 + 사망 + (끝에 아직 자라는 새끼) == 태어난 새끼 수
+    born = int(w.s.counters[k.C_NEXT_ID]) - 2 * 30
+    growing = int((w.s.alive & (w.s.parent >= 0) & (w.s.age <= w.cfg.juv_steps)).sum())
+    rec = sum(g[t]["grad"] + g[t]["dead"] for t in g)
+    assert born > 0 and rec > 0
+    assert rec + growing == born
+
+
+def test_compete_grad_by_tag_zero_when_juv_off(monkeypatch):
+    _capture_worlds(monkeypatch)
+    w = taste_world("taste", init_agents=60)
+    w.run(100)
+    side = measure.side_from_world(w)
+    res = measure.compete(side["cfg"], side["genomes"], side["genomes"], 20, 150, 3, sample_every=50)
+    assert all(v == 0.0 for row in res["grad_by_tag"].values() for v in row.values())
+
+
+def test_compete_resets_grad_table_at_start(monkeypatch):
+    # 시작에서 졸업표를 0으로: 세계를 만든 직후 값이 남아 있어도 겨루기 기록에 섞이지 않는다
+    calls = []
+    real = World.reset_grad_table
+    monkeypatch.setattr(World, "reset_grad_table", lambda self: calls.append(1) or real(self))
+    w = taste_world("taste", init_agents=40)
+    w.run(50)
+    side = measure.side_from_world(w)
+    measure.compete(side["cfg"], side["genomes"], side["genomes"], 10, 50, 3, sample_every=50)
+    assert calls == [1]
+
+
+def test_assay_sides_reports_grad_by_tag_per_rep():
+    side = _juv_side()
+    out = measure.assay_sides(side, side, n_each=20, steps=300, reps=2, seed=3, neutral=False)
+    gl = out["grad_by_tag_list"]
+    assert len(gl) == 2
+    for g in gl:
+        assert {0, 1} <= set(g) and tuple(g[0]) == k.GT_NAMES
+    assert len(out["r_list"]) == 2 and {"r_per_1000", "final_counts", "winner", "verdict", "reps"} <= set(out)
+    json.dumps(out["grad_by_tag_list"])                         # 판정 도구가 json으로 저장한다
