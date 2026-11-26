@@ -23,6 +23,9 @@ START=ckpt_000002600000.npz     # 바탕: 개인 학습 갈래 g-p500-a/b 260만
 END=ckpt_000002900000.npz       # 30만 스텝 뒤
 export NUMBA_NUM_THREADS=${NUMBA_NUM_THREADS:-2} PYTHONPATH=.
 mkdir -p "$E"
+logof() {  # 갈래 로그 자리. DRY면 임시 폴더로(리다이렉트는 runit보다 먼저 열려 진짜 로그를 자른다)
+  if [ -n "${DRY:-}" ]; then echo "$E/$(basename "$1").log"; else echo "$1.log"; fi
+}
 note() { echo "$(TZ=America/New_York date '+%m-%d %H:%M ET') $*" | tee -a "$E/progress.txt"; }
 runit() {  # DRY=1이면 명령만 찍는다
   if [ -n "${DRY:-}" ]; then echo "DRY: $*" >&3; return 0; fi
@@ -87,7 +90,7 @@ run_branch() {  # 이름 씨앗(a=바탕 a·같은 흐름, b=바탕 b, c=바탕 
   local s sets=(); for s in "$@"; do sets+=(--set "$s"); done
   note "$name-$seed 시작 ($*)"
   runit nice -n 15 "$PY" -m kkumteul.run branch --from "$(base_ckpt "$base")" --run "$dir" --steps 300000 --quiet \
-    "${extra[@]}" "${sets[@]}" > "$dir.log" 2>&1
+    "${extra[@]}" "${sets[@]}" > "$(logof "$dir")" 2>&1
   local rc=$?
   runit mkdir -p "$dir"; runit touch "$dir/done"
   note "$name-$seed 끝 (종료 코드 $rc): $(tail -1 "$dir.log" 2>/dev/null | cut -c1-160)"
