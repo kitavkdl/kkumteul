@@ -191,3 +191,22 @@ def test_split_base_overrides_reach_rules(monkeypatch, tmp_path):
     seen.clear()
     ko.split(tmp_path / "c", "taste", rules=[])
     assert not seen[0].taste_enabled
+
+
+def test_taste_off_includes_teach():
+    assert "teach_enabled=false" in ko.TASTE_OFF
+    for ch in ("taste", "taste_vis", "taste_val"):
+        assert "teach_enabled=false" in ko.OFF_RULES[ch]
+
+
+def test_knockout_taste_split_with_teach_on_passes_config_check():
+    # 가르침(teach)은 미숙기·보고 배우기·먹이 종류에 기대므로, 맛 끔 묶음이 teach도 함께 꺼야 설정 검사에 안 걸린다
+    c = small("stage2", "kinds", "taste").with_overrides(
+        ["taste_gene_enabled=true", "soc_taste_enabled=true", "juv_enabled=true", "teach_enabled=true"])
+    assert c.teach_enabled and c.soc_taste_enabled and c.juv_enabled
+    off = c.with_overrides(ko.TASTE_OFF)                     # 한꺼번에 적용해도 ValueError가 안 난다
+    assert not (off.taste_enabled or off.taste_gene_enabled or off.soc_taste_enabled or off.teach_enabled)
+    assert off.juv_enabled                                   # 미숙기는 맛과 무관해 그대로 남는다
+    for ch in ("taste", "taste_vis", "taste_val"):
+        off = c.with_overrides(ko.OFF_RULES[ch])
+        assert not off.teach_enabled and not off.soc_taste_enabled

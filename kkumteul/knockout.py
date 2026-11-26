@@ -43,9 +43,9 @@ from .config import (ACT_ATTACK, ACT_SIG0, ACT_THRUST, ACT_TURN, IN_HEAR, IN_HOR
                      N_INTERNAL, N_TASTE_IN, N_TASTE_VIS, TASTE_VAL, TASTE_VIS, Config)
 
 CHANNELS = ("hear", "kin", "saweat", "social", "trail", "vision", "taste", "taste_vis", "taste_val")
-# 맛 장치를 끄는 한 묶음. 맛 기억·배움 속도 유전자·보고 배우기는 서로 기대므로(설정 검사) 함께 꺼야 한다.
-# 판정 도구(taste_judge·hand_learner)도 이 목록을 쓴다 — 여기 한 곳만 고치면 된다
-TASTE_OFF = ["taste_enabled=false", "taste_gene_enabled=false", "soc_taste_enabled=false"]
+# 맛 장치를 끄는 한 묶음. 맛 기억·배움 속도 유전자·보고 배우기·보여 주기(teach)는 서로 기대므로(설정 검사) 함께 꺼야 한다
+# (feed_enabled는 맛과 무관해 안 넣는다). 판정 도구(taste_judge·hand_learner)도 이 목록을 쓴다 — 여기 한 곳만 고치면 된다
+TASTE_OFF = ["taste_enabled=false", "taste_gene_enabled=false", "soc_taste_enabled=false", "teach_enabled=false"]
 # 그 감각이 없는 규칙(대조). 시야는 양성 대조라 없앤 규칙이 없다
 OFF_RULES = {"hear": ["social_enabled=false"], "kin": ["social_enabled=false"],
              "saweat": ["social_enabled=false"], "social": ["social_enabled=false"],

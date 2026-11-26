@@ -54,6 +54,8 @@ S_SEX_SPARE = 30    # 암수용 예비
 S_TASTE_GENE = 31   # 맛 배움 속도 유전자의 변이
 S_SOC_GENE = 32     # 보고 배우기 속도 유전자의 변이
 S_SOC_BLIND = 33    # 눈가림 대조의 모양 동전
+S_TEACH_GENE = 34   # 보여 주기 강도 유전자의 변이
+S_FEED_GENE = 35    # 먹이 대주기 유전자의 변이
 
 # 눈가림 동전의 (관찰자, 시연자) 묶음 키 = 관찰자 id × SOC_ID_STRIDE + 시연자 id. id < 2^32를 가정한다(상수는 이 한 곳에만 둔다)
 SOC_ID_STRIDE = 1 << 32

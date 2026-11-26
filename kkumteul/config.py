@@ -232,6 +232,29 @@ class Config:
     soc_cost: float = 0.0005          # 스텝당 비용 = soc_cost × 보고 배우는 속도(장치를 켰을 때만, 뇌 유지비 칸에 더한다). 임시 결정
     soc_radius: float = 8.0           # 끼니를 볼 수 있는 거리. cell 이하여야 한다(이웃 격자 한 칸 안). 임시 결정
 
+    # 부모의 학습 보조 투자 ("가르침" 후보, 기본은 모두 꺼짐. 설계 2026-11-26-parent-teaching-design.md)
+    # 미숙기: 갓 태어난 새끼는 먹이를 덜 얻고 느리다. 연속으로 오른다(ramp = floor + (1 - floor) * min(1, a / juv_steps))
+    juv_enabled: bool = False         # 켜면 미숙기의 효율·속도 상한·독 배수가 적용되고 곁 계수기·졸업표가 돈다
+    juv_measure: bool = False         # 미숙기 동작은 안 바꾸고 곁 계수기·졸업표만 세는 읽기 전용 측정 모드
+    juv_steps: int = 200              # 미숙기 길이(스텝). repro_min_age와 같게. 임시 결정
+    juv_eat_floor: float = 0.5        # 나이 0의 들판 알 효율(얻는 에너지 = food_energy * ramp). (0, 1]. 임시 결정
+    juv_move_floor: float = 0.3       # 나이 0의 속도 상한 비율(v_max * ramp). (0, 1]. 임시 결정
+    juv_poison_mult: float = 1.0      # 미숙기 새끼가 독을 먹을 때 잃는 에너지 배수(1 이상). 기본은 안 건드림. 임시 결정
+    juv_know_theta: float = 0.2       # "독 모양을 안다"의 문턱: 독 칸 기억이 -theta 이하. (0, 1]. 임시 결정
+    # 보여 주기: 어른이 끼니를 먹을 때 곁의 미숙기 관찰자가 보고 배우는 속도에 teach_gain * 강도를 더한다
+    # (soc_taste_mode의 이름과 겹치지 않게 costonly·drift를 쓴다)
+    teach_enabled: bool = False       # juv_enabled·soc_taste_enabled(outcome)·food_kinds_enabled가 필요하다
+    teach_mode: str = "kin"           # kin(자기 새끼에게만: 판정 대상), costonly(비용만), any(아무 미숙기에게),
+                                      # knower(독을 아는 부모만), drift(효과도 비용도 없음: 기준선)
+    teach_gain: float = 0.5           # 강도 1일 때 관찰 속도에 더하는 몫. [0, 1]. 임시 결정
+    teach_cost: float = 0.0005        # 스텝당 비용 = teach_cost * 강도(뇌 유지비 칸에 더한다). 임시 결정
+    teach_cost_when: str = "near"     # near(곁에 미숙기가 있는 스텝마다), meal(boost가 붙는 끼니마다)
+    teach_gene_sigma: float = 0.02    # 출생 때 show_g에 더하는 변이 폭. 임시 결정
+    # 먹이 대주기(돌봄 대조): 미숙기 새끼에게 에너지를 건넨다
+    feed_enabled: bool = False        # juv_enabled가 필요하다. 건네는 손실은 give_loss, 최소 에너지는 give_min_energy
+    feed_rate: float = 0.02           # 강도 1일 때 스텝당 건네는 양의 바탕. 임시 결정
+    feed_gene_sigma: float = 0.02     # 출생 때 feed_g에 더하는 변이 폭. 임시 결정
+
     # --- 4단계: 판이 바뀌는 세계 (기본은 꺼짐) ---
     niche_enabled: bool = False   # 다닌 자리가 길이 되고, 쌓은 거름이 먹이를 끌어온다
     wear_rate: float = 0.002      # 지나갈 때 그 칸에 남는 흔적 = wear_rate * 속도.
@@ -424,6 +447,33 @@ class Config:
             raise ValueError("soc_cost와 soc_gene_sigma는 0 이상이어야 한다")
         if not (0.0 < self.soc_radius <= self.cell):
             raise ValueError("soc_radius는 0보다 크고 cell 이하여야 한다(이웃 격자 한 칸 안)")
+        if self.juv_steps < 1:
+            raise ValueError("juv_steps는 1 이상이어야 한다")
+        for name in ("juv_eat_floor", "juv_move_floor", "juv_know_theta"):
+            if not (0.0 < getattr(self, name) <= 1.0):
+                raise ValueError(f"{name}은 0보다 크고 1 이하여야 한다")
+        if self.juv_poison_mult < 1.0:
+            raise ValueError("juv_poison_mult는 1 이상이어야 한다(1 미만이면 독이 에너지를 만든다)")
+        if not (0.0 <= self.teach_gain <= 1.0):
+            raise ValueError("teach_gain은 0과 1 사이여야 한다")
+        for name in ("teach_cost", "teach_gene_sigma", "feed_rate", "feed_gene_sigma"):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name}은 0 이상이어야 한다")
+        if self.teach_mode not in TEACH_MODES:
+            raise ValueError(f"teach_mode는 {sorted(TEACH_MODES)} 중 하나여야 한다: {self.teach_mode!r}")
+        if self.teach_cost_when not in TEACH_WHENS:
+            raise ValueError(f"teach_cost_when은 {sorted(TEACH_WHENS)} 중 하나여야 한다: {self.teach_cost_when!r}")
+        if self.teach_enabled:
+            if not self.juv_enabled:
+                raise ValueError("teach_enabled는 미숙기(juv_enabled)가 켜져 있어야 쓸 수 있다")
+            if not self.soc_taste_enabled:
+                raise ValueError("teach_enabled는 보고 배우기(soc_taste_enabled)가 켜져 있어야 쓸 수 있다")
+            if self.soc_taste_mode != "outcome":
+                raise ValueError("teach_enabled는 soc_taste_mode가 outcome이어야 쓸 수 있다(what·blind·inert면 뜻이 없다)")
+            if not self.food_kinds_enabled:
+                raise ValueError("teach_enabled는 먹이 종류(food_kinds_enabled)가 켜져 있어야 쓸 수 있다: preset=kinds")
+        if self.feed_enabled and not self.juv_enabled:
+            raise ValueError("feed_enabled는 미숙기(juv_enabled)가 켜져 있어야 쓸 수 있다")
         for name in ("give_loss", "deposit_loss", "path_bonus", "fert_frac", "sleep_basal", "trace_decay",
                      "hormone_rate_hunger", "hormone_rate_stress", "hormone_rate_dopamine",
                      "hormone_rate_boredom", "reward_baseline_rate", "proto_lr", "sleep_forget",
@@ -538,6 +588,13 @@ EXT_SEX = 9          # 네 칸
 # 보고 배우기 모드(soc_taste_mode의 이름 -> 커널이 읽는 번호)
 SOC_OUTCOME, SOC_BLIND, SOC_INERT, SOC_WHAT = 0, 1, 2, 3
 SOC_MODES = {"outcome": SOC_OUTCOME, "blind": SOC_BLIND, "inert": SOC_INERT, "what": SOC_WHAT}
+# 보여 주기 모드(teach_mode의 이름 -> 커널이 읽는 번호). soc_taste_mode의 이름과 겹치지 않게 costonly·drift를 쓴다
+TEACH_KIN, TEACH_COSTONLY, TEACH_ANY, TEACH_KNOWER, TEACH_DRIFT = 0, 1, 2, 3, 4
+TEACH_MODES = {"kin": TEACH_KIN, "costonly": TEACH_COSTONLY, "any": TEACH_ANY, "knower": TEACH_KNOWER,
+               "drift": TEACH_DRIFT}
+# 보여 주기 비용을 치르는 때
+WHEN_NEAR, WHEN_MEAL = 0, 1
+TEACH_WHENS = {"near": WHEN_NEAR, "meal": WHEN_MEAL}
 N_TASTE_IN = 10      # 기억으로 물든 시야 8칸 + 기억 값 2칸
 TASTE_VIS = 0        # 물든 시야 여덟 칸(vision_sectors와 같은 수)
 TASTE_VAL = 8        # 기억 값 두 칸: +로 보이는 먹이, -로 보이는 먹이

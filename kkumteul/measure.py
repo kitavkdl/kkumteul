@@ -32,9 +32,10 @@ from . import kernels as k
 from .config import FIRST_MEALS, Config
 from .world import World
 
-GENOME = ("Win", "Wrec", "bh", "Wout", "bout", "n_hidden", "sigma", "color", "rw", "eta", "alpha", "taste_g", "soc_g")
+GENOME = ("Win", "Wrec", "bh", "Wout", "bout", "n_hidden", "sigma", "color", "rw", "eta", "alpha", "taste_g", "soc_g",
+          "show_g", "feed_g")
 # 나중에 생긴 유전체 배열: 이것이 없는 옛 묶음은 0으로 채워 읽는다(pack.read)
-OPTIONAL_GENOME = ("taste_g", "soc_g")
+OPTIONAL_GENOME = ("taste_g", "soc_g", "show_g", "feed_g")
 _T95 = {1: 12.71, 2: 4.30, 3: 3.18, 4: 2.78, 5: 2.57, 6: 2.45, 7: 2.36, 8: 2.31, 9: 2.26, 10: 2.23,
         12: 2.18, 15: 2.13, 20: 2.09, 30: 2.04}
 
@@ -138,6 +139,16 @@ def inject_agent(world: World, genomes: dict, row: int, tag: int, x: float, y: f
     s.meal_o[j] = 0.0
     s.n_seen[j] = s.n_seen_poison[j] = s.n_seen_kin[j] = 0
     s.seen_age_sum[j] = 0
+    # 부모의 학습 보조 투자 계수(저장 안 함): 앎은 −1("아직 모름"), 나머지는 0(par_slot은 juv_pass가 스텝마다 다시 채운다)
+    s.know_age[j] = -1
+    s.know_src[j] = 0
+    s.n_seen_par[j] = s.n_seen_par_poison[j] = s.n_taught[j] = s.n_taught_knower[j] = 0
+    s.par_near_steps[j] = s.par_alive_steps[j] = s.juv_alive_steps[j] = 0
+    s.adult_near_sum[j] = 0
+    s.par_slot[j] = 0
+    s.jscr_i[j] = 0
+    s.jscr_d[j] = 0.0
+    s.tflag[j] = 0
     for name in ("horm", "sig", "epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link",
                  "elig_in", "elig_rec", "taste_m"):
         getattr(s, name)[j] = 0.0

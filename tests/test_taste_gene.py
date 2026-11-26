@@ -55,7 +55,8 @@ def test_new_rng_stream_appended():
     vals = [v for kk, v in vars(rng).items() if kk.startswith("S_")]
     assert len(set(vals)) == len(vals)               # 용도 번호는 서로 겹치지 않는다
     assert rng.S_TASTE_GENE == 31 and rng.S_SOC_GENE == 32 and rng.S_SOC_BLIND == 33
-    assert max(vals) == 33                           # 새 용도는 뒤에만 덧붙인다
+    assert rng.S_TEACH_GENE == 34 and rng.S_FEED_GENE == 35
+    assert max(vals) == 35                           # 새 용도는 뒤에만 덧붙인다
 
 
 # ---- 먹기: 실제 배움 속도 ----

@@ -90,7 +90,7 @@ def test_soc_fields_registered():
 
 def test_soc_in_genome():
     assert "soc_g" in measure.GENOME
-    assert measure.OPTIONAL_GENOME == ("taste_g", "soc_g")
+    assert measure.OPTIONAL_GENOME[:2] == ("taste_g", "soc_g")      # 뒤에 부모 가르침 유전자가 덧붙는다(test_teach.py)
 
 
 # ---- 묶음 호환 ----
@@ -743,7 +743,8 @@ def test_blind_same_observations_as_outcome():
 # ---- 과제 5: 끄는 규칙·겨루기 출력·옛 도구 정리 ----
 def test_taste_off_list_is_shared():
     from kkumteul import knockout as ko
-    assert ko.TASTE_OFF == ["taste_enabled=false", "taste_gene_enabled=false", "soc_taste_enabled=false"]
+    assert ko.TASTE_OFF == ["taste_enabled=false", "taste_gene_enabled=false", "soc_taste_enabled=false",
+                            "teach_enabled=false"]
     for ch in ("taste", "taste_vis", "taste_val"):
         assert ko.OFF_RULES[ch] == ko.TASTE_OFF
         assert ko.OFF_RULES[ch] is not ko.TASTE_OFF         # 복사본(한쪽을 고쳐도 다른 쪽이 안 변함)

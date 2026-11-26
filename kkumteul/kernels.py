@@ -13,7 +13,8 @@ import numpy as np
 from numba import njit, prange
 
 from .config import (ACT_ATTACK, ACT_CARRY, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_THRUST, ACT_TURN, FIRST_MEALS, N_REWARD,
-                     N_TASTE_IN, N_TASTE_VIS, SOC_BLIND, SOC_INERT, SOC_MODES, SOC_WHAT, TASTE_VAL, TASTE_VIS)
+                     N_TASTE_IN, N_TASTE_VIS, SOC_BLIND, SOC_INERT, SOC_MODES, SOC_WHAT, TASTE_VAL, TASTE_VIS,
+                     TEACH_MODES, TEACH_WHENS)
 from .rng import (S_BIRTH_ORDER, S_BIRTH_POS, S_FOOD, S_KIND, S_INIT_AGE, S_INIT_GENOME, S_INIT_POS, S_MUT_GENE,
                   S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, S_SOC_BLIND, S_SOC_GENE, S_TASTE_GENE, normal, soc_pair_key,
                   u01)
@@ -74,6 +75,8 @@ AGENT_FIELDS = [
     ("taste_m", np.float32, ("2",), True),    # 맛 기억: +로 보이는 먹이, -로 보이는 먹이(-1~+1, 태어날 때 0)
     ("taste_g", np.float32, (), True),        # 맛 배움 속도 유전자: taste_rate에서 벗어난 몫(물려받음, 장치 꺼지면 안 쓰임)
     ("soc_g", np.float32, (), True),          # 보고 배우기 속도 유전자: 0이면 안 배움(물려받음, 장치 꺼지면 안 쓰임)
+    ("show_g", np.float32, (), True),         # 보여 주기 강도 유전자: 0이면 안 보여 줌(물려받음, 장치 꺼지면 안 쓰임)
+    ("feed_g", np.float32, (), True),         # 먹이 대주기 강도 유전자: 0이면 안 건넴(물려받음, 장치 꺼지면 안 쓰임)
     ("hnew", np.float32, ("H",), False),
     ("obs", np.float32, ("I",), False),
     ("act", np.float32, ("O",), False),
@@ -92,6 +95,21 @@ AGENT_FIELDS = [
     ("n_seen_poison", np.int32, (), False),   # 그 가운데 독
     ("n_seen_kin", np.int32, (), False),      # 그 가운데 가까운 피붙이의 끼니
     ("seen_age_sum", np.int64, (), False),    # 본 시연자의 나이 합
+    # 부모의 학습 보조 투자용(저장하지 않는다). know_age의 "아직 모름"은 −1이라 HASH_DEFAULTS가 채운다
+    ("know_age", np.int32, (), False),        # 독 모양을 처음 "안" 나이(−1이면 아직 모름)
+    ("know_src", np.int8, (), False),         # 그 앎을 만든 사건의 출처(1 자기 끼니, 2 부모, 3 부모 아닌 친족, 4 비친족)
+    ("n_seen_par", np.int32, (), False),      # 부모의 끼니를 본 수
+    ("n_seen_par_poison", np.int32, (), False),   # 그 가운데 독
+    ("n_taught", np.int32, (), False),        # 보여 주기 boost가 붙은 관찰 수
+    ("n_taught_knower", np.int32, (), False),     # 그 가운데 시연자가 독을 아는 쪽이었던 수
+    ("par_near_steps", np.int32, (), False),  # 부모가 곁이었던 스텝 수
+    ("par_alive_steps", np.int32, (), False), # 부모가 산 스텝 수
+    ("juv_alive_steps", np.int32, (), False), # 미숙기를 센 스텝 수
+    ("adult_near_sum", np.int64, (), False),  # 곁의 부모 아닌 어른 이웃 수의 합
+    ("par_slot", np.int32, (), False),        # 스크래치: 부모의 산 칸(−1이면 없음)
+    ("jscr_i", np.int32, (), False),          # 스크래치(정수)
+    ("jscr_d", np.float64, (), False),        # 스크래치(실수)
+    ("tflag", np.int8, (), False),            # 스크래치: 이번 스텝 보여 주기 표시
 ]
 FOOD_FIELDS = [
     ("fx", np.float64, True),
@@ -137,8 +155,21 @@ LIFETIME_FLEX = ("epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link", "
 PERTURB_FLEX = ("elig_in", "elig_rec")
 # 나중에 생긴 저장 필드의 기본값. 값이 모두 기본값이면 상태 해시에 넣지 않고(그 필드가 생기기 전 해시와 같게),
 # 이 필드가 없는 옛 체크포인트를 읽으면 기본값으로 둔다(alloc_state가 이 값으로 채운다). 새 저장 필드는 여기에 더한다.
-HASH_DEFAULTS = {"elig_in": 0, "elig_rec": 0, "a_held": -1, "f_holder": -1, "f_dropped": 0, "taste_m": 0, "taste_g": 0, "soc_g": 0}
-OTHER_SCRATCH = ["a_start", "a_items", "f_start", "f_items", "cursor", "bbuf", "dbuf", "dbuf_f"]
+HASH_DEFAULTS = {"elig_in": 0, "elig_rec": 0, "a_held": -1, "f_holder": -1, "f_dropped": 0, "taste_m": 0, "taste_g": 0, "soc_g": 0,
+                 "show_g": 0, "feed_g": 0, "know_age": -1}
+OTHER_SCRATCH = ["a_start", "a_items", "f_start", "f_items", "cursor", "bbuf", "dbuf", "dbuf_f", "grad_tab"]
+
+# ---- 졸업표(grad_tab[TAG_ROWS][N_GT], 저장하지 않는 세계 배열): 행은 태그(범위 밖은 접는다), 칸은 아래 GT_* ----
+TAG_ROWS = 8
+(GT_GRAD, GT_DEAD, GT_N1, GT_M1, GT_K1, GT_N2, GT_M2, GT_K2, GT_M3, GT_K3,
+ GT_SRC1, GT_SRC2, GT_SRC3, GT_SRC4, GT_PAR_NEAR, GT_PAR_ALIVE, GT_ADULT_NEAR, GT_ALIVE_STEPS,
+ GT_SEEN, GT_SEEN_PAR, GT_SEEN_PAR_POISON, GT_TAUGHT, GT_TAUGHT_KNOWER, GT_MEALS, GT_POISON_MEALS,
+ GT_E_GRAD, GT_TEACH_COST, GT_FEED_GIVEN, N_GT) = range(29)
+# 판정 도구가 쓰는 칸 이름표(GT_* 순서와 같다)
+GT_NAMES = ("grad", "dead", "n1", "m1", "k1", "n2", "m2", "k2", "m3", "k3",
+            "src1", "src2", "src3", "src4", "par_near", "par_alive", "adult_near", "alive_steps",
+            "seen", "seen_par", "seen_par_poison", "taught", "taught_knower", "meals", "poison_meals",
+            "e_grad", "teach_cost", "feed_given")
 
 State = namedtuple(
     "State",
@@ -228,13 +259,16 @@ DEATH_KILLED = 4         # 공격을 맞은 스텝에 에너지가 바닥남
  P_P_HIDDEN, P_COLOR_SIGMA, P_SYN, P_BACK_COST, P_ETA_INIT, P_ETA_MAX, P_ALPHA_INIT, P_POISON,
  P_KIND_RATIO, P_SPOIL_RATE, P_SPOIL_MIN, P_CARRY_COST, P_MEAT_SPOIL, P_HUDDLE_CAP, P_HUDDLE_EXP,
  P_TASTE_RATE, P_TASTE_DECAY, P_TASTE_INHERIT, P_TASTE_GENE_SIGMA, P_TASTE_COST,
- P_SOC_RATE, P_SOC_COST, P_SOC_GENE_SIGMA, P_SOC_RADIUS, N_FP) = range(64)
+ P_SOC_RATE, P_SOC_COST, P_SOC_GENE_SIGMA, P_SOC_RADIUS,
+ P_JUV_EAT_FLOOR, P_JUV_MOVE_FLOOR, P_JUV_POISON_MULT, P_JUV_KNOW_THETA, P_TEACH_GAIN, P_TEACH_COST,
+ P_TEACH_GENE_SIGMA, P_FEED_RATE, P_FEED_GENE_SIGMA, P_FEED_LOSS, P_FEED_MIN, N_FP) = range(75)
 
 # ---- 정수 설정 칸 ----
 (Q_SEED, Q_GW, Q_GH, Q_FOOD_CAP, Q_N_PATCH, Q_PATCH_LIFE, Q_MAX_AGE, Q_MIN_AGENTS,
  Q_SECTORS, Q_H_MAX, Q_H_INIT, Q_H_MIN, Q_REPRO_BRAIN, Q_REPRO_MIN_AGE, Q_MUT, Q_CORPSE,
  Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, Q_CAP_REPLACE, Q_SPOIL_AFTER, Q_FIELD_CAP, Q_TASTE_IN0, Q_TASTE_GENE,
- Q_KIND_SEED, Q_KIND_STEP0, Q_SOC, Q_SOC_MODE, N_IP) = range(29)
+ Q_KIND_SEED, Q_KIND_STEP0, Q_SOC, Q_SOC_MODE,
+ Q_JUV, Q_JUV_COUNT, Q_JUV_STEPS, Q_TEACH, Q_TEACH_MODE, Q_TEACH_WHEN, Q_FEED, N_IP) = range(36)
 
 
 def pack_params(cfg):
@@ -335,6 +369,27 @@ def pack_params(cfg):
     # 보고 배우기: 맛 블록이 실제로 쓰일 때만(아니면 배움도 비용도 없다)
     ip[Q_SOC] = int(cfg.soc_taste_enabled and taste_on)
     ip[Q_SOC_MODE] = SOC_MODES[cfg.soc_taste_mode]
+    # 부모의 학습 보조 투자. 곁 계수기·졸업표는 juv_enabled나 juv_measure 둘 중 하나면 돈다(Q_JUV_COUNT)
+    soc_on = bool(ip[Q_SOC])
+    juv_on = cfg.juv_enabled
+    ip[Q_JUV] = int(juv_on)
+    ip[Q_JUV_COUNT] = int(juv_on or cfg.juv_measure)
+    ip[Q_JUV_STEPS] = cfg.juv_steps
+    ip[Q_TEACH] = int(cfg.teach_enabled and juv_on and soc_on)
+    ip[Q_TEACH_MODE] = TEACH_MODES[cfg.teach_mode]
+    ip[Q_TEACH_WHEN] = TEACH_WHENS[cfg.teach_cost_when]
+    ip[Q_FEED] = int(cfg.feed_enabled and juv_on)
+    fp[P_JUV_EAT_FLOOR] = cfg.juv_eat_floor
+    fp[P_JUV_MOVE_FLOOR] = cfg.juv_move_floor
+    fp[P_JUV_POISON_MULT] = cfg.juv_poison_mult
+    fp[P_JUV_KNOW_THETA] = cfg.juv_know_theta
+    fp[P_TEACH_GAIN] = cfg.teach_gain
+    fp[P_TEACH_COST] = cfg.teach_cost
+    fp[P_TEACH_GENE_SIGMA] = cfg.teach_gene_sigma
+    fp[P_FEED_RATE] = cfg.feed_rate
+    fp[P_FEED_GENE_SIGMA] = cfg.feed_gene_sigma
+    fp[P_FEED_LOSS] = cfg.give_loss
+    fp[P_FEED_MIN] = cfg.give_min_energy
     return fp, ip
 
 
@@ -369,6 +424,7 @@ def alloc_state(cfg) -> State:
     d["bbuf"] = np.zeros((2 * n + 8, 6), dtype=np.int64)
     d["dbuf"] = np.zeros((2 * n + 8, 7), dtype=np.int64)
     d["dbuf_f"] = np.zeros(2 * n + 8, dtype=np.float64)
+    d["grad_tab"] = np.zeros((TAG_ROWS, N_GT), dtype=np.float64)
     for name, v in HASH_DEFAULTS.items():
         d[name][...] = v    # 옛 체크포인트에 없는 필드는 이 값 그대로 남는다(a_held가 0이면 0번 칸을 든 꼴이 된다)
     return State(**d)
