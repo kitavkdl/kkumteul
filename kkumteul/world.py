@@ -480,6 +480,10 @@ class World:
                 if cfg.soc_taste_enabled:
                     # 산 개체의 실제 보고 배우는 속도 평균(사회 학습). 추세는 판정이 아니라 단서
                     out["soc_rate_mean"] = float(np.clip(cfg.soc_rate + s.soc_g[a], 0.0, 1.0).mean())
+                if cfg.teach_enabled:
+                    out["show_g_mean"] = float(s.show_g[a].mean())     # 산 개체의 보여 주기 강도 평균(단서, 판정 아님)
+            if cfg.feed_enabled:
+                out["feed_g_mean"] = float(s.feed_g[a].mean())         # 산 개체의 먹이 대주기 강도 평균
             if c[k.C_MIGRANTS] > 0 or (s.tag[a] != 0).any():
                 # 이주해 온 생물과 그 후손의 비율. 이주가 있었던 세계는 그 계통이 다 사라져도 0으로 적는다
                 out["migrant_frac"] = float((s.tag[a] != 0).mean())

@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from test_harsh import _place  # noqa: E402
 from test_stages import rel_residual, small  # noqa: E402
-from test_taste import PINNED_TASTE_SIZE_HASH_300, taste_world  # noqa: E402
+from test_taste import PINNED_TASTE_SIZE_HASH_300, _natural_child, taste_world  # noqa: E402
 from kkumteul import config as cfgmod  # noqa: E402
 from kkumteul import kernels as k  # noqa: E402
 from kkumteul import measure  # noqa: E402
@@ -771,3 +771,118 @@ def test_summary_juv_keys():
     k.process_deaths(w.step_no, w.s, w.fp, w.ip)
     sm = w.summary()
     assert sm["juv_births_recorded"] == 2 and sm["grad_rate"] == pytest.approx(0.5) and sm["par_near_frac"] == 1.0
+
+
+# ---- 과제 4: show_g·feed_g 변이 ----
+def _gparent(on_teach: bool, on_feed: bool, g_show: float, g_feed: float, **kw) -> World:
+    """부모 한 마리(칸 0)만 있는 세계. 켜짐 여부로 teach/feed 장치를 고른다."""
+    extra = dict(soc_taste_enabled=True, juv_enabled=True, teach_enabled=on_teach, feed_enabled=on_feed)
+    w = taste_world("taste", init_agents=1, food_inflow=0.0, min_agents=0, **{**extra, **kw})
+    w.s.show_g[0] = g_show
+    w.s.feed_g[0] = g_feed
+    return w
+
+
+def test_show_feed_gene_copied_when_off():
+    w = _gparent(False, False, 0.3, 0.7, teach_gene_sigma=0.5, feed_gene_sigma=0.5)
+    assert w.ip[k.Q_TEACH] == 0 and w.ip[k.Q_FEED] == 0
+    j = _natural_child(w)
+    assert w.s.show_g[j] == pytest.approx(0.3) and w.s.feed_g[j] == pytest.approx(0.7)
+    # 켜져 있어도 변이가 꺼지면(mutation_enabled=False) 그대로 베낀다
+    w = _gparent(True, True, 0.3, 0.7, mutation_enabled=False)
+    j = _natural_child(w)
+    assert w.s.show_g[j] == pytest.approx(0.3) and w.s.feed_g[j] == pytest.approx(0.7)
+    # 한쪽만 켜면 그쪽만 변이
+    w = _gparent(True, False, 0.3, 0.7, teach_gene_sigma=0.1, feed_gene_sigma=0.1)
+    j = _natural_child(w)
+    assert w.s.show_g[j] != pytest.approx(0.3) and w.s.feed_g[j] == pytest.approx(0.7)
+    w = _gparent(False, True, 0.3, 0.7, teach_gene_sigma=0.1, feed_gene_sigma=0.1)
+    j = _natural_child(w)
+    assert w.s.show_g[j] == pytest.approx(0.3) and w.s.feed_g[j] != pytest.approx(0.7)
+
+
+def test_reinjected_child_copies_gene_when_off():
+    w = _gparent(False, False, 0.3, 0.7)
+    side = measure.side_from_world(w)
+    assert "show_g" in side["genomes"] and "feed_g" in side["genomes"]
+    j_id = measure.inject_agent(w, side["genomes"], 0, 1, 10.0, 10.0, 0.0, 0)
+    j = int(np.flatnonzero(w.s.ids == j_id)[0])
+    assert w.s.show_g[j] == pytest.approx(0.3) and w.s.feed_g[j] == pytest.approx(0.7)
+
+
+def test_show_gene_mutates_and_clips_when_on():
+    vals_s, vals_f = [], []
+    for sd in range(24):
+        w = _gparent(True, True, 0.5, 0.5, teach_gene_sigma=0.1, feed_gene_sigma=0.1, seed=sd)
+        assert w.ip[k.Q_TEACH] == 1 and w.ip[k.Q_FEED] == 1
+        j = _natural_child(w)
+        vals_s.append(float(w.s.show_g[j]))
+        vals_f.append(float(w.s.feed_g[j]))
+        assert w.s.show_g[0] == pytest.approx(0.5) and w.s.feed_g[0] == pytest.approx(0.5)
+    for vals in (vals_s, vals_f):
+        assert len(set(np.round(vals, 6))) > 10
+        assert 0.35 < np.mean(vals) < 0.65 and max(abs(v - 0.5) for v in vals) < 0.5
+    # [0, 1] 밖으로 안 나간다
+    cs, cf = [], []
+    for sd in range(12):
+        for g in (0.0, 1.0):
+            w = _gparent(True, True, g, g, teach_gene_sigma=1.0, feed_gene_sigma=1.0, seed=sd)
+            j = _natural_child(w)
+            cs.append(float(w.s.show_g[j]))
+            cf.append(float(w.s.feed_g[j]))
+    for vals in (cs, cf):
+        assert min(vals) >= 0.0 and max(vals) <= 1.0
+        assert min(vals) == 0.0 or max(vals) == 1.0          # 실제로 잘렸다
+        assert len(set(np.round(vals, 6))) > 4
+
+
+def test_gene_uses_own_rng_streams():
+    # 같은 자식 id·씨앗이면 show_g의 변이는 S_TEACH_GENE 난수 하나로 정해진다
+    from kkumteul import rng as rngmod
+    w = _gparent(True, True, 0.5, 0.5, teach_gene_sigma=0.1, feed_gene_sigma=0.1, seed=7)
+    j = _natural_child(w)
+    cid = int(w.s.ids[j])
+    seed = int(w.ip[k.Q_SEED])
+    exp_s = min(max(0.5 + 0.1 * float(rngmod.normal(seed, rngmod.S_TEACH_GENE, cid, 0)), 0.0), 1.0)
+    exp_f = min(max(0.5 + 0.1 * float(rngmod.normal(seed, rngmod.S_FEED_GENE, cid, 0)), 0.0), 1.0)
+    assert w.s.show_g[j] == pytest.approx(exp_s, abs=1e-5)
+    assert w.s.feed_g[j] == pytest.approx(exp_f, abs=1e-5)
+
+
+def test_gene_zero_for_initial_and_random_agent():
+    w = _gparent(True, True, 0.0, 0.0)
+    assert (w.s.show_g == 0).all() and (w.s.feed_g == 0).all()
+    w2 = taste_world("taste", soc_taste_enabled=True, juv_enabled=True, teach_enabled=True, feed_enabled=True)
+    assert (w2.s.show_g[w2.s.alive] == 0).all() and (w2.s.feed_g[w2.s.alive] == 0).all()
+    w2.s.show_g[:] = 0.4
+    w2.s.feed_g[:] = 0.4
+    j = int(np.flatnonzero(~w2.s.alive)[0])
+    k._reset_body(w2.s, j, 999, -1, 0, 0, w2.step_no, 10.0, 10.0, 0.0, 1.0)
+    assert w2.s.show_g[j] == 0.0 and w2.s.feed_g[j] == 0.0
+
+
+def test_gene_checkpoint_roundtrip():
+    w = _gparent(True, True, 0.5, 0.5, teach_gene_sigma=0.1, feed_gene_sigma=0.1, seed=3)
+    j = _natural_child(w)
+    gs, gf = float(w.s.show_g[j]), float(w.s.feed_g[j])
+    assert gs != 0.5 and gf != 0.5
+    arrays = {kk: v.copy() for kk, v in w.state_arrays().items()}
+    w2 = World(w.cfg, populate=False)
+    w2.step_no = w.step_no
+    assert w2.load_arrays(arrays)
+    j2 = int(np.flatnonzero(w2.s.ids == w.s.ids[j])[0])
+    assert w2.s.show_g[j2] == pytest.approx(gs) and w2.s.feed_g[j2] == pytest.approx(gf)
+
+
+def test_summary_show_feed_mean():
+    w = _gparent(True, True, 0.3, 0.6)
+    sm = w.summary()
+    assert sm["show_g_mean"] == pytest.approx(0.3) and sm["feed_g_mean"] == pytest.approx(0.6)
+    w = _gparent(True, False, 0.3, 0.6)
+    sm = w.summary()
+    assert "show_g_mean" in sm and "feed_g_mean" not in sm
+    w = _gparent(False, True, 0.3, 0.6)
+    sm = w.summary()
+    assert "feed_g_mean" in sm and "show_g_mean" not in sm
+    w = _gparent(False, False, 0.3, 0.6)
+    assert not {"show_g_mean", "feed_g_mean"} & set(w.summary())

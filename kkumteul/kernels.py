@@ -16,8 +16,8 @@ from .config import (ACT_ATTACK, ACT_CARRY, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, AC
                      N_TASTE_IN, N_TASTE_VIS, SOC_BLIND, SOC_INERT, SOC_MODES, SOC_WHAT, TASTE_VAL, TASTE_VIS,
                      TEACH_MODES, TEACH_WHENS)
 from .rng import (S_BIRTH_ORDER, S_BIRTH_POS, S_FOOD, S_KIND, S_INIT_AGE, S_INIT_GENOME, S_INIT_POS, S_MUT_GENE,
-                  S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, S_SOC_BLIND, S_SOC_GENE, S_TASTE_GENE, normal, soc_pair_key,
-                  u01)
+                  S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, S_SOC_BLIND, S_SOC_GENE, S_TASTE_GENE, S_TEACH_GENE, S_FEED_GENE, normal,
+                  soc_pair_key, u01)
 
 # ---- 상태 묶음 ----
 AGENT_FIELDS = [
@@ -1549,6 +1549,8 @@ def _reset_body(s, j, aid, parent, gen, tag, step, px, py, hd, e):
     s.n_poison[j] = 0
     s.n_poison10[j] = 0
     s.soc_g[j] = 0.0
+    s.show_g[j] = 0.0
+    s.feed_g[j] = 0.0
     s.meal_k[j] = 0
     s.meal_o[j] = 0.0
     s.n_seen[j] = 0
@@ -1748,6 +1750,24 @@ def copy_genome(s, i, j, cid, fp, ip):
         elif g2 > hi2:
             g2 = hi2
     s.soc_g[j] = g2
+    # 보여 주기·먹이 대주기 강도 유전자(맨 뒤, 자기 난수 용도 S_TEACH_GENE·S_FEED_GENE). 꺼져 있으면 변이 없이 베낀다.
+    # 강도는 [0, 1]이라 그 안으로 자른다. (cross_genome이 생기면 show_g·feed_g는 낱값 유전자로 변이 목록과 섞기 목록 둘 다에 넣는다)
+    g3 = float(s.show_g[i])
+    if mut and ip[Q_TEACH] != 0:
+        g3 += fp[P_TEACH_GENE_SIGMA] * normal(seed, S_TEACH_GENE, cid, 0)
+        if g3 < 0.0:
+            g3 = 0.0
+        elif g3 > 1.0:
+            g3 = 1.0
+    s.show_g[j] = g3
+    g4 = float(s.feed_g[i])
+    if mut and ip[Q_FEED] != 0:
+        g4 += fp[P_FEED_GENE_SIGMA] * normal(seed, S_FEED_GENE, cid, 0)
+        if g4 < 0.0:
+            g4 = 0.0
+        elif g4 > 1.0:
+            g4 = 1.0
+    s.feed_g[j] = g4
 
 
 # ---- 죽음 ----
