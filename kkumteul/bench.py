@@ -61,6 +61,8 @@ def kernel_breakdown(world: World, steps: int) -> dict:
         k.build_grid(s.x, s.y, s.alive, inv, gw, gh, s.a_start, s.a_items, s.cursor)
         k.collide(s, fp, ip)
         k.eat(t, s, fp, ip)
+        if ip[k.Q_JUV_COUNT]:           # 미숙기·곁 계수를 켠 세계의 성능을 잴 때만
+            k.juv_pass(t, s, fp, ip)
         if ip[k.Q_SOC]:                 # 보고 배우기를 켠 세계의 성능을 잴 때만
             k.build_grid(s.x, s.y, s.alive, inv, gw, gh, s.a_start, s.a_items, s.cursor)
             k.watch_meals(t, s, fp, ip)

@@ -166,7 +166,8 @@ def test_teach_fields_registered():
     assert "grad_tab" in k.OTHER_SCRATCH and "grad_tab" not in k.SAVED_FIELDS
     w = World(small("stage2", "kinds", "taste"))
     assert (w.s.know_age == -1).all()
-    for name in ("show_g", "feed_g") + tuple(n for n in NEW_UNSAVED if n != "know_age"):
+    assert (w.s.par_slot[w.s.alive] == -1).all()       # 산 개체는 _reset_body가 -1(부모 칸 없음)로 시작시킨다
+    for name in ("show_g", "feed_g") + tuple(n for n in NEW_UNSAVED if n not in ("know_age", "par_slot")):
         assert (getattr(w.s, name) == 0).all(), name
     for name, dt in NEW_UNSAVED.items():
         assert getattr(w.s, name).dtype == np.dtype(dt), name
@@ -210,7 +211,9 @@ def test_know_age_minus_one_after_checkpoint_roundtrip(tmp_path):
     j = int(np.flatnonzero(w2.s.ids == j_id)[0])
     assert w2.s.know_age[j] == -1
     for name in NEW_UNSAVED:
-        if name != "know_age":
+        if name == "par_slot":
+            assert w2.s.par_slot[j] == -1               # -1 = 부모 칸 없음(0은 0번 칸을 가리키는 값이라 안 된다)
+        elif name != "know_age":
             assert getattr(w2.s, name)[j] == 0, name
 
 
@@ -430,3 +433,341 @@ def test_ledger_closes_with_juv():
     w.run(1500)
     assert w.s.ledger[k.L_LOST] > 0
     assert rel_residual(w) < 1e-9
+
+
+# ---- 과제 3: juv_pass(곁 머무름 계수기·졸업표·미숙기 사망) ----
+def _juv_world(n, **kw) -> World:
+    """개체 n마리(전부 어른, 부모 없음)를 서로 멀리 놓은 세계. 격자는 짓지 않는다(juv_pass는 격자를 안 쓴다)."""
+    kw.setdefault("juv_enabled", True)
+    w = taste_world("taste", init_agents=n, min_agents=0, food_inflow=0.0, **kw)
+    s = w.s
+    assert int(s.alive.sum()) == n
+    for i in range(n):
+        s.x[i] = 20.0 + 40.0 * (i % 6)
+        s.y[i] = 20.0 + 40.0 * (i // 6)
+        s.ids[i] = 1000 + i
+        s.parent[i] = -1
+        s.age[i] = 250
+        s.energy[i] = 2.0
+        s.tag[i] = 0
+        s.taste_m[i] = 0.0
+        s.know_age[i] = -1
+        s.know_src[i] = 0
+        for name in ("n_seen_par", "n_seen_par_poison", "n_taught", "n_taught_knower", "par_near_steps",
+                     "par_alive_steps", "juv_alive_steps", "adult_near_sum", "n_seen", "n_meal", "n_poison"):
+            getattr(s, name)[i] = 0
+    return w
+
+
+def _at_xy(w, i, x, y):
+    w.s.x[i] = x
+    w.s.y[i] = y
+
+
+def _child(w, i, parent_idx, age, tag=0, born_here=True):
+    """i를 미숙기 새끼로 만든다. born_here면 juv_alive_steps가 다음 juv_pass 뒤 age와 같아진다(태어난 스텝부터 센 개체)."""
+    s = w.s
+    s.parent[i] = s.ids[parent_idx] if parent_idx is not None else -1
+    s.age[i] = age
+    s.tag[i] = tag
+    s.juv_alive_steps[i] = age - 1 if born_here else max(age - 31, 0)
+
+
+def _jpass(w):
+    k.juv_pass(w.step_no, w.s, w.fp, w.ip)
+
+
+def test_juv_pass_counts_parent_near():
+    w = _juv_world(6)
+    s = w.s
+    _at_xy(w, 1, 23.0, 20.0)                       # 부모(0번)에게서 3: 곁
+    _child(w, 1, 0, 50)
+    _child(w, 2, 0, 50)                            # 부모에게서 멀다(2번은 (100, 20)쯤)
+    _child(w, 3, None, 50)                         # 부모 id가 -1
+    _child(w, 4, 5, 50)
+    s.alive[5] = False                             # 부모가 죽었다
+    _jpass(w)
+    assert s.par_near_steps[1] == 1 and s.par_alive_steps[1] == 1 and s.juv_alive_steps[1] == 50
+    assert s.par_near_steps[2] == 0 and s.par_alive_steps[2] == 1 and s.juv_alive_steps[2] == 50
+    assert s.par_alive_steps[3] == 0 and s.juv_alive_steps[3] == 50
+    assert s.par_alive_steps[4] == 0 and s.par_near_steps[4] == 0 and s.juv_alive_steps[4] == 50
+    assert s.par_slot[1] == 0 and s.par_slot[2] == 0 and s.par_slot[3] == -1 and s.par_slot[4] == -1
+    # 어른(0번)은 안 센다
+    assert s.juv_alive_steps[0] == 0 and s.par_alive_steps[0] == 0 and s.par_slot[0] == -1
+    _jpass(w)                                      # 두 번째 스텝: 누적
+    assert s.par_near_steps[1] == 2 and s.par_alive_steps[1] == 2
+
+
+def test_juv_pass_cell_boundary_and_wrap():
+    w = _juv_world(8)
+    s = w.s
+    cell, size, r = w.cfg.cell, w.cfg.world_w, w.cfg.soc_radius
+    assert r == cell == 8.0
+    # (부모, 새끼, 기대): 칸 경계 양쪽, 거리 r 바로 안·밖, 토러스 반대편
+    cases = [(7.8, 8.2, True), (100.0, 100.0 + 7.99, True), (140.0, 140.0 + 8.01, False), (0.5, size - 0.5, True)]
+    for p, (xp, xc, _) in enumerate(cases):
+        i_par, i_kid = 2 * p, 2 * p + 1
+        _at_xy(w, i_par, xp, 20.0 + 40.0 * p)
+        _at_xy(w, i_kid, xc, 20.0 + 40.0 * p)
+        _child(w, i_kid, i_par, 50)
+    _jpass(w)
+    for p, (_, _, near) in enumerate(cases):
+        assert s.par_near_steps[2 * p + 1] == int(near), p
+        assert s.par_alive_steps[2 * p + 1] == 1
+
+
+def test_adult_near_sum_excludes_parent():
+    w = _juv_world(8)
+    s = w.s
+    _at_xy(w, 0, 100.0, 100.0)                     # 부모
+    _at_xy(w, 1, 102.0, 100.0)                     # 새끼
+    _at_xy(w, 2, 98.0, 100.0)                      # 부모 아닌 어른(곁)
+    _at_xy(w, 3, 100.0, 105.0)                     # 부모 아닌 어른(곁)
+    _at_xy(w, 4, 100.0, 140.0)                     # 어른, 멀다
+    _at_xy(w, 5, 101.0, 98.0)                      # 미숙기 이웃: 안 센다
+    _child(w, 1, 0, 50)
+    _child(w, 5, 0, 60)
+    _at_xy(w, 6, 103.0, 101.0)                     # 부모 없는 새끼도 곁의 어른 셋(0·2·3)을 센다
+    _child(w, 6, None, 40)
+    _jpass(w)
+    _jpass(w)
+    assert s.adult_near_sum[1] == 2 * 2            # 어른 둘 × 두 스텝(부모는 빼고, 미숙기 이웃도 뺀다)
+    assert s.par_near_steps[1] == 2
+    assert s.adult_near_sum[6] == 3 * 2
+
+
+@pytest.mark.parametrize("kw", [dict(juv_enabled=True), dict(juv_measure=True)])
+def test_juv_pass_in_juv_only_world(kw):
+    w = taste_world("taste", food_inflow=12.0, food_cap=1500, **kw)       # 출생이 이어지게 먹이를 넉넉히
+    assert not w.cfg.soc_taste_enabled and not w.cfg.conflict_enabled
+    assert not w.cfg.teach_enabled and not w.cfg.feed_enabled
+    assert w.cfg.juv_enabled == kw.get("juv_enabled", False)
+    w.run(300)
+    s, a = w.s, w.s.alive
+    assert w.s.counters[k.C_BIRTHS] > 0
+    assert int(s.juv_alive_steps[a].sum()) > 0
+    assert int(s.par_alive_steps[a].sum()) > 0
+    assert (s.par_alive_steps[a] <= s.juv_alive_steps[a]).all()
+    assert (s.par_near_steps[a] <= s.par_alive_steps[a]).all()
+
+
+def test_juv_measure_hash_equals_off():
+    off = taste_world("taste")
+    on = taste_world("taste", juv_measure=True)
+    off.run(300)
+    on.run(300)
+    assert on.cfg.juv_measure and not on.cfg.juv_enabled
+    assert on.state_hash() == off.state_hash()
+    assert int(on.s.juv_alive_steps[on.s.alive].sum()) > 0       # 양성 대조: 계수기는 실제로 돈다
+
+
+def test_juv_pass_off_not_called(monkeypatch):
+    calls = []
+    real = k.juv_pass
+    monkeypatch.setattr(k, "juv_pass", lambda *a: calls.append(1) or real(*a))
+    off = taste_world("taste")
+    off.run(5)
+    assert calls == []
+    on = taste_world("taste", juv_measure=True)
+    on.run(5)
+    assert len(calls) == 5
+
+
+def test_grad_record_conditions():
+    w = _juv_world(12)
+    s = w.s
+    bad = 1 - k.cfg_good_kind(w.cfg, w.step_no)
+    steps = w.cfg.juv_steps
+    assert (steps // 4, steps // 2, steps) == (50, 100, 200)
+    c, nr1, nr2 = 6, 7, 8                          # 기록 대상(태그 2), 기록 안 되는 둘(태그 3)
+    for age, taste, know_age in ((50, -0.5, -1), (100, -0.1, 40), (200, -0.4, 40)):
+        _child(w, c, 0, age, tag=2)
+        s.taste_m[c, bad] = taste
+        s.know_age[c] = know_age
+        _child(w, nr1, None, age, tag=3)           # parent == -1(inject_agent로 들어온 개체)
+        _child(w, nr2, 1, age, tag=3, born_here=False)    # 계수기를 중간부터 센 개체(juv_alive_steps != age)
+        s.taste_m[nr1, bad] = s.taste_m[nr2, bad] = -0.9
+        if age == steps:
+            s.par_near_steps[c], s.par_alive_steps[c], s.adult_near_sum[c] = 30, 100, 250
+            s.n_seen[c], s.n_seen_par[c], s.n_seen_par_poison[c] = 12, 5, 2
+            s.n_taught[c], s.n_taught_knower[c] = 4, 3
+            s.n_meal[c], s.n_poison[c] = 6, 2
+            s.energy[c] = 3.5
+            s.know_src[c] = 2
+        _jpass(w)
+        row = s.grad_tab[2]
+        if age == 50:
+            assert (row[k.GT_N1], row[k.GT_K1]) == (1, 1) and row[k.GT_M1] == pytest.approx(0.5)
+            assert row[k.GT_N2] == 0 and row[k.GT_GRAD] == 0
+        if age == 100:
+            assert (row[k.GT_N2], row[k.GT_K2]) == (1, 1)      # 모양 기억은 얕아도 앎은 누적(한 번 알면 유지)
+            assert row[k.GT_M2] == pytest.approx(0.1) and row[k.GT_GRAD] == 0
+    assert row[k.GT_GRAD] == 1 and row[k.GT_DEAD] == 0
+    assert row[k.GT_M3] == pytest.approx(0.4) and row[k.GT_K3] == 1
+    assert row[k.GT_SRC2] == 1 and row[k.GT_SRC1] == row[k.GT_SRC3] == row[k.GT_SRC4] == 0
+    assert row[k.GT_PAR_NEAR] == 30 and row[k.GT_PAR_ALIVE] == 101      # 그 스텝의 계수까지 합산
+    assert row[k.GT_ADULT_NEAR] == 250 and row[k.GT_ALIVE_STEPS] == 200
+    assert (row[k.GT_SEEN], row[k.GT_SEEN_PAR], row[k.GT_SEEN_PAR_POISON]) == (12, 5, 2)
+    assert (row[k.GT_TAUGHT], row[k.GT_TAUGHT_KNOWER]) == (4, 3)
+    assert (row[k.GT_MEALS], row[k.GT_POISON_MEALS]) == (6, 2)
+    assert row[k.GT_E_GRAD] == pytest.approx(3.5)
+    assert not s.grad_tab[3].any()                 # 기록 조건을 못 채운 개체는 어느 스냅샷·졸업에도 안 들어간다
+    assert not np.delete(s.grad_tab, 2, axis=0).any()
+
+
+def test_grad_snapshot_skipped_when_kinds_off():
+    # 먹이 종류가 꺼진 세계: 독 칸이 없으니 스냅샷·앎은 건너뛰고 졸업 수·곁 계수만 쌓인다
+    w = World(small("stage2", juv_enabled=True, init_agents=3, min_agents=0, food_inflow=0.0))
+    assert not w.cfg.food_kinds_enabled
+    s = w.s
+    for i in range(3):
+        s.ids[i] = 1000 + i
+        s.parent[i] = -1
+        s.age[i] = 250
+        s.x[i], s.y[i] = 20.0 + 40.0 * i, 20.0
+    s.parent[1] = 1000
+    s.age[1] = 200
+    s.juv_alive_steps[1] = 199
+    _jpass(w)
+    row = w.s.grad_tab[0]
+    assert row[k.GT_GRAD] == 1 and row[k.GT_N1] == row[k.GT_N2] == row[k.GT_M3] == row[k.GT_K3] == 0
+
+
+def test_juvenile_death_recorded():
+    w = _juv_world(8)
+    s = w.s
+    steps = w.cfg.juv_steps
+    _child(w, 6, 0, 50, tag=4)                     # 미숙기에 굶어 죽는다
+    _child(w, 5, 0, 50, tag=4, born_here=False)    # 계수기를 중간부터 센 개체
+    _child(w, 4, 0, steps, tag=4)                  # 나이 == juv_steps: 이 스텝 juv_pass가 졸업으로 센 뒤라 사망으로 또 안 센다
+    s.juv_alive_steps[6] = 50
+    s.juv_alive_steps[5] = 20
+    s.juv_alive_steps[4] = steps
+    s.age[7] = 250                                 # 어른이 굶어 죽는다(parent도 있다)
+    s.parent[7] = s.ids[0]
+    s.juv_alive_steps[7] = 250
+    for i in (4, 5, 6, 7):
+        s.energy[i] = 0.0
+    nd = k.process_deaths(w.step_no, s, w.fp, w.ip)
+    assert nd == 4 and not s.alive[[4, 5, 6, 7]].any()
+    assert s.grad_tab[4, k.GT_DEAD] == 1
+    assert s.grad_tab.sum() == 1
+
+
+def test_juvenile_death_not_recorded_when_off():
+    w = _juv_world(3, juv_enabled=False)
+    _child(w, 1, 0, 50)
+    w.s.juv_alive_steps[1] = 50
+    w.s.energy[1] = 0.0
+    k.process_deaths(w.step_no, w.s, w.fp, w.ip)
+    assert not w.s.alive[1] and not w.s.grad_tab.any()
+
+
+def test_grad_tag_fold_no_overflow():
+    w = _juv_world(9)
+    s = w.s
+    steps = w.cfg.juv_steps
+    guard = (s.ledger.copy(), s.counters.copy(), s.energy.copy(), s.f_energy.copy())
+    shape = s.grad_tab.shape
+    for i, tag in ((3, 5), (4, 99), (5, -3)):
+        _child(w, i, 0, steps, tag=tag)
+    _jpass(w)
+    assert s.grad_tab.shape == shape == (k.TAG_ROWS, k.N_GT)
+    for a, b in zip(guard, (s.ledger, s.counters, s.energy, s.f_energy)):
+        assert np.array_equal(a, b)
+    assert s.grad_tab[5, k.GT_GRAD] == 1 and s.grad_tab[7, k.GT_GRAD] == 1 and s.grad_tab[0, k.GT_GRAD] == 1
+    assert s.grad_tab[:, k.GT_GRAD].sum() == 3
+    # 사망도 같은 접기
+    for i, tag in ((6, 99), (7, -3)):
+        _child(w, i, 0, 50, tag=tag)
+        s.juv_alive_steps[i] = 50
+        s.energy[i] = 0.0
+    k.process_deaths(w.step_no, s, w.fp, w.ip)
+    assert s.grad_tab[7, k.GT_DEAD] == 1 and s.grad_tab[0, k.GT_DEAD] == 1 and s.grad_tab[:, k.GT_DEAD].sum() == 2
+
+
+def test_new_counters_reset_on_birth():
+    w = _juv_world(3)
+    s = w.s
+    j = int(np.flatnonzero(~s.alive)[0])
+    for name in NEW_UNSAVED:
+        getattr(s, name)[j] = 7
+    s.n_seen_par[j] = s.n_seen_par_poison[j] = 3
+    k._reset_body(s, j, 999, -1, 0, 0, w.step_no, 10.0, 10.0, 0.0, 1.0)
+    for name in NEW_UNSAVED:
+        want = {"know_age": -1, "par_slot": -1}.get(name, 0)
+        assert getattr(s, name)[j] == want, name
+
+
+def test_world_grad_table_api(tmp_path):
+    from kkumteul import checkpoint as ckpt
+    w = _juv_world(8)
+    s = w.s
+    _child(w, 3, 0, w.cfg.juv_steps, tag=2)
+    _jpass(w)
+    tab = w.grad_table()
+    assert sorted(tab) == list(range(k.TAG_ROWS))
+    assert tuple(tab[2]) == k.GT_NAMES
+    assert tab[2]["grad"] == 1.0 and tab[2]["alive_steps"] == float(w.cfg.juv_steps) and tab[0]["grad"] == 0.0
+    w.reset_grad_table()
+    assert not s.grad_tab.any() and all(v == 0.0 for row in w.grad_table().values() for v in row.values())
+    # 체크포인트로 이어 돌린 직후 이미 자라던 새끼는 기록에 안 들어간다
+    w = taste_world("taste", juv_enabled=True, food_inflow=12.0, food_cap=1500)
+    w.run(260)
+    a = w.s.alive
+    assert (a & (w.s.age <= w.cfg.juv_steps) & (w.s.parent >= 0)).any()    # 자라던 새끼가 있다
+    path = ckpt.save(w, tmp_path)
+    w2, _ = ckpt.load(path)
+    assert (w2.s.juv_alive_steps == 0).all()
+    nid0 = int(w2.s.counters[k.C_NEXT_ID])                       # 재개 뒤 새로 매겨진 id = 재개 뒤 태어난 개체(재주입 새끼 포함)
+    n_age0 = int((w2.s.alive & (w2.s.age == 0)).sum())          # 저장 직전 스텝에 태어난 새끼는 재개 첫 스텝부터 센다
+    w2.run(1)
+    grown = w2.s.alive & (w2.s.age <= w2.cfg.juv_steps) & (w2.s.age > 1)
+    assert grown.any() and (w2.s.juv_alive_steps[grown] == 1).all()     # 이미 자라던 새끼는 age와 어긋난다
+    w2.run(250)
+    # 졸업표에 든 새끼는 재개 뒤에 태어난 개체뿐이다: 졸업 + 사망 <= 재개 뒤 새 id 수(+ 재개 때 갓 난 새끼)
+    t = w2.grad_table()
+    n_rec = sum(row["grad"] + row["dead"] for row in t.values())
+    assert n_rec > 0
+    assert n_rec <= int(w2.s.counters[k.C_NEXT_ID]) - nid0 + n_age0
+
+
+def test_juv_pass_cost_scales():
+    # 어림 확인: 산 개체 600·새끼 120이면 juv_pass 한 번이 현실적 시간 안에 끝난다
+    import time
+    w = _juv_world(6)
+    s = w.s
+    rng = np.random.default_rng(0)
+    idx = np.arange(600)
+    s.alive[:] = False
+    s.alive[idx] = True
+    s.x[idx] = rng.uniform(0.0, w.cfg.world_w, 600)
+    s.y[idx] = rng.uniform(0.0, w.cfg.world_h, 600)
+    s.ids[idx] = 1000 + idx
+    s.age[idx] = 250
+    s.parent[idx] = -1
+    s.parent[:120] = s.ids[300:420]
+    s.age[:120] = 50
+    s.juv_alive_steps[:120] = 49
+    _jpass(w)
+    t0 = time.perf_counter()
+    for _ in range(20):
+        _jpass(w)
+    per = (time.perf_counter() - t0) / 20
+    assert per < 0.005, per
+
+
+def test_summary_juv_keys():
+    off = taste_world("taste")
+    off.run(3)
+    assert not {"juv_births_recorded", "grad_rate", "par_near_frac"} & set(off.summary())
+    w = _juv_world(8)
+    assert w.summary()["juv_births_recorded"] == 0 and "grad_rate" not in w.summary() and "par_near_frac" not in w.summary()
+    _child(w, 3, 0, w.cfg.juv_steps)
+    _at_xy(w, 3, 21.0, 20.0)
+    _child(w, 4, 0, 50, tag=1)
+    w.s.energy[4] = 0.0
+    _jpass(w)
+    k.process_deaths(w.step_no, w.s, w.fp, w.ip)
+    sm = w.summary()
+    assert sm["juv_births_recorded"] == 2 and sm["grad_rate"] == pytest.approx(0.5) and sm["par_near_frac"] == 1.0

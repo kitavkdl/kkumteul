@@ -1387,6 +1387,106 @@ def watch_meals(step, s, fp, ip):
                     s.taste_m[i, mc] += rate * (o - s.taste_m[i, mc])
 
 
+@njit(cache=True, inline="always")
+def _poison_slot(step, ip):
+    """이 스텝에 독인 모양의 맛 기억 칸(= 1 - good_kind). 먹이 종류가 꺼진 세계는 -1(독 칸이 없다)."""
+    if ip[Q_KINDS] == 0:
+        return -1
+    return 1 - good_kind(ip[Q_KIND_SEED], step + ip[Q_KIND_STEP0], ip[Q_KIND_PERIOD])
+
+
+@njit(cache=True, inline="always")
+def _knows(s, i, kp, fp):
+    """새끼 i가 독 모양(칸 kp)을 "아는가": 기억이 -juv_know_theta 아래. 한 번 안 새끼(know_age >= 0)는 계속 안다(누적)."""
+    if kp < 0:
+        return False
+    return s.know_age[i] >= 0 or s.taste_m[i, kp] <= -fp[P_JUV_KNOW_THETA]
+
+
+@njit(cache=True)
+def juv_pass(step, s, fp, ip):
+    """미숙기 새끼의 곁 머무름 계수기와 졸업표(읽기 전용 측정: 세계 동작을 안 바꾼다).
+
+    순차 전용, prange 금지. 격자를 안 쓰고 산 개체를 선형으로 훑는다(칸 경계 0.5 안쪽 이웃을 놓치지 않고
+    s.a_start·s.a_items를 안 건드린다). O(J×N). eat 뒤에 부른다: 나이는 move가 이미 올린 값이다.
+    기록 조건 = 부모가 있고 태어난 스텝부터 계수기를 쭉 센 새끼(juv_alive_steps == age)만 졸업표에 든다.
+    """
+    n = s.x.shape[0]
+    steps = ip[Q_JUV_STEPS]
+    w = fp[P_W]
+    hgt = fp[P_H]
+    r2 = fp[P_SOC_RADIUS] * fp[P_SOC_RADIUS]
+    kp = _poison_slot(step, ip)
+    for i in range(n):
+        s.par_slot[i] = -1
+    for i in range(n):
+        if not s.alive[i] or s.age[i] > steps:
+            continue
+        s.juv_alive_steps[i] += 1
+        p = s.parent[i]
+        q = -1
+        near = False
+        n_adult = 0
+        for j in range(n):
+            if j == i or not s.alive[j]:
+                continue
+            ddx = _wdiff(s.x[j] - s.x[i], w)
+            ddy = _wdiff(s.y[j] - s.y[i], hgt)
+            close = ddx * ddx + ddy * ddy <= r2
+            if p >= 0 and s.ids[j] == p:
+                q = j
+                if close:
+                    near = True
+            elif close and s.age[j] > steps:
+                n_adult += 1
+        s.par_slot[i] = q
+        if q >= 0:
+            s.par_alive_steps[i] += 1
+            if near:
+                s.par_near_steps[i] += 1
+        s.adult_near_sum[i] += n_adult
+        if p < 0 or s.juv_alive_steps[i] != s.age[i]:
+            continue
+        row = s.tag[i]
+        if row < 0:
+            row = 0
+        elif row > TAG_ROWS - 1:
+            row = TAG_ROWS - 1
+        a = s.age[i]
+        if a == steps // 4 or a == steps // 2:
+            if kp >= 0:
+                if a == steps // 4:
+                    c_n, c_m, c_k = GT_N1, GT_M1, GT_K1
+                else:
+                    c_n, c_m, c_k = GT_N2, GT_M2, GT_K2
+                s.grad_tab[row, c_n] += 1.0
+                s.grad_tab[row, c_m] += -s.taste_m[i, kp]
+                if _knows(s, i, kp, fp):
+                    s.grad_tab[row, c_k] += 1.0
+        if a == steps:
+            tab = s.grad_tab
+            tab[row, GT_GRAD] += 1.0
+            if kp >= 0:
+                tab[row, GT_M3] += -s.taste_m[i, kp]
+                if _knows(s, i, kp, fp):
+                    tab[row, GT_K3] += 1.0
+            src = s.know_src[i]
+            if src >= 1 and src <= 4:
+                tab[row, GT_SRC1 + src - 1] += 1.0
+            tab[row, GT_PAR_NEAR] += s.par_near_steps[i]
+            tab[row, GT_PAR_ALIVE] += s.par_alive_steps[i]
+            tab[row, GT_ADULT_NEAR] += s.adult_near_sum[i]
+            tab[row, GT_ALIVE_STEPS] += s.juv_alive_steps[i]
+            tab[row, GT_SEEN] += s.n_seen[i]
+            tab[row, GT_SEEN_PAR] += s.n_seen_par[i]
+            tab[row, GT_SEEN_PAR_POISON] += s.n_seen_par_poison[i]
+            tab[row, GT_TAUGHT] += s.n_taught[i]
+            tab[row, GT_TAUGHT_KNOWER] += s.n_taught_knower[i]
+            tab[row, GT_MEALS] += s.n_meal[i]
+            tab[row, GT_POISON_MEALS] += s.n_poison[i]
+            tab[row, GT_E_GRAD] += s.energy[i]
+
+
 # ---- 유전체 ----
 @njit(cache=True)
 def _reset_body(s, j, aid, parent, gen, tag, step, px, py, hd, e):
@@ -1455,6 +1555,21 @@ def _reset_body(s, j, aid, parent, gen, tag, step, px, py, hd, e):
     s.n_seen_poison[j] = 0
     s.n_seen_kin[j] = 0
     s.seen_age_sum[j] = 0
+    # 부모의 학습 보조 투자 계수(저장 안 함): 앎은 -1("아직 모름"), 부모 칸도 -1(없음), 나머지는 0
+    s.know_age[j] = -1
+    s.know_src[j] = 0
+    s.n_seen_par[j] = 0
+    s.n_seen_par_poison[j] = 0
+    s.n_taught[j] = 0
+    s.n_taught_knower[j] = 0
+    s.par_near_steps[j] = 0
+    s.par_alive_steps[j] = 0
+    s.juv_alive_steps[j] = 0
+    s.adult_near_sum[j] = 0
+    s.par_slot[j] = -1
+    s.jscr_i[j] = 0
+    s.jscr_d[j] = 0.0
+    s.tflag[j] = 0
     s.counters[C_NALIVE] += 1
 
 
@@ -1682,6 +1797,16 @@ def process_deaths(step, s, fp, ip):
                 s.ledger[L_INJECT] += add
             continue
         if s.energy[i] <= 0.0:
+            # 미숙기 사망 기록(졸업률의 분모). 나이 == juv_steps인 새끼는 이 스텝 juv_pass가 이미 졸업으로 세었으니 뺀다.
+            # 노쇠 사망은 미숙기일 수 없어 안 넣는다. strike(운석) 사망은 안 센다
+            if (ip[Q_JUV_COUNT] != 0 and s.parent[i] >= 0 and s.age[i] < ip[Q_JUV_STEPS]
+                    and s.juv_alive_steps[i] == s.age[i]):
+                row = s.tag[i]
+                if row < 0:
+                    row = 0
+                elif row > TAG_ROWS - 1:
+                    row = TAG_ROWS - 1
+                s.grad_tab[row, GT_DEAD] += 1.0
             if s.touch[i] == TOUCH_HIT:
                 # 이번 스텝에 공격을 맞았고 에너지가 바닥났다. 굶어 죽음과 따로 센다
                 # (맞은 뒤 제 공격 비용으로 바닥난 드문 경우도 여기에 든다)

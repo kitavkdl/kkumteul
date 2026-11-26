@@ -139,13 +139,13 @@ def inject_agent(world: World, genomes: dict, row: int, tag: int, x: float, y: f
     s.meal_o[j] = 0.0
     s.n_seen[j] = s.n_seen_poison[j] = s.n_seen_kin[j] = 0
     s.seen_age_sum[j] = 0
-    # 부모의 학습 보조 투자 계수(저장 안 함): 앎은 −1("아직 모름"), 나머지는 0(par_slot은 juv_pass가 스텝마다 다시 채운다)
+    # 부모의 학습 보조 투자 계수(저장 안 함): 앎은 −1("아직 모름"), 나머지는 0(par_slot은 -1 = 부모 칸 없음, juv_pass가 스텝마다 다시 채운다)
     s.know_age[j] = -1
     s.know_src[j] = 0
     s.n_seen_par[j] = s.n_seen_par_poison[j] = s.n_taught[j] = s.n_taught_knower[j] = 0
     s.par_near_steps[j] = s.par_alive_steps[j] = s.juv_alive_steps[j] = 0
     s.adult_near_sum[j] = 0
-    s.par_slot[j] = 0
+    s.par_slot[j] = -1
     s.jscr_i[j] = 0
     s.jscr_d[j] = 0.0
     s.tflag[j] = 0

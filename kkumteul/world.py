@@ -248,6 +248,9 @@ class World:
         if cfg.carry_enabled:
             k.carry(t, s, fp, ip)
         k.eat(t, s, fp, ip)
+        if ip[k.Q_JUV_COUNT]:
+            # 곁 머무름 계수기·졸업표(juv_enabled 또는 juv_measure). 격자를 안 쓰는 읽기 전용 측정이라 watch_meals 앞에 둔다
+            k.juv_pass(t, s, fp, ip)
         if ip[k.Q_SOC]:
             # 보고 배우기: 충돌로 위치가 바뀐 뒤라 격자를 새로 짓는다(꺼져 있으면 추가 호출 없음). 켜면 give·attack도 새 격자를 본다
             k.build_grid(s.x, s.y, s.alive, inv_cell, gw, gh, s.a_start, s.a_items, s.cursor)
@@ -401,6 +404,16 @@ class World:
             m.update(s.soil.tobytes())
         return m.hexdigest()
 
+    # ---- 졸업표(저장하지 않는다: 이 프로세스가 미숙기 전체를 본 새끼만 쌓인다) ----
+    def grad_table(self) -> dict:
+        """태그 행(0~TAG_ROWS-1)마다 {GT_NAMES 이름: 값}. 태그가 범위 밖이면 가장자리 행에 접혀 있다."""
+        tab = self.s.grad_tab
+        return {row: {name: float(tab[row, c]) for c, name in enumerate(k.GT_NAMES)} for row in range(tab.shape[0])}
+
+    def reset_grad_table(self) -> None:
+        """졸업표를 0으로(관찰 창·겨루기 시작에서 부른다)."""
+        self.s.grad_tab[:] = 0.0
+
     # ---- 요약 ----
     def summary(self) -> dict:
         s = self.s
@@ -477,6 +490,14 @@ class World:
                     "fertile_food": int(c[k.C_FERTILE]),
                 })
         # 아래 키는 개체 수와 상관없이 낸다(모두 죽은 순간에도 열이 끊기지 않게)
+        if self.cfg.juv_enabled or self.cfg.juv_measure:
+            tot = self.s.grad_tab.sum(axis=0)
+            grad, dead = float(tot[k.GT_GRAD]), float(tot[k.GT_DEAD])
+            out["juv_births_recorded"] = int(grad + dead)
+            if grad + dead > 0:
+                out["grad_rate"] = grad / (grad + dead)
+            if tot[k.GT_PAR_ALIVE] > 0:
+                out["par_near_frac"] = float(tot[k.GT_PAR_NEAR] / tot[k.GT_PAR_ALIVE])
         if self.cfg.huddle_enabled:
             out["huddle_cut_mean"] = float(s.huddle_cut[a].mean()) if n else 0.0
         if self.cfg.prey_enabled:
