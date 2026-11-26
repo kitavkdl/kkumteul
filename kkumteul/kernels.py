@@ -15,7 +15,7 @@ from numba import njit, prange
 from .config import (ACT_ATTACK, ACT_CARRY, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_THRUST, ACT_TURN, FIRST_MEALS, N_REWARD,
                      N_TASTE_IN, N_TASTE_VIS, SOC_MODES, TASTE_VAL, TASTE_VIS)
 from .rng import (S_BIRTH_ORDER, S_BIRTH_POS, S_FOOD, S_KIND, S_INIT_AGE, S_INIT_GENOME, S_INIT_POS, S_MUT_GENE,
-                  S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, S_TASTE_GENE, normal, u01)
+                  S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, S_SOC_GENE, S_TASTE_GENE, normal, u01)
 
 # ---- 상태 묶음 ----
 AGENT_FIELDS = [
@@ -1124,6 +1124,9 @@ def eat(step, s, fp, ip):
     rate = rate0
     gene = taste and ip[Q_TASTE_GENE] != 0
     cost = fp[P_TASTE_COST]
+    soc = taste and ip[Q_SOC] != 0
+    soc_rate0 = fp[P_SOC_RATE]
+    soc_cost = fp[P_SOC_COST]
     keep = 1.0 - fp[P_TASTE_DECAY]
     for i in range(n):
         s.ate[i] = 0.0
@@ -1143,6 +1146,17 @@ def eat(step, s, fp, ip):
                 c_learn = cost * rate
                 s.energy[i] -= c_learn
                 s.ledger[L_BRAIN] += c_learn
+            if soc:
+                # 보고 배우는 속도의 값: 실제 속도 clamp(soc_rate + soc_g, 0, 1)에 비례해 스텝마다 치른다(뇌의 값).
+                # 배불러 아래에서 continue하는 개체도 낸다. inert 모드도 낸다(비용은 watch_meals에 두지 않는다)
+                rate_s = soc_rate0 + s.soc_g[i]
+                if rate_s < 0.0:
+                    rate_s = 0.0
+                elif rate_s > 1.0:
+                    rate_s = 1.0
+                c_soc = soc_cost * rate_s
+                s.energy[i] -= c_soc
+                s.ledger[L_BRAIN] += c_soc
         if s.energy[i] >= e_max:
             continue
         xi = s.x[i]
@@ -1261,6 +1275,13 @@ def _reset_body(s, j, aid, parent, gen, tag, step, px, py, hd, e):
     s.n_meal[j] = 0
     s.n_poison[j] = 0
     s.n_poison10[j] = 0
+    s.soc_g[j] = 0.0
+    s.meal_k[j] = 0
+    s.meal_o[j] = 0.0
+    s.n_seen[j] = 0
+    s.n_seen_poison[j] = 0
+    s.n_seen_kin[j] = 0
+    s.seen_age_sum[j] = 0
     s.counters[C_NALIVE] += 1
 
 
@@ -1427,6 +1448,18 @@ def copy_genome(s, i, j, cid, fp, ip):
         elif g > hi:
             g = hi
     s.taste_g[j] = g
+    # 보고 배우기 속도 유전자(맨 뒤, 자기 난수 용도 S_SOC_GENE라 앞의 흐름은 그대로). 꺼져 있으면 변이 없이 베낀다.
+    # 실제 속도 = clamp(soc_rate + soc_g, 0, 1)이라 soc_g를 [−soc_rate, 1 − soc_rate]로 자른다
+    g2 = float(s.soc_g[i])
+    if mut and ip[Q_SOC] != 0:
+        g2 += fp[P_SOC_GENE_SIGMA] * normal(seed, S_SOC_GENE, cid, 0)
+        lo2 = -fp[P_SOC_RATE]
+        hi2 = 1.0 - fp[P_SOC_RATE]
+        if g2 < lo2:
+            g2 = lo2
+        elif g2 > hi2:
+            g2 = hi2
+    s.soc_g[j] = g2
 
 
 # ---- 죽음 ----

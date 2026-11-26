@@ -57,6 +57,7 @@ class World:
             if getattr(old, name) != getattr(cfg, name):
                 raise ValueError(f"{name}은 실행 중에 바꿀 수 없다(배열 크기가 달라진다)")
         cfg.validate()
+        # taste_g·soc_g는 지우지 않는다(속도 유전자는 장치를 끄고 켜도 몸에 남는다, 설계 5절)
         if cfg.mind_enabled != old.mind_enabled or cfg.n_proto != old.n_proto:
             # 마음을 켜거나 끄면 평생 학습 배열의 크기가 바뀐다. 새로 만들고 0에서 시작한다
             fresh = k.alloc_state(cfg)
@@ -458,6 +459,9 @@ class World:
                 if cfg.taste_gene_enabled:
                     # 산 개체의 실제 배움 속도 평균(유전자 장치). 추세는 판정이 아니라 단서
                     out["taste_rate_mean"] = float(np.clip(cfg.taste_rate + s.taste_g[a], 0.0, 1.0).mean())
+                if cfg.soc_taste_enabled:
+                    # 산 개체의 실제 보고 배우는 속도 평균(사회 학습). 추세는 판정이 아니라 단서
+                    out["soc_rate_mean"] = float(np.clip(cfg.soc_rate + s.soc_g[a], 0.0, 1.0).mean())
             if c[k.C_MIGRANTS] > 0 or (s.tag[a] != 0).any():
                 # 이주해 온 생물과 그 후손의 비율. 이주가 있었던 세계는 그 계통이 다 사라져도 0으로 적는다
                 out["migrant_frac"] = float((s.tag[a] != 0).mean())

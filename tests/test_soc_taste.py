@@ -1,4 +1,4 @@
-"""사회 학습(보고 배우기) 과제 1 시험: 설정·난수·필드·옛 호환. 이 과제에서는 동작이 바뀌지 않는다.
+"""사회 학습(보고 배우기) 시험. 과제 1: 설정·난수·필드·옛 호환(동작 변화 없음). 과제 2: 속도 유전자 변이·비용.
 
 설계 docs/superpowers/specs/2026-11-07-social-learning-design.md, 계획 docs/superpowers/plans/2026-11-26-social-learning.md.
 
@@ -14,8 +14,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from test_stages import small  # noqa: E402
-from test_taste import taste_world  # noqa: E402
+from test_stages import rel_residual, small  # noqa: E402
+from test_taste import _natural_child, taste_world  # noqa: E402
 from kkumteul import config as cfgmod  # noqa: E402
 from kkumteul import kernels as k  # noqa: E402
 from kkumteul import measure  # noqa: E402
@@ -175,3 +175,189 @@ def test_soc_blind_key_unique():
     assert len(keys) == len(ids) ** 2
     # 관찰자와 시연자를 맞바꾸면 다른 키다
     assert int(rng.soc_pair_key(3, 5)) != int(rng.soc_pair_key(5, 3))
+
+
+# ---- 과제 2: 보고 배우는 속도 유전자(변이·비용) ----
+# 비용은 eat만 직접 불러 잰다: 세계를 돌리면 에너지 감각 입력이 달라져 이동 비용이 갈라져 비용만 떼어 잴 수 없다.
+def lone_soc(on: bool, **kw) -> World:
+    w = taste_world("taste", soc_taste_enabled=on, init_agents=1, min_agents=0, food_inflow=0.0, **kw)
+    w.s.energy[0] = 5.0
+    return w
+
+
+def _eat_n(w, n):
+    for _ in range(n):
+        k.eat(w.step_no, w.s, w.fp, w.ip)
+
+
+def _free_slot(w) -> int:
+    return int(np.flatnonzero(~w.s.alive)[0])
+
+
+def _copy_many(w, n, start_cid=10_000):
+    """부모 칸 0의 유전체를 서로 다른 아이디(난수 키)로 n번 빈 칸에 베껴 soc_g 값들을 돌려준다."""
+    j = _free_slot(w)
+    out = []
+    for cid in range(start_cid, start_cid + n):
+        w.s.soc_g[j] = 99.0
+        k.copy_genome(w.s, 0, j, cid, w.fp, w.ip)
+        out.append(float(w.s.soc_g[j]))
+    return np.array(out)
+
+
+def test_soc_gene_copied_when_off():
+    w = lone_soc(False)
+    w.s.soc_g[0] = 0.1
+    j = _natural_child(w)                      # 자연 출생: 변이 없이 그대로
+    assert w.s.soc_g[j] == pytest.approx(0.1) and w.s.soc_g[0] == pytest.approx(0.1)
+    # 다시 심기(RESEED)와 수동(PASSIVE) 출생도 같은 길(copy_genome)이라 베낀다
+    for kind in (k.BIRTH_RESEED, k.BIRTH_PASSIVE):
+        jj = _free_slot(w)
+        k._child(w.s, 0, jj, w.step_no, w.fp, w.ip, 1.0, kind, 0)
+        assert w.s.soc_g[jj] == pytest.approx(0.1)
+        w.s.alive[jj] = False
+    # 변이를 끈 켜진 장치도 그대로
+    w = lone_soc(True, mutation_enabled=False)
+    w.s.soc_g[0] = 0.1
+    assert w.s.soc_g[_natural_child(w)] == pytest.approx(0.1)
+
+
+def test_soc_gene_mutates_and_clips_when_on():
+    w = lone_soc(True, soc_gene_sigma=0.02)
+    w.s.soc_g[0] = 0.1
+    vals = _copy_many(w, 400)
+    assert abs(vals.mean() - 0.1) < 0.005
+    assert 0.017 < vals.std() < 0.023
+    # 난수는 S_SOC_GENE(자식 id, 0): 같은 키로 직접 뽑은 값과 같다
+    for n, cid in enumerate((10_000, 10_001, 10_017)):
+        z = rng.normal(w.cfg.seed, rng.S_SOC_GENE, cid, 0)
+        assert vals[cid - 10_000] == pytest.approx(0.1 + 0.02 * z, abs=1e-6), (n, cid)
+    # 범위 [−soc_rate, 1 − soc_rate]
+    for g0 in (0.9, -0.04):
+        w = lone_soc(True, soc_gene_sigma=1.0)
+        w.s.soc_g[0] = g0
+        v = _copy_many(w, 300)
+        assert v.min() >= -w.cfg.soc_rate - 1e-6 and v.max() <= 1.0 - w.cfg.soc_rate + 1e-6
+        assert np.isclose(v.min(), -w.cfg.soc_rate) and np.isclose(v.max(), 1.0 - w.cfg.soc_rate)
+    # 한 번 부른 자연 출생도 변한다
+    w = lone_soc(True)
+    w.s.soc_g[0] = 0.1
+    j = _natural_child(w)
+    assert w.s.soc_g[j] != pytest.approx(0.1) and abs(w.s.soc_g[j] - 0.1) < 0.2
+
+
+def test_soc_gene_zero_for_initial_and_random_agent():
+    w = soc_world()
+    assert (w.s.soc_g == 0).all()
+    w = lone_soc(True)
+    w.s.soc_g[~w.s.alive] = 0.3               # 빈 칸에 찌꺼기가 남아 있어도
+    nb = k.add_random_agent(w.s, w.step_no, w.fp, w.ip, k.BIRTH_RESEED, 0, rng.S_RESEED, 0)
+    assert nb
+    new = np.flatnonzero(w.s.alive)[-1]
+    assert w.s.soc_g[new] == 0.0
+
+
+def test_reset_body_clears_soc_fields():
+    w = lone_soc(True)
+    j = _free_slot(w)
+    w.s.soc_g[j] = 0.3
+    w.s.meal_o[j] = -1.0
+    w.s.meal_k[j] = 1
+    w.s.n_seen[j] = w.s.n_seen_poison[j] = w.s.n_seen_kin[j] = 5
+    w.s.seen_age_sum[j] = 77
+    k._reset_body(w.s, j, 999, -1, 0, 0, w.step_no, 10.0, 10.0, 0.0, 1.0)
+    assert w.s.soc_g[j] == 0.0 and w.s.meal_o[j] == 0.0
+    assert w.s.n_seen[j] == w.s.n_seen_poison[j] == w.s.n_seen_kin[j] == 0 and w.s.seen_age_sum[j] == 0
+
+
+def test_soc_cost_per_step_and_none_when_off():
+    on = lone_soc(True, soc_cost=0.01)
+    off = lone_soc(False, soc_cost=0.01)
+    on.s.soc_g[0] = 0.45                       # 실제 속도 0.05 + 0.45 = 0.5 → 스텝당 0.005
+    off.s.soc_g[0] = 0.45
+    _eat_n(on, 10)
+    _eat_n(off, 10)
+    assert off.s.energy[0] - on.s.energy[0] == pytest.approx(10 * 0.005, rel=1e-5)
+    assert on.s.ledger[k.L_BRAIN] - off.s.ledger[k.L_BRAIN] == pytest.approx(10 * 0.005, rel=1e-5)
+
+
+def test_soc_cost_zero_rate_is_free():
+    on = lone_soc(True, soc_cost=0.01)
+    off = lone_soc(False)
+    on.s.soc_g[0] = -0.05                      # 실제 속도 0
+    _eat_n(on, 10)
+    _eat_n(off, 10)
+    assert on.s.energy[0] == pytest.approx(off.s.energy[0])
+    assert on.s.ledger[k.L_BRAIN] == pytest.approx(off.s.ledger[k.L_BRAIN])
+    on.s.soc_g[0] = -0.5                       # 더 음수여도 0으로 잘린다(비용이 음수가 되지 않는다)
+    _eat_n(on, 3)
+    _eat_n(off, 3)
+    assert on.s.energy[0] == pytest.approx(off.s.energy[0])
+
+
+def test_soc_cost_paid_by_full_agent():
+    # 배불러(energy >= e_max) continue하는 개체도 비용을 낸다: 비용이 eat 맨 위 산 개체 루프에 있다
+    on = lone_soc(True, soc_cost=0.01)
+    off = lone_soc(False, soc_cost=0.01)
+    for w in (on, off):
+        w.s.soc_g[0] = 0.45
+        w.s.energy[0] = w.cfg.e_max + 1.0
+    _eat_n(on, 4)
+    _eat_n(off, 4)
+    assert off.s.energy[0] - on.s.energy[0] == pytest.approx(4 * 0.005, rel=1e-5)
+
+
+def test_soc_cost_independent_of_taste_gene():
+    # 맛 유전자가 꺼져 있어도 soc_taste_enabled면 soc_cost를 낸다. 두 장치는 따로 비용을 낸다
+    soc = lone_soc(True, soc_cost=0.01)
+    assert not soc.cfg.taste_gene_enabled
+    soc.s.soc_g[0] = 0.45
+    base = lone_soc(False, soc_cost=0.01)
+    both = lone_soc(True, soc_cost=0.01, taste_gene_enabled=True, taste_cost=0.02)
+    both.s.soc_g[0] = 0.45
+    both.s.taste_g[0] = 0.0                    # 맛 속도 0.5 → 스텝당 0.01
+    for w in (soc, base, both):
+        _eat_n(w, 10)
+    assert base.s.energy[0] - soc.s.energy[0] == pytest.approx(10 * 0.005, rel=1e-5)
+    assert base.s.energy[0] - both.s.energy[0] == pytest.approx(10 * (0.005 + 0.01), rel=1e-5)
+
+
+def test_ledger_closes_with_soc_cost():
+    # 비용이 장부(L_BRAIN)에 안 들어가면 잔차가 남는다(속도·비용을 크게 잡아 가릴 수 있게)
+    w = soc_world(soc_cost=0.01, soc_rate=0.5)
+    w.run(1500)
+    assert rel_residual(w) < 1e-9
+    assert w.s.ledger[k.L_BRAIN] > 0
+
+
+def test_soc_gene_checkpoint_roundtrip(tmp_path):
+    from kkumteul import checkpoint as ckpt
+    w = soc_world()
+    w.run(20)
+    a = np.flatnonzero(w.s.alive)
+    w.s.soc_g[a] = np.linspace(-0.04, 0.3, len(a)).astype(np.float32)
+    path = ckpt.save(w, tmp_path)
+    w2, _ = ckpt.load(path)
+    assert (w2.s.soc_g == w.s.soc_g).all() and np.abs(w2.s.soc_g).max() > 0
+    assert w2.state_hash() == w.state_hash()
+
+
+def test_summary_soc_rate_mean():
+    w = soc_world()
+    w.run(10)
+    a = w.s.alive
+    w.s.soc_g[a] = 0.2
+    assert w.summary()["soc_rate_mean"] == pytest.approx(0.25)
+    w.s.soc_g[a] = -0.2                        # 실제 속도 −0.15 → 0으로 잘린 평균
+    assert w.summary()["soc_rate_mean"] == pytest.approx(0.0)
+    assert "soc_rate_mean" not in taste_world("taste").summary()
+
+
+def test_set_config_keeps_soc_g():
+    # 분기(set_config)가 soc_g를 지우지 않는다(taste_g와 같은 선례): 켜고 끄는 분기가 한 몸의 값을 보존
+    w = soc_world()
+    w.run(10)
+    a = w.s.alive
+    w.s.soc_g[a] = 0.1
+    w.set_config(w.cfg.with_overrides(["soc_taste_enabled=false"]))
+    assert np.allclose(w.s.soc_g[a], 0.1)
