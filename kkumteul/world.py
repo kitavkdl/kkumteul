@@ -225,6 +225,8 @@ class World:
             st.social_sense(s, fs, isp)
         if niche:
             st.trail_sense(s, fs, isp)
+        if isp[st.I_NORM_ON]:
+            st.norm_tick(s, fs, isp)                # 규범: 삼가기 기억 감쇠(감각 블록 앞)
         if cfg.season_enabled:
             k.write_ext2(s.alive, s.obs, cfg.ext_in0 + EXT_SEASON, sn, cs)
         if cfg.carry_enabled:

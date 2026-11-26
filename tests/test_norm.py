@@ -928,3 +928,149 @@ def test_cost_and_target_order_equivalent():
     assert s.ledger[k.L_MOVE] == pytest.approx(moved + cost) and s.ledger[k.L_LOST] == pytest.approx(lost + dmg - fine)
     assert nt(w, 0, k.NT_PUN_COST) == pytest.approx(cost) and nt(w, 0, k.NT_PUN_FINE) == pytest.approx(fine)
 
+
+# ======================= 과제 7: 삼가기 기억·위축·norm_tick =======================
+def test_mem_rises_on_punishment_and_decays():
+    w = _pair("norm", norm_mem_rate=0.5)
+    s = w.s
+    s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    s.mark_t[4] = 10
+    s.mem[4] = 0.2
+    st.attack(10, s, w.fs, w.isp)
+    assert s.pun_t[4] == 10 and s.mem[4] == pytest.approx(0.2 + 0.5 * 0.8)
+    assert s.mem[0] == 0                          # 집행자는 안 오른다
+    w1 = _pair("norm")                            # 기본 1.0: 한 번에 최대
+    w1.s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    w1.s.mark_t[4] = 10
+    st.attack(10, w1.s, w1.fs, w1.isp)
+    assert w1.s.mem[4] == 1.0
+    # norm_tick: 스텝마다 1/τ씩 줄고 τ번째에 정확히 0(float32 잔여를 자른다)
+    for tau in (5, 49, 50):
+        wt = hand_world("norm", norm_mem_tau=tau)
+        st_ = wt.s
+        st_.mem[:] = 0.0
+        st_.mem[2] = 1.0
+        st_.mem[3] = 0.3
+        for q in range(tau - 1):
+            st.norm_tick(st_, wt.fs, wt.isp)
+            assert st_.mem[2] > 0.0, (tau, q)
+            assert st_.mem[2] == pytest.approx(1.0 - (q + 1) / tau, abs=1e-5)
+        st.norm_tick(st_, wt.fs, wt.isp)
+        assert st_.mem[2] == 0.0 and st_.mem[3] == 0.0 and (st_.mem >= 0).all()
+
+
+def test_inhibition_multiplies_takes_only():
+    w = _pair("norm")
+    s, cfg = w.s, w.cfg
+    s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    s.mem[0] = 0.5
+    st.attack(10, s, w.fs, w.isp)
+    a_eff = 1.0 * (1 - cfg.norm_inhibit * 0.5)
+    assert s.energy[4] == pytest.approx(1.0 - cfg.attack_damage * a_eff)
+    # 충동 가로채기에도 곱해진다
+    wi = _imp_scene("norm", norm_impulse=1.0)
+    si = wi.s
+    si.mem[0] = 1.0
+    st.attack(0, si, wi.fs, wi.isp)
+    assert si.energy[4] == pytest.approx(1.0 - cfg.attack_damage * (1 - cfg.norm_inhibit))
+    # 벌에는 안 곱해진다(벌주는 쪽은 삼가지 않는다)
+    wp = _pair("norm")
+    wp.s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    wp.s.mem[0] = 1.0
+    wp.s.mark_t[4] = 10
+    st.attack(10, wp.s, wp.fs, wp.isp)
+    assert wp.s.pun_t[4] == 10 and wp.s.energy[4] == pytest.approx(1.0 - cfg.attack_damage)
+    # inert는 위축·기억 갱신이 없다
+    wn = _pair("norm", norm_mode="inert")
+    wn.s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    wn.s.mem[0] = 1.0
+    wn.s.mark_t[4] = 10
+    st.attack(10, wn.s, wn.fs, wn.isp)
+    assert wn.s.energy[4] == pytest.approx(1.0 - cfg.attack_damage) and wn.s.mem[4] == 0.0
+
+
+def test_inhibit_scales_damage_not_cost():
+    w = _pair("norm")
+    s, cfg = w.s, w.cfg
+    s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    s.mem[0] = 1.0
+    lost, moved = s.ledger[k.L_LOST], s.ledger[k.L_MOVE]
+    st.attack(10, s, w.fs, w.isp)
+    dmg = cfg.attack_damage * 0.2
+    assert s.energy[4] == pytest.approx(1.0 - dmg)
+    assert s.energy[0] == pytest.approx(1.0 - cfg.attack_cost + dmg * cfg.attack_gain)
+    assert s.ledger[k.L_MOVE] == pytest.approx(moved + cfg.attack_cost)
+    assert s.ledger[k.L_LOST] == pytest.approx(lost + dmg * (1 - cfg.attack_gain))
+    assert nt(w, 0, k.NT_TAKE_GAIN) == pytest.approx(dmg * cfg.attack_gain)
+
+
+def test_inhibit_applies_to_sig_mark_trigger():
+    w = _sig_world()
+    s = w.s
+    s.act[0, cfgmod.ACT_SIG1] = 0.9
+    s.mem[0] = 1.0                                # 0.9 × 0.2 = 0.18 < 0.5
+    s.act[1, cfgmod.ACT_SIG1] = 0.9
+    sig_before = s.act[:, cfgmod.ACT_SIG1].copy()
+    st.norm_mark_events(5, s, w.fs, w.isp)
+    assert s.mark_t[0] == -1 and s.mark_t[1] == 5
+    assert (s.act[:, cfgmod.ACT_SIG1] == sig_before).all()    # 실제 신호 출력은 그대로
+    # inert는 곱이 없다
+    wi = _sig_world(norm_mode="inert")
+    wi.s.act[0, cfgmod.ACT_SIG1] = 0.9
+    wi.s.mem[0] = 1.0
+    st.norm_mark_events(5, wi.s, wi.fs, wi.isp)
+    assert wi.s.mark_t[0] == 5
+
+
+def test_inhibit_zero_leaves_output_unchanged_memory_still_rises():
+    w = _pair("norm", norm_inhibit=0.0)
+    s, cfg = w.s, w.cfg
+    s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    s.mem[0] = 1.0
+    st.attack(10, s, w.fs, w.isp)
+    assert s.energy[4] == pytest.approx(1.0 - cfg.attack_damage)
+    # 벌 받으면 기억은 오른다
+    s.energy[:] = 1.0
+    s.act[0, cfgmod.ACT_ATTACK] = 0.0
+    s.act[4, cfgmod.ACT_ATTACK] = 1.0             # 4가 표시된 0을 친다(0은 방금 가로채 표시됨)
+    st.attack(11, s, w.fs, w.isp)
+    assert s.pun_t[0] == 11 and s.mem[0] == 1.0
+    s.mem[0] = 0.0
+    s.mark_t[0] = 12
+    st.attack(12, s, w.fs, w.isp)
+    assert s.mem[0] == 1.0
+
+
+def test_norm_tick_runs_before_norm_sense_slot(monkeypatch):
+    calls = []
+    for name in ("social_sense", "trail_sense", "norm_tick", "think_plastic"):
+        orig = getattr(st, name)
+
+        def wrap(*a, _o=orig, _n=name):
+            calls.append(_n)
+            return _o(*a)
+        monkeypatch.setattr(st, name, wrap)
+    w = World(small("stage4", "conflict", "norm"))
+    w.run(2)
+    assert calls == ["social_sense", "trail_sense", "norm_tick", "think_plastic"] * 2
+    calls.clear()
+    for kw in (dict(), dict(norm_measure=True)):
+        World(small("stage4", "conflict", "norm_size", **kw)).run(2)
+    assert "norm_tick" not in calls
+
+
+def test_mem_not_inherited_by_default():
+    w = World(small("stage4", "conflict", "norm"))
+    s = w.s
+    s.mem[s.alive] = 1.0
+    born = 0
+    for _ in range(300):
+        before = s.ids.copy()
+        alive_before = s.alive.copy()
+        w.step()
+        new = s.alive & (~alive_before | (s.ids != before))
+        if new.any():
+            # 새로 난 개체는 mem 0에서 시작해 이 스텝 norm_tick 뒤에도 0(감쇠만 있다)
+            assert (s.mem[new] == 0).all()
+            born += int(new.sum())
+    assert born > 0

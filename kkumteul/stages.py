@@ -705,6 +705,26 @@ def norm_mark_events(step, s, fs, isp):
             _attach_mark(s, i, step, -1, -1, tau)
 
 
+@njit(cache=True)
+def norm_tick(s, fs, isp):
+    """삼가기 기억의 감쇠: 스텝마다 mem = max(0, mem − 1/norm_mem_tau), 0.5/τ 아래면 0으로 자른다(float32 잔여 없이
+    τ번째에 정확히 0). 감각(norm_sense) 앞에 한 번 돈다."""
+    n = s.x.shape[0]
+    tau = fs[F_NORM_MEM_TAU]
+    dec = 1.0 / tau
+    floor = 0.5 / tau
+    for i in range(n):
+        if not s.alive[i]:
+            continue
+        m = float(s.mem[i])
+        if m <= 0.0:
+            continue
+        m -= dec
+        if m < floor:
+            m = 0.0
+        s.mem[i] = m
+
+
 @njit(cache=True, inline="always")
 def _impulse_on(seed, step, aid, L, p):
     """떨리는 손: 개체 aid가 스텝 step에 충동 구간 안인가. 구간은 step // L마다 새로 정하는 상태 없는 난수라 저장할 것이 없고,
@@ -837,7 +857,12 @@ def attack(step, s, fs, isp):
         # 4. 분기: 충동은 늘 가로채기. 자발은 full 모드에서 맞은 순간 표시돼 있는 대상이면 벌. inert는 모두 가로채기
         marked_t = on and _is_marked(step, s.mark_t[best], tau)
         pun = marked_t and full and not imp
-        dmg = fs[F_ATK_DMG] * a
+        a_hit = a
+        if on and full and not pun:
+            # 위축: 가로채기(충동 포함)의 피해·얻는 몫에만 (1 − norm_inhibit × mem)을 곱한다. 비용은 위에서 위축 전 a로
+            # 냈고, 벌(벌주는 쪽은 삼가지 않는다)과 inert에는 곱하지 않는다
+            a_hit = a * (1.0 - fs[F_NORM_INHIBIT] * s.mem[i])
+        dmg = fs[F_ATK_DMG] * a_hit
         if dmg > s.energy[best]:
             dmg = s.energy[best]          # 가진 것보다 더 빼앗을 수는 없다
         if pun:
@@ -854,6 +879,7 @@ def attack(step, s, fs, isp):
         if pun:
             s.pun_t[best] = step              # 집행자는 표시되지 않는다
             s.mark_pun[best] = 1              # 이 표시 에피소드 안에 벌 받음
+            s.mem[best] += fs[F_NORM_MEM_RATE] * (1.0 - s.mem[best])     # 삼가기 기억(float32, [0, 1] 안)
         elif mark_take:
             _attach_mark(s, i, step, best, s.ids[best], tau)     # 가로채기가 맞으면 친 쪽에만 표시
         if count:
