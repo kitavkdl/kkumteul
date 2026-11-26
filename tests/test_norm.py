@@ -17,6 +17,7 @@ from test_stages import PINNED_HASH_300, rel_residual, small  # noqa: E402
 from kkumteul import config as cfgmod  # noqa: E402
 from kkumteul import kernels as k  # noqa: E402
 from kkumteul import measure  # noqa: E402
+from kkumteul import rng as rngmod  # noqa: E402
 from kkumteul import stages as st  # noqa: E402
 from kkumteul.config import Config  # noqa: E402
 from kkumteul.world import World  # noqa: E402
@@ -512,3 +513,107 @@ def test_summary_norm_measure_keys():
     w0 = World(small("stage4", "conflict", "norm_size"))
     w0.run(5)
     assert "norm_expo_frac" not in w0.summary()
+
+
+# ======================= 과제 4: 떨리는 손(norm_impulse) =======================
+def test_impulse_interval_is_stateless_and_length_L():
+    seed, p = 7, 0.3
+    for L in (1, 5, 10):
+        for aid in range(40):
+            for blk in range(6):
+                want = rngmod.u01(seed, rngmod.S_NORM_IMPULSE, blk, aid) < p
+                for t in range(blk * L, blk * L + L):          # 구간 안 L스텝 내내 같다(저장할 것이 없다)
+                    assert st._impulse_on(seed, t, aid, L, p) == want
+                assert st._impulse_on(seed, blk * L, aid, L, p) == st._impulse_on(seed, blk * L, aid, L, p)
+
+
+def test_impulse_probability_close_to_p():
+    seed, p = 3, 0.015
+    starts = sum(st._impulse_on(seed, blk * 5, aid, 5, p) for aid in range(20000) for blk in range(5))
+    assert starts / 100000 == pytest.approx(p, abs=0.002)
+    for L in (1, 10):
+        on = sum(st._impulse_on(seed, t, aid, L, p) for aid in range(2000) for t in range(50))
+        assert on / 100000 == pytest.approx(p, abs=0.003)          # 개체 스텝 중 충동 비율은 L과 무관하게 p
+
+
+def _imp_scene(*presets, **kw):
+    """0번 하나만 깨어 있는 손 세계(나머지는 자서 충동이 강제되지 않는다). 0은 뇌 출력 −1."""
+    w = hand_world(*presets, **kw)
+    s = w.s
+    s.asleep[:] = 1.0
+    s.asleep[0] = 0.0
+    s.act[:, cfgmod.ACT_ATTACK] = 0.0
+    s.act[0, cfgmod.ACT_ATTACK] = -1.0
+    put(w, 0, 100.0, 100.0)
+    put(w, 4, 101.5, 100.0)            # 가장 가까운 닿는 이웃
+    put(w, 5, 100.0, 102.3)            # 더 먼 닿는 이웃
+    regrid(w)
+    return w
+
+
+def test_impulse_forces_attack_and_hits_nearest():
+    w = _imp_scene("norm", norm_impulse=1.0)
+    s, cfg = w.s, w.cfg
+    s.mark_t[5] = 0                    # 먼 쪽이 표시돼 있어도 충동은 가장 가까운 이웃을 친다(조준을 안 쓴다)
+    st.attack(0, s, w.fs, w.isp)
+    assert s.energy[4] == pytest.approx(1.0 - cfg.attack_damage)
+    assert s.energy[0] == pytest.approx(1.0 - cfg.attack_cost + cfg.attack_damage * cfg.attack_gain)
+    assert s.energy[5] == 1.0
+    # 가장 가까운 이웃이 표시돼 있어도 벌이 아니라 가로채기다(이득 attack_gain)
+    s.energy[:] = 1.0
+    s.mark_t[:] = -1
+    s.mark_t[4] = 1
+    st.attack(1, s, w.fs, w.isp)
+    assert s.energy[0] == pytest.approx(1.0 - cfg.attack_cost + cfg.attack_damage * cfg.attack_gain)
+    assert s.pun_t[4] == -1
+    # 닿는 이웃이 없으면 빗나가 비용만 든다
+    s.energy[:] = 1.0
+    put(w, 4, 150.0, 150.0)
+    put(w, 5, 150.0, 180.0)
+    regrid(w)
+    st.attack(2, s, w.fs, w.isp)
+    assert s.energy[0] == pytest.approx(1.0 - cfg.attack_cost)
+
+
+def test_impulse_does_not_touch_brain_output():
+    w = _imp_scene("norm_size", norm_impulse=1.0)
+    st.attack(0, w.s, w.fs, w.isp)
+    assert w.s.act[0, cfgmod.ACT_ATTACK] == -1.0
+    assert w.s.energy[4] < 1.0                  # 그래도 쳤다
+
+
+def test_impulse_skips_sleeping_agents():
+    w = _imp_scene("norm_size", norm_impulse=1.0)
+    w.s.asleep[0] = 1.0
+    st.attack(0, w.s, w.fs, w.isp)
+    assert (w.s.energy == 1.0).all()
+
+
+def test_impulse_counts_all_attacks_in_interval():
+    w = _imp_scene("norm_size", norm_measure=True, norm_impulse=1.0)
+    s = w.s
+    s.act[0, cfgmod.ACT_ATTACK] = 0.5          # 뇌 출력이 이미 0 위여도 충동 구간 안이면 충동으로 센다
+    st.attack(0, s, w.fs, w.isp)
+    assert nt(w, 0, k.NT_TAKE_IMP) == 1 and nt(w, 0, k.NT_TAKE) == 1
+    assert nt(w, 0, k.NT_ATK_VOL_PLAIN) == 0 and nt(w, 0, k.NT_ATK_VOL_MARKED) == 0
+    w.fs[st.F_NORM_IMPULSE] = 0.0              # 충동 끔: 이제 자발 공격
+    s.energy[:] = 1.0
+    st.attack(1, s, w.fs, w.isp)
+    assert nt(w, 0, k.NT_TAKE_IMP) == 1 and nt(w, 0, k.NT_TAKE) == 2
+    assert nt(w, 0, k.NT_ATK_VOL_PLAIN) == 1 and nt(w, 0, k.NT_ATK_VOL_MARKED) == 0
+    # 기회 분모는 자는 개체도 센다(0·4·5가 서로 닿는다: 스텝마다 셋)
+    assert nt(w, 0, k.NT_OPP_PLAIN) == 6 and nt(w, 0, k.NT_OPP_MARKED) == 0
+
+
+def test_impulse_world_needs_conflict_only_and_changes_hash():
+    hashes = {}
+    for p in (0.0, 0.05):
+        w = World(small("stage4", "conflict", "norm_size", norm_impulse=p))
+        w.run(300)
+        hashes[p] = w.state_hash()
+    w0 = World(small("stage4", "conflict", "norm_size"))
+    w0.run(300)
+    assert hashes[0.0] == w0.state_hash() and hashes[0.05] != w0.state_hash()
+    w1 = World(small("stage1", "conflict", norm_impulse=0.015))     # 마음·사회 없이도 돈다
+    w1.run(100)
+    assert w1.s.counters[k.C_ATTACKS] > 0

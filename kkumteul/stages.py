@@ -16,10 +16,11 @@ from .config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT
                      IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL, N_INTERNAL, N_NORM_IN, N_TASTE_IN, N_TASTE_VIS,
                      NORM_AIMS, NORM_MODES, NORM_OBS_MODES, NORM_SRCS, NORM_VIS, TASTE_VIS)
 from .kernels import (C_ATTACKS, C_FERTILE, C_GIFTS, C_NFIELD, C_NFOOD, KIND_A, L_BASAL, L_BRAIN, L_DISCARD, L_LOST,
-                      L_MOVE, L_SPAWN, NT_ALIVE_STEPS, NT_ATK_COST, NT_EXPO, NT_TAKE, NT_TAKE_DMG_RECV, NT_TAKE_GAIN,
-                      NT_TAKE_KILL, NT_TAKE_KIN, NT_TAKE_LINE, NT_TAKE_SIM0, NT_VIOL_DMG_RECV, TAG_ROWS_NORM,
+                      L_MOVE, L_SPAWN, NT_ALIVE_STEPS, NT_ATK_COST, NT_ATK_VOL_MARKED, NT_ATK_VOL_PLAIN, NT_EXPO,
+                      NT_OPP_MARKED, NT_OPP_PLAIN, NT_TAKE, NT_TAKE_DMG_RECV, NT_TAKE_GAIN, NT_TAKE_IMP, NT_TAKE_KILL,
+                      NT_TAKE_KIN, NT_TAKE_LINE, NT_TAKE_SIM0, NT_VIOL_DMG_RECV, TAG_ROWS_NORM,
                       TOUCH_HIT, _kin_class, _place_food, _wdiff, _wrap, make_room, pick_kind)
-from .rng import S_ATTACK_ORDER, S_FERTILE, S_PERTURB, normal, u01
+from .rng import S_ATTACK_ORDER, S_FERTILE, S_NORM_IMPULSE, S_PERTURB, normal, u01
 
 # 거름 먹이의 종류를 뽑는 난수 번호의 밑. S_KIND 흐름에서 보통 먹이는 (일련번호, 0), 어느 쪽이 독인지는
 # (구간, 1)을 쓴다. 거름 먹이는 (스텝, 이 값 + 그 스텝의 몇 번째인지)를 써서 둘과 겹치지 않게 한다.
@@ -652,6 +653,14 @@ def _is_marked(t, mt, tau):
     return mt >= 0 and t - mt <= tau
 
 
+@njit(cache=True, inline="always")
+def _impulse_on(seed, step, aid, L, p):
+    """떨리는 손: 개체 aid가 스텝 step에 충동 구간 안인가. 구간은 step // L마다 새로 정하는 상태 없는 난수라 저장할 것이 없고,
+    한 구간은 정확히 L스텝 간다. L은 계산의 입력이 아니라 "상습 위반자" 모형의 가정이다(설계 2절·약점 10:
+    벌의 억지 이득이 구간에 남은 스텝 수로 정해지므로 첫걸음 기울기가 이 가정에 달려 있다)."""
+    return u01(seed, S_NORM_IMPULSE, step // L, aid) < p
+
+
 @njit(cache=True)
 def _scan_touching(s, fs, isp, i, t):
     """훑기: i에게 닿는(_nearest_touching과 같은 거리·같은 순회·같은 동률 규칙, 에너지 0 이하 건너뜀) 가장 가까운 이웃 nb와
@@ -712,6 +721,9 @@ def attack(step, s, fs, isp):
     start = int(u01(isp[I_SEED], S_ATTACK_ORDER, step, 0) * n)
     count = isp[I_NORM_MEASURE] != 0 or isp[I_NORM_ON] != 0
     tab = s.norm_tab
+    seed = isp[I_SEED]
+    imp_p = fs[F_NORM_IMPULSE]
+    imp_len = isp[I_NORM_IMP_LEN]
     for q in range(n):
         i = start + q
         if i >= n:
@@ -720,6 +732,7 @@ def attack(step, s, fs, isp):
             continue
         ri = _norm_row(s.tag[i])
         nb = -1
+        nm = -1
         if count:
             tab[ri, NT_ALIVE_STEPS] += 1.0
             if s.energy[i] <= 0.0:
@@ -727,7 +740,18 @@ def attack(step, s, fs, isp):
             nb, nm = _scan_touching(s, fs, isp, i, step)
             if nb >= 0:
                 tab[ri, NT_EXPO] += 1.0
+                if nm >= 0:
+                    tab[ri, NT_OPP_MARKED] += 1.0
+                else:
+                    tab[ri, NT_OPP_PLAIN] += 1.0
         a = float(s.act[i, ACT_ATTACK])
+        # 1. 떨리는 손: 충동 구간이면 출력을 max(a, 1)로 강제한다(이 변수만; 뇌 출력 s.act는 안 바뀌어 뇌는 못 말린다).
+        #    자는 개체는 강제하지 않는다(after_think가 끈 출력을 우회하지 않게). 꺼져 있으면 난수도 안 부른다
+        imp = False
+        if imp_p > 0.0 and s.asleep[i] <= 0.0:
+            imp = _impulse_on(seed, step, s.ids[i], imp_len, imp_p)
+            if imp and a < 1.0:
+                a = 1.0
         if a <= 0.0 or s.energy[i] <= 0.0:
             continue
         cost = fs[F_ATK_COST] * a
@@ -735,6 +759,12 @@ def attack(step, s, fs, isp):
         s.ledger[L_MOVE] += cost
         if count:
             tab[ri, NT_ATK_COST] += cost
+            if not imp and nb >= 0:
+                # 자발 공격(충동 구간 밖, 뇌 출력 > 0)만 선택성 분자에 센다
+                if nm >= 0:
+                    tab[ri, NT_ATK_VOL_MARKED] += 1.0
+                else:
+                    tab[ri, NT_ATK_VOL_PLAIN] += 1.0
             best = nb       # 훑기의 nb는 _nearest_touching과 같은 칸이다(내 비용은 이웃 고르기에 안 닿는다)
         else:
             best = _nearest_touching(s, fs, isp, i, True)
@@ -752,6 +782,8 @@ def attack(step, s, fs, isp):
         if count:
             rb = _norm_row(s.tag[best])
             tab[ri, NT_TAKE] += 1.0
+            if imp:
+                tab[ri, NT_TAKE_IMP] += 1.0
             tab[rb, NT_TAKE_DMG_RECV] += dmg
             tab[ri, NT_TAKE_GAIN] += got
             tab[rb, NT_VIOL_DMG_RECV] += dmg      # 표시가 없는 측정 세계는 모든 피해가 위반 피해다
