@@ -255,6 +255,31 @@ class Config:
     feed_rate: float = 0.02           # 강도 1일 때 스텝당 건네는 양의 바탕. 임시 결정
     feed_gene_sigma: float = 0.02     # 출생 때 feed_g에 더하는 변이 폭. 임시 결정
 
+    # 규범의 씨앗: 가로채기와 벌주기 (기본은 모두 꺼짐·불활성. 설계 2026-11-26-norms-seed-design.md)
+    # 켜려면 입력 크기 preset=norm_size(대조 갈래도 같은 크기). 값은 모두 임시 결정
+    norm_measure: bool = False        # 세계 동작은 안 바꾸고 계수기만(가로챈 횟수·피해자·친족 비율·노출). conflict_enabled 필요
+    norm_enabled: bool = False        # 표시와 벌 물리. conflict_enabled·social_enabled·norm_size·vision_sectors 8 필요
+    norm_mode: str = "full"           # full(표시된 대상을 친 자발 공격은 벌) / inert(모든 공격이 가로채기, 위축·기억 갱신 없음)
+    norm_mark_src: str = "take"       # 표시가 붙는 원천: take(가로챔) / sig(신호 2번 출력 > norm_sig_theta) / none(잡음만)
+    norm_mark_tau: int = 50           # 표시가 보이는 스텝(붙은 스텝 + τ). 평균 속도 0.15 × 50 ≈ 7.5 ≈ soc_radius
+    norm_mark_noise: float = 0.0      # 개체 스텝마다 엉뚱한 표시가 붙는 확률. 정보량 기울기 칸에서 0.0005·0.002
+    norm_sig_theta: float = 0.5       # sig 원천의 문턱(출력은 이미 tanh를 지난 값). 유병률 맞춤 관문에서 조정
+    norm_pun_return: float = 0.1      # 벌의 집행자가 얻는 몫. = attack_cost ÷ attack_damage(한 번 맞힐 때 본전). [0, attack_gain]
+    norm_aim: str = "marked"          # 자발 공격의 대상: marked(닿는 표시된 이웃이 있으면 그쪽) / nearest(가장 가까운 이웃)
+    norm_inhibit: float = 0.8         # 위축: 가로채기 출력 × (1 − norm_inhibit × mem). 한 번 벌 받으면 0.2배. [0, 1]
+    norm_mem_tau: int = 50            # 삼가기 기억이 스텝마다 1/τ씩 준다. 표시와 같은 시간 규모
+    norm_mem_rate: float = 1.0        # 벌 받으면 mem += rate × (1 − mem). 맞은 본인은 한 번에 최대
+    norm_mem_obs: float = 0.2         # 곁 이웃이 벌 받는 것을 보면 mem += obs × (1 − mem). soc_rate 0.05보다 큼(벌은 드문 사건)
+    norm_mem_obs_mode: str = "outcome"    # outcome(본 벌로 배움) / blind(눈가림 대조) / off(보고 배우기 없음)
+    norm_mem_inherit: float = 0.0     # 새끼의 mem 시작 몫. 줄일 후보(설계 약점 9). 구현 전(과제 19)이라 0만 허용
+    norm_impulse: float = 0.0         # 떨리는 손: 개체마다 L스텝 구간이 충동 상태일 확률. 켤 때 0.015(맞은 피해 ≈ 수입의 14%).
+                                      # norm_enabled 없이 conflict_enabled만으로 쓸 수 있다(끔·off 대조에도 위반이 있어야 한다)
+    norm_impulse_len: int = 5         # 충동 구간 길이 L. 계산의 입력이 아니라 "상습 위반자" 모형의 가정이다. 대조 1·10
+    norm_mix_period: int = 0          # 섞기: 이 주기마다 개체를 무작위 자리로 옮긴다(0이면 꺼짐). 켤 때 200
+    norm_mix_frac: float = 0.2        # 섞기 때 옮기는 비율. 줄일 후보(설계 약점 9)
+    norm_block_tag: int = -1          # 겨루기: 이 태그의 개체는 표시된 대상을 못 친다(비용도 안 든다). -1이면 꺼짐
+    norm_block3_tag: int = -1         # 겨루기: 이 태그의 개체는 피해자가 자기가 아닌 표시된 대상만 못 친다. -1이면 꺼짐
+
     # --- 4단계: 판이 바뀌는 세계 (기본은 꺼짐) ---
     niche_enabled: bool = False   # 다닌 자리가 길이 되고, 쌓은 거름이 먹이를 끌어온다
     wear_rate: float = 0.002      # 지나갈 때 그 칸에 남는 흔적 = wear_rate * 속도.
@@ -328,6 +353,11 @@ class Config:
     def taste_in0(self) -> int:
         """맛 블록의 첫 입력 번호(확장 블록 바로 뒤)."""
         return self.ext_in0 + N_EXT_IN
+
+    @property
+    def norm_in0(self) -> int:
+        """규범 블록의 첫 입력 번호(맛 블록 바로 뒤)."""
+        return self.taste_in0 + N_TASTE_IN
 
     @property
     def grid_w(self) -> int:
@@ -474,6 +504,7 @@ class Config:
                 raise ValueError("teach_enabled는 먹이 종류(food_kinds_enabled)가 켜져 있어야 쓸 수 있다: preset=kinds")
         if self.feed_enabled and not self.juv_enabled:
             raise ValueError("feed_enabled는 미숙기(juv_enabled)가 켜져 있어야 쓸 수 있다")
+        self._validate_norm()
         for name in ("give_loss", "deposit_loss", "path_bonus", "fert_frac", "sleep_basal", "trace_decay",
                      "hormone_rate_hunger", "hormone_rate_stress", "hormone_rate_dopamine",
                      "hormone_rate_boredom", "reward_baseline_rate", "proto_lr", "sleep_forget",
@@ -501,6 +532,53 @@ class Config:
             raise ValueError("n_proto는 2 이상, hear_range·trail_sat·soil_ref는 양수여야 한다")
         if 2 * int(math.ceil(self.hear_range / self.cell)) + 1 > min(gw, gh):
             raise ValueError("세계가 듣는 범위에 비해 너무 작다")
+
+    def _validate_norm(self) -> None:
+        """규범의 씨앗 설정 검사. 의존 키는 기본값이 아닐 때만 요구한다(기본값은 늘 있으므로 옛 설정이 통과하게)."""
+        if not (0.0 <= self.norm_pun_return <= self.attack_gain):
+            raise ValueError("norm_pun_return은 0과 attack_gain 사이여야 한다(넘으면 벌이 평소 공격보다 많이 얻는다)")
+        for name in ("norm_inhibit", "norm_mem_rate", "norm_mem_obs", "norm_mem_inherit", "norm_impulse",
+                     "norm_mark_noise", "norm_mix_frac"):
+            if not (0.0 <= getattr(self, name) <= 1.0):
+                raise ValueError(f"{name}은 0과 1 사이여야 한다")
+        for name in ("norm_mark_tau", "norm_mem_tau", "norm_impulse_len"):
+            if getattr(self, name) < 1:
+                raise ValueError(f"{name}은 1 이상이어야 한다")
+        if self.norm_mix_period < 0:
+            raise ValueError("norm_mix_period는 0 이상이어야 한다")
+        for name, table in (("norm_mode", NORM_MODES), ("norm_mark_src", NORM_SRCS), ("norm_aim", NORM_AIMS),
+                            ("norm_mem_obs_mode", NORM_OBS_MODES)):
+            if getattr(self, name) not in table:
+                raise ValueError(f"{name}은 {sorted(table)} 중 하나여야 한다: {getattr(self, name)!r}")
+        if self.norm_mem_inherit > 0.0:
+            # 부모의 가르침 연결과 함께 구현한다. 그때까지 설정이 조용히 무동작하지 않게 막는다
+            raise ValueError("norm_mem_inherit > 0은 아직 구현 전이다(규범 계획 과제 19)")
+        if self.norm_measure and not self.conflict_enabled:
+            raise ValueError("norm_measure는 공격(conflict_enabled)이 켜져 있어야 쓸 수 있다")
+        if self.norm_impulse > 0.0 and not self.conflict_enabled:
+            raise ValueError("norm_impulse는 공격(conflict_enabled)이 켜져 있어야 쓸 수 있다")
+        if self.norm_enabled:
+            if not self.conflict_enabled:
+                raise ValueError("norm_enabled는 공격(conflict_enabled)이 켜져 있어야 쓸 수 있다")
+            if not self.social_enabled:
+                raise ValueError("norm_enabled는 사회(social_enabled)가 켜져 있어야 쓸 수 있다")
+            if self.n_in < self.norm_in0 + N_NORM_IN:
+                raise ValueError("norm_enabled는 규범 블록 크기가 필요하다: preset=norm_size")
+            if self.vision_sectors != N_NORM_VIS:
+                raise ValueError(f"norm_enabled는 vision_sectors가 {N_NORM_VIS}이어야 한다(표시 시야 칸 수가 고정이다)")
+        else:
+            for name, off in (("norm_mode", "full"), ("norm_mark_src", "take"), ("norm_mem_obs_mode", "outcome")):
+                if getattr(self, name) != off:
+                    raise ValueError(f"{name}={getattr(self, name)}은 norm_enabled가 켜져 있어야 쓸 수 있다")
+            if self.norm_mark_noise > 0.0:
+                raise ValueError("norm_mark_noise는 norm_enabled가 켜져 있어야 쓸 수 있다")
+            if self.norm_block_tag >= 0 or self.norm_block3_tag >= 0:
+                raise ValueError("norm_block_tag·norm_block3_tag는 norm_enabled가 켜져 있어야 쓸 수 있다")
+        if self.norm_mix_period > 0:
+            if self.carry_enabled:
+                raise ValueError("norm_mix_period는 들기(carry_enabled)와 같이 못 켠다(든 먹이 위치가 낡는다)")
+            if self.teach_enabled:
+                raise ValueError("norm_mix_period는 보여 주기(teach_enabled)와 같이 못 켠다(곁 머무름이 깨진다)")
 
     # ---- 입출력 ----
     def to_dict(self) -> dict:
@@ -599,6 +677,23 @@ N_TASTE_IN = 10      # 기억으로 물든 시야 8칸 + 기억 값 2칸
 TASTE_VIS = 0        # 물든 시야 여덟 칸(vision_sectors와 같은 수)
 TASTE_VAL = 8        # 기억 값 두 칸: +로 보이는 먹이, -로 보이는 먹이
 N_TASTE_VIS = TASTE_VAL - TASTE_VIS   # 물든 시야 칸 수(8). 맛 기억 장치는 vision_sectors가 이 수여야 한다
+# 규범 블록: 맛 블록 바로 뒤(절대 번호 = Config.norm_in0 + NORM_*). 장치가 꺼져 있으면 칸은 0
+N_NORM_IN = 12       # 표시 시야 8칸 + 내 밝기 + 곁의 평균 밝기 + 방금 벌 + 내 삼가기 기억
+N_NORM_VIS = 8       # 표시 시야 칸 수. norm_enabled는 vision_sectors가 이 수여야 한다
+NORM_VIS = 0         # 표시된 이웃의 방향별 가까움 × 밝기(여덟 칸)
+NORM_SELF = 8        # 내 밝기
+NORM_LOCAL = 9       # hear_range 안 이웃의 평균 밝기(거리 가중)
+NORM_SAWPUN = 10     # hear_range 안에 방금(1스텝 전) 벌 받은 이웃(거리 가중 최댓값)
+NORM_MEM = 11        # 내 삼가기 기억
+# 규범 모드(이름 -> 커널이 읽는 번호). inert는 사회 학습의 inert와 같은 구실이라 같은 이름을 쓴다
+NORM_FULL, NORM_INERT = 0, 1
+NORM_MODES = {"full": NORM_FULL, "inert": NORM_INERT}
+SRC_TAKE, SRC_SIG, SRC_NONE = 0, 1, 2
+NORM_SRCS = {"take": SRC_TAKE, "sig": SRC_SIG, "none": SRC_NONE}
+AIM_MARKED, AIM_NEAREST = 0, 1
+NORM_AIMS = {"marked": AIM_MARKED, "nearest": AIM_NEAREST}
+OBS_OUTCOME, OBS_BLIND, OBS_OFF = 0, 1, 2
+NORM_OBS_MODES = {"outcome": OBS_OUTCOME, "blind": OBS_BLIND, "off": OBS_OFF}
 FIRST_MEALS = 10     # 측정: 개체의 첫 이만큼 끼니에서 독 비율을 센다(n_poison10)
 N_REWARD = 8     # 보상 특징: 먹음, 에너지 변화, 닿음, 호기심, 허기*먹음, 스트레스, 이웃이 먹음, 상수
 
@@ -620,6 +715,10 @@ def preset(name: str) -> dict:
     # 맛 블록 크기만 올린다(대조 갈래용). 대조도 같은 크기여야 변이 난수 자리와 시냅스 유지비가 같다
     table["taste_size"] = {**table["ext"], "n_spare_in": N_STAGE_IN + N_EXT_IN + N_TASTE_IN}
     table["taste"] = {**table["taste_size"], "taste_enabled": True}
+    # 규범 블록 크기만 올린다(모든 규범 갈래가 같은 크기를 쓴다: 변이 난수 자리와 시냅스 유지비가 같게)
+    table["norm_size"] = {**table["taste_size"], "n_spare_in": N_STAGE_IN + N_EXT_IN + N_TASTE_IN + N_NORM_IN}
+    table["norm"] = {**table["norm_size"], "norm_enabled": True}
     if name not in table:
-        raise ValueError(f"모르는 preset: {name} (stage1~stage4, conflict, kinds, ext, harsh, harsh2, taste, taste_size)")
+        raise ValueError(f"모르는 preset: {name} (stage1~stage4, conflict, kinds, ext, harsh, harsh2, taste, taste_size, "
+                         "norm_size, norm)")
     return table[name]
