@@ -566,3 +566,24 @@ def test_rate_zero_show_runs_end_to_end(tmp_path):
                     "--reps", "2", "--no-neutral", "--set", "teach_enabled=false", "--set", "feed_enabled=true",
                     "--json", str(out2)])
     assert code == 0 and json.loads(out2.read_text())["gene"] == "feed"
+
+
+@pytest.mark.parametrize("where,key", [
+    ("exp", "grad_rate"),    # 정보 비싼 세계에 새끼 0 → 졸업률 None
+    ("off", "grad_rate"),    # 끈 세계에 새끼 0
+    ("exp", "pop_mean"),
+    ("on", "pop_mean"),
+    ("off", "pop_mean"),
+])
+def test_gate_world_none_readings_close_not_crash(where, key):
+    """observe가 None(새끼 0 등)을 돌려줘도 TypeError로 죽지 않고 해당 판을 닫는다."""
+    tg = _gate()
+    bad = _world()
+    bad[where][key] = None
+    w = tg.gate_world({"a": bad, "b": _world()})
+    if key == "grad_rate":
+        assert w["exp_ok"] is False and w["exit_code"] == 0
+    elif where == "exp":
+        assert w["exp_ok"] is False
+    else:
+        assert w["exit_code"] == 3

@@ -80,7 +80,10 @@ def _row(g: dict, tag: int):
     return None
 
 
-def _ratio(num: float, den: float) -> float:
+def _ratio(num: float | None, den: float | None) -> float:
+    """비율. 어느 쪽이 None(observe가 새끼 0 등으로 못 잰 값)이거나 nan이면 nan — 그 판은 닫힌다."""
+    if num is None or den is None or not np.isfinite(num) or not np.isfinite(den):
+        return float("nan")
     return float(num / den) if den > 0 else float("nan")
 
 
