@@ -1,4 +1,4 @@
-"""한쪽 감각 막기: 생물이 어떤 감각(신호 듣기, 닮음, 남이 먹는 것 보기, 흔적, 시야, 맛 기억)을 실제로 쓰는지 가른다.
+"""한쪽 감각 막기: 생물이 어떤 감각(신호 듣기, 닮음, 남이 먹는 것 보기, 흔적, 시야, 맛 기억, 규범 표시)을 실제로 쓰는지 가른다.
 
 신호 세기 같은 형질의 추세는 그 감각을 쓴다는 증거가 못 된다(쓰이지 않는 가중치도 떠돈다).
 그래서 같은 생물을 두 벌로 만들어 한 벌(A, tag 0)만 그 감각을 못 받게 하고 겨루게 한다.
@@ -15,6 +15,10 @@
   시야 막기는 크기가 맞는 세계에서 물든 시야 8칸도 함께 지운다.
 - 맛 장치를 켠 규칙에서 맛 블록을 막는 음성 대조는 체크포인트가 장치를 끈 규칙이면 뜻이 없다(칸이 이미 0이다).
   그때는 `--set taste_enabled=true`로 체크포인트 규칙을 덮어쓴다.
+- 규범 블록(norm: 표시 시야 8칸 + 내 밝기·곁 밝기·방금 벌 + 내 삼가기 기억, norm_vis, norm_scalars, norm_mem)은
+  규범 장치를 끈 규칙(NORM_OFF)에서 같은 겨루기. 시야 막기는 크기가 맞는 세계에서 표시 시야 8칸도 함께 지운다.
+  감각 함수는 넷(kernels.sense, stages.social_sense, stages.trail_sense, stages.norm_sense)이고 zero 막기는 넷 뒤 모두에서 지운다
+  (norm_sense를 안 감싸면 규범 칸이 도로 채워져 막기가 조용히 무동작이 된다).
 
     python -m kkumteul.knockout split <체크포인트> --channel hear [--n 400 --steps 8000 --reps 6] [--set 키=값 ...]
     python -m kkumteul.knockout describe <체크포인트> [--steps 500]
@@ -40,17 +44,27 @@ from . import kernels as k
 from . import measure
 from . import stages as st
 from .config import (ACT_ATTACK, ACT_SIG0, ACT_THRUST, ACT_TURN, IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL,
-                     N_INTERNAL, N_TASTE_IN, N_TASTE_VIS, TASTE_VAL, TASTE_VIS, Config)
+                     N_INTERNAL, N_NORM_IN, N_NORM_VIS, N_TASTE_IN, N_TASTE_VIS, NORM_LOCAL, NORM_MEM, NORM_SAWPUN,
+                     NORM_SELF, NORM_VIS, TASTE_VAL, TASTE_VIS, Config)
 
-CHANNELS = ("hear", "kin", "saweat", "social", "trail", "vision", "taste", "taste_vis", "taste_val")
+CHANNELS = ("hear", "kin", "saweat", "social", "trail", "vision", "taste", "taste_vis", "taste_val",
+            "norm", "norm_vis", "norm_scalars", "norm_mem")
 # 맛 장치를 끄는 한 묶음. 맛 기억·배움 속도 유전자·보고 배우기·보여 주기(teach)는 서로 기대므로(설정 검사) 함께 꺼야 한다
 # (feed_enabled는 맛과 무관해 안 넣는다). 판정 도구(taste_judge·hand_learner)도 이 목록을 쓴다 — 여기 한 곳만 고치면 된다
 TASTE_OFF = ["taste_enabled=false", "taste_gene_enabled=false", "soc_taste_enabled=false", "teach_enabled=false"]
+# 규범 장치를 끄는 한 묶음. 의존 키(표시 원천·잡음·관찰 모드·막기)를 함께 기본으로 되돌려야 그것들을 켠 체크포인트
+# 규칙에 한꺼번에 덮어써도 설정 검사에 안 걸린다. norm_impulse(위반 공급)는 감각이 아니라 안 건드린다
+NORM_OFF = ["norm_enabled=false", "norm_mode=full", "norm_mark_src=take", "norm_mark_noise=0",
+            "norm_mem_obs_mode=outcome", "norm_block_tag=-1", "norm_block3_tag=-1"]
+# 불활성 대조(입력·조준·비용은 같고 벌·위축만 없음): 의존 키가 없는 한 줄
+NORM_INERT = ["norm_mode=inert"]
 # 그 감각이 없는 규칙(대조). 시야는 양성 대조라 없앤 규칙이 없다
 OFF_RULES = {"hear": ["social_enabled=false"], "kin": ["social_enabled=false"],
              "saweat": ["social_enabled=false"], "social": ["social_enabled=false"],
              "trail": ["niche_enabled=false"], "vision": None,
-             "taste": list(TASTE_OFF), "taste_vis": list(TASTE_OFF), "taste_val": list(TASTE_OFF)}
+             "taste": list(TASTE_OFF), "taste_vis": list(TASTE_OFF), "taste_val": list(TASTE_OFF),
+             "norm": list(NORM_OFF), "norm_vis": list(NORM_OFF), "norm_scalars": list(NORM_OFF),
+             "norm_mem": list(NORM_OFF)}
 
 
 def _base(cfg: Config) -> int:
@@ -74,7 +88,17 @@ def columns(cfg: Config, channel: str) -> list[int]:
         table["taste_vis"] = list(range(t0 + TASTE_VIS, t0 + TASTE_VIS + N_TASTE_VIS))
         table["taste_val"] = [t0 + TASTE_VAL, t0 + TASTE_VAL + 1]
         table["vision"] = table["vision"] + table["taste_vis"]
+    # 규범 블록(맛 블록 바로 뒤)도 크기가 맞는 세계에만 있다
+    if cfg.n_in >= cfg.norm_in0 + N_NORM_IN:
+        c0 = cfg.norm_in0
+        table["norm"] = list(range(c0, c0 + N_NORM_IN))
+        table["norm_vis"] = list(range(c0 + NORM_VIS, c0 + NORM_VIS + N_NORM_VIS))
+        table["norm_scalars"] = [c0 + NORM_SELF, c0 + NORM_LOCAL, c0 + NORM_SAWPUN]
+        table["norm_mem"] = [c0 + NORM_MEM]
+        table["vision"] = table["vision"] + table["norm_vis"]
     if channel not in table:
+        if channel.startswith("norm"):
+            raise ValueError(f"이 세계에는 {channel} 칸이 없다(규범 블록 크기가 아니다: preset=norm_size)")
         raise ValueError(f"이 세계에는 {channel} 칸이 없다(맛 블록 크기가 아니다: preset=taste_size)")
     return table[channel]
 
@@ -82,7 +106,8 @@ def columns(cfg: Config, channel: str) -> list[int]:
 MODES = ("zero", "shuffle")
 # 그 칸을 쓰는 감각 함수(섞기는 그 함수 뒤에서만 한 번 돈다)
 WRITER = {"hear": "social", "kin": "social", "saweat": "social", "social": "social", "trail": "trail",
-          "vision": "sense", "taste": "sense", "taste_vis": "sense", "taste_val": "sense"}
+          "vision": "sense", "taste": "sense", "taste_vis": "sense", "taste_val": "sense",
+          "norm": "norm", "norm_vis": "norm", "norm_scalars": "norm", "norm_mem": "norm"}
 
 
 class KnockoutCols(np.ndarray):
@@ -112,18 +137,21 @@ def _shuffle_rows(s, cols: np.ndarray, tag: int, rng: np.random.Generator, frac:
 @contextlib.contextmanager
 def knockout(cfg: Config, channel: str, tag: int = 0, mode: str = "zero", seed: int = 0, frac: float = 1.0):
     """이 블록 안에서는 tag가 같은 개체의 그 입력 칸을 막는다. 블록을 나가면 원래 함수로 돌려 놓는다.
-    - zero: 세계의 감각 함수가 끝날 때마다 0으로 지운다(감각 함수 셋 뒤 모두 — 옛 결과와 같은 동작).
+    - zero: 세계의 감각 함수가 끝날 때마다 0으로 지운다(감각 함수 넷 뒤 모두 — 옛 결과와 같은 동작).
     - shuffle: 그 칸을 쓰는 감각 함수 뒤에서만, 스텝마다 한 번, 같은 tag의 산 개체끼리 행째로 바꿔 끼운다.
       입력의 크기·분포는 그대로이고 듣는 개체의 처지와의 짝만 깨진다. 난수는 지역 생성기(seed) —
       세계 난수 흐름은 그대로다.
-    감각 함수(kernels.sense, stages.social_sense, stages.trail_sense)는 World.step만 부르고,
-    셋 다 생각(think) 전에 돈다. 한 프로세스 안에서만 쓴다."""
+    감각 함수(kernels.sense, stages.social_sense, stages.trail_sense, stages.norm_sense)는 World.step만 부르고,
+    넷 다 생각(think) 전에 돈다. 한 프로세스 안에서만 쓴다.
+
+    주의(시야 막기 + 규범 세계): 시야 칸 묶음에 표시 시야가 들어 있어, sense 뒤에 지운 표시 시야를 norm_sense가 도로
+    채워도 norm_sense 뒤에 한 번 더 지운다(zero는 넷 뒤 모두에서 같은 칸을 지운다)."""
     if mode not in MODES:
         raise ValueError(f"모르는 막기 방식: {mode} (가능: {', '.join(MODES)})")
     cols = np.asarray(columns(cfg, channel), dtype=np.int64)
     out = cols.view(KnockoutCols)
     out.stats = {"calls": 0, "rows": 0, "changed": 0}
-    orig = (k.sense, st.social_sense, st.trail_sense)
+    orig = (k.sense, st.social_sense, st.trail_sense, st.norm_sense)
     rng = np.random.default_rng(seed)
 
     def wipe(s):
@@ -144,18 +172,21 @@ def knockout(cfg: Config, channel: str, tag: int = 0, mode: str = "zero", seed: 
         k.sense = wrap(orig[0], 1, wipe)            # sense(step, s, fp, ip)
         st.social_sense = wrap(orig[1], 0, wipe)    # social_sense(s, fs, isp)
         st.trail_sense = wrap(orig[2], 0, wipe)
+        st.norm_sense = wrap(orig[3], 1, wipe)      # norm_sense(step, s, fs, isp)
     else:
         w = WRITER[channel]
         if w == "sense":
             k.sense = wrap(orig[0], 1, shuf)
         elif w == "social":
             st.social_sense = wrap(orig[1], 0, shuf)
+        elif w == "norm":
+            st.norm_sense = wrap(orig[3], 1, shuf)
         else:
             st.trail_sense = wrap(orig[2], 0, shuf)
     try:
         yield out
     finally:
-        k.sense, st.social_sense, st.trail_sense = orig
+        k.sense, st.social_sense, st.trail_sense, st.norm_sense = orig
 
 
 def _neutral(side: dict, cfg: Config, n: int, steps: int, reps: int, seed: int) -> dict:

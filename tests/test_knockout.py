@@ -210,3 +210,112 @@ def test_knockout_taste_split_with_teach_on_passes_config_check():
     for ch in ("taste", "taste_vis", "taste_val"):
         off = c.with_overrides(ko.OFF_RULES[ch])
         assert not off.teach_enabled and not off.soc_taste_enabled
+
+
+# ---- 규범의 씨앗: norm_sense 넷째 감각 함수와 norm 채널 ----
+NORM_CH = ("norm", "norm_vis", "norm_scalars", "norm_mem")
+
+
+def _norm_cfg(**kw):
+    c = small("stage4", "conflict", "norm", init_agents=80)
+    return Config.from_dict({**c.to_dict(), **kw}) if kw else c     # 규범 키는 묶음(preset) 뒤에 얹는다
+
+
+def test_norm_channel_columns():
+    c = _norm_cfg()
+    c0 = c.norm_in0
+    assert ko.columns(c, "norm") == list(range(c0, c0 + 12))
+    assert ko.columns(c, "norm_vis") == list(range(c0, c0 + 8))
+    assert ko.columns(c, "norm_scalars") == [c0 + 8, c0 + 9, c0 + 10]
+    assert ko.columns(c, "norm_mem") == [c0 + 11]
+    for ch in NORM_CH:
+        assert ch in ko.CHANNELS and ko.WRITER[ch] == "norm"
+        for z in (small("stage2"), small("stage2", "kinds", "taste_size")):
+            with pytest.raises(ValueError, match="norm_size"):
+                ko.columns(z, ch)
+    # 장치를 끈 같은 크기 세계도 칸 목록은 같다
+    assert ko.columns(small("stage4", "conflict", "norm_size"), "norm") == ko.columns(c, "norm")
+
+
+def test_vision_channel_includes_norm_vis():
+    c = _norm_cfg()
+    t0, c0 = c.taste_in0, c.norm_in0
+    assert ko.columns(c, "vision") == (list(range(2 * c.vision_sectors)) + list(range(t0, t0 + 8))
+                                       + list(range(c0, c0 + 8)))
+    # 규범 블록이 없는 맛 크기 세계는 그대로
+    z = small("stage2", "kinds", "taste_size")
+    assert ko.columns(z, "vision") == list(range(16)) + list(range(z.taste_in0, z.taste_in0 + 8))
+
+
+def _norm_world_two_tags():
+    cfg = _norm_cfg()
+    w = World(cfg)
+    s = w.s
+    live = np.flatnonzero(s.alive)
+    s.tag[live[::2]] = 0
+    s.tag[live[1::2]] = 1
+    # 짝지어 마주 보게: 둘씩 붙여 놓고 모두 표시·기억을 준다(표시 시야·곁 밝기·내 기억이 0이 아니게)
+    for n, i in enumerate(live):
+        px, py = 20.0 + (n // 2 % 10) * 22.0, 20.0 + (n // 20) * 22.0
+        s.x[i], s.y[i] = px + (n % 2) * 6.0, py
+        s.heading[i] = 0.0 if n % 2 == 0 else np.pi
+    s.mark_t[live] = 0
+    s.mem[live] = 0.5
+    return cfg, w
+
+
+def test_knockout_zero_mode_wipes_norm_columns():
+    cfg, w = _norm_world_two_tags()
+    cols = ko.columns(cfg, "norm")
+    # 막기 전 양성 확인: 막지 않으면 두 쪽 모두 0이 아닌 칸이 있다
+    cfg2, w2 = _norm_world_two_tags()
+    w2.step()
+    s2 = w2.s
+    for tg in (0, 1):
+        rows = np.flatnonzero(s2.alive & (s2.tag == tg))
+        assert np.abs(s2.obs[np.ix_(rows, cols)]).sum() > 0
+    s = w.s
+    ids0 = s.ids.copy()
+    with ko.knockout(cfg, "norm", tag=0):
+        w.step()
+    same = s.alive & (s.ids == ids0)
+    a, b = np.flatnonzero(same & (s.tag == 0)), np.flatnonzero(same & (s.tag == 1))
+    assert len(a) and len(b)
+    assert np.all(s.obs[np.ix_(a, cols)] == 0.0), "막은 쪽(tag 0)의 규범 블록 12칸은 0"
+    assert np.abs(s.obs[np.ix_(b, cols)]).sum() > 0
+    assert np.abs(s.obs[np.ix_(a, list(range(16)))]).sum() > 0, "규범 블록만 막았으니 보통 시야는 남는다"
+
+
+def test_knockout_shuffle_norm_channels_no_keyerror():
+    for ch in NORM_CH:
+        cfg, w = _norm_world_two_tags()
+        with ko.knockout(cfg, ch, tag=0, mode="shuffle", seed=1) as kc:
+            w.step()
+        assert kc.stats["calls"] == 1
+
+
+def test_knockout_restores_all_four():
+    cfg = _norm_cfg()
+    orig = (k.sense, st.social_sense, st.trail_sense, st.norm_sense)
+    with ko.knockout(cfg, "norm", tag=0):
+        assert st.norm_sense is not orig[3] and k.sense is not orig[0]
+    assert (k.sense, st.social_sense, st.trail_sense, st.norm_sense) == orig
+    with pytest.raises(RuntimeError):
+        with ko.knockout(cfg, "norm_mem", tag=0, mode="shuffle"):
+            assert st.norm_sense is not orig[3]
+            raise RuntimeError("boom")
+    assert (k.sense, st.social_sense, st.trail_sense, st.norm_sense) == orig
+
+
+def test_knockout_norm_off_rules_pass_config_check():
+    c = _norm_cfg(norm_mark_src="sig", norm_mark_noise=0.01, norm_mem_obs_mode="blind", norm_block_tag=0,
+                  norm_block3_tag=1, norm_impulse=0.02, norm_mode="inert")
+    for ch in NORM_CH:
+        assert ko.OFF_RULES[ch] == ko.NORM_OFF
+        off = c.with_overrides(ko.OFF_RULES[ch])        # 한꺼번에 적용해도 ValueError가 안 난다
+        assert not off.norm_enabled and off.norm_mark_src == "take" and off.norm_mode == "full"
+        assert off.norm_block_tag == -1 and off.norm_block3_tag == -1 and off.norm_mark_noise == 0.0
+        assert off.norm_impulse == 0.02, "위반 공급은 감각이 아니라 안 건드린다"
+    assert "norm_impulse" not in " ".join(ko.NORM_OFF)
+    # 불활성 규칙은 의존 키가 없는 한 줄이다
+    assert ko.NORM_INERT == ["norm_mode=inert"] and _norm_cfg().with_overrides(ko.NORM_INERT).norm_mode == "inert"
