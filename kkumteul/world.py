@@ -446,14 +446,14 @@ class World:
                 out["food_replaced"] = int(c[k.C_FOOD_REPLACED])
             if cfg.food_kinds_enabled:
                 out["poisoned"] = int(c[k.C_POISONED])
-                out["good_kind"] = int(k.good_kind(cfg.seed, self.step_no, cfg.kind_flip_period))
+                out["good_kind"] = k.cfg_good_kind(cfg, self.step_no)
             if cfg.taste_enabled:
                 out["taste_plus"] = float(s.taste_m[a, 0].mean())     # +로 보이는 먹이의 기억 평균
                 out["taste_minus"] = float(s.taste_m[a, 1].mean())    # -로 보이는 먹이의 기억 평균
                 if cfg.food_kinds_enabled:
                     # 지금 독인 모양 쪽 기억의 평균. 방금 돈 스텝(step_no - 1) 기준이라
                     # 다음 스텝 값인 good_kind와 독이 바뀌는 순간에는 어긋날 수 있다
-                    bad = 1 - int(k.good_kind(cfg.seed, max(self.step_no - 1, 0), cfg.kind_flip_period))
+                    bad = 1 - k.cfg_good_kind(cfg, max(self.step_no - 1, 0))
                     out["taste_on_poison"] = float(s.taste_m[a, 1 if bad == k.KIND_B else 0].mean())
                 if cfg.taste_gene_enabled:
                     # 산 개체의 실제 배움 속도 평균(유전자 장치). 추세는 판정이 아니라 단서

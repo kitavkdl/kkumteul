@@ -66,8 +66,19 @@ def side_from_world(world: World, path: str = "") -> dict:
     g = extract_genomes(world)
     if not len(g["n_hidden"]):
         raise ValueError(f"살아 있는 개체가 없다: {path}")
-    return {"path": path, "step": world.step_no, "genomes": g, "cfg": world.cfg,
+    return {"path": path, "step": world.step_no, "genomes": g, "cfg": kind_aligned(world.cfg, world.step_no),
             "gen_mean": float(g["gen"].mean())}
+
+
+def kind_aligned(cfg: Config, step: int) -> Config:
+    """겨루기 마당이 원래 세계의 독 순서를 잇게 한 설정. 마당은 씨앗을 새로 받고 스텝 0부터 도므로, 그대로 두면
+    어느 종류가 독인지를 마당 씨앗으로 다시 뽑는다 — 독이 오래 안 바뀌는 세계에서 자란 무리는 독이 뒤바뀐 마당에
+    들어가 양쪽 다 전멸했다(2026-11-26, 고정 갈래). 먹이 종류가 꺼져 있으면 그대로 돌려준다."""
+    if not cfg.food_kinds_enabled:
+        return cfg
+    d = cfg.to_dict()
+    d.update(kind_seed=k.kind_seed_of(cfg), kind_step0=cfg.kind_step0 + int(step))
+    return Config.from_dict(d)
 
 
 def check_same_shape(a: dict, b: dict) -> None:

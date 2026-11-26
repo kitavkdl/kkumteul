@@ -258,7 +258,7 @@ class Recorder:
 
     @staticmethod
     def _good_at(step: int, cfg: Config) -> int:
-        return int(k.good_kind(cfg.seed, step, cfg.kind_flip_period)) if cfg.food_kinds_enabled else 0
+        return k.cfg_good_kind(cfg, step) if cfg.food_kinds_enabled else 0
 
     def _season_at(self, step: int) -> int:
         """그 스텝의 철: 0 계절 없음, 1 봄·여름, 2 가을, 3 겨울(세계의 판정을 그대로 쓴다. 각본이 바꾼 값도 따른다)."""
@@ -725,10 +725,11 @@ def _next_flip(cfg: Config, t0: int) -> int | None:
     if not cfg.food_kinds_enabled:
         return None
     p = cfg.kind_flip_period
-    b = (t0 // p + 1) * p
+    off = cfg.kind_step0                     # 독 순서는 스텝 + kind_step0 기준으로 바뀐다
+    b = ((t0 + off) // p + 1) * p
     for _ in range(40):
-        if k.good_kind(cfg.seed, b, p) != k.good_kind(cfg.seed, b - 1, p):
-            return b
+        if k.cfg_good_kind(cfg, b - off) != k.cfg_good_kind(cfg, b - off - 1):
+            return b - off
         b += p
     return None
 

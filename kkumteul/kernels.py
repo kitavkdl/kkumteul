@@ -223,7 +223,8 @@ DEATH_KILLED = 4         # 공격을 맞은 스텝에 에너지가 바닥남
 # ---- 정수 설정 칸 ----
 (Q_SEED, Q_GW, Q_GH, Q_FOOD_CAP, Q_N_PATCH, Q_PATCH_LIFE, Q_MAX_AGE, Q_MIN_AGENTS,
  Q_SECTORS, Q_H_MAX, Q_H_INIT, Q_H_MIN, Q_REPRO_BRAIN, Q_REPRO_MIN_AGE, Q_MUT, Q_CORPSE,
- Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, Q_CAP_REPLACE, Q_SPOIL_AFTER, Q_FIELD_CAP, Q_TASTE_IN0, Q_TASTE_GENE, N_IP) = range(25)
+ Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, Q_CAP_REPLACE, Q_SPOIL_AFTER, Q_FIELD_CAP, Q_TASTE_IN0, Q_TASTE_GENE,
+ Q_KIND_SEED, Q_KIND_STEP0, N_IP) = range(27)
 
 
 def pack_params(cfg):
@@ -307,6 +308,8 @@ def pack_params(cfg):
     ip[Q_PASSIVE] = int(cfg.passive)
     ip[Q_KINDS] = int(cfg.food_kinds_enabled)
     ip[Q_KIND_PERIOD] = cfg.kind_flip_period
+    ip[Q_KIND_SEED] = kind_seed_of(cfg)
+    ip[Q_KIND_STEP0] = cfg.kind_step0
     ip[Q_CAP_REPLACE] = int(cfg.food_cap_replace)
     ip[Q_SPOIL_AFTER] = cfg.spoil_after
     ip[Q_FIELD_CAP] = int(cfg.field_cap)
@@ -384,6 +387,16 @@ def patch_center(seed, k, step, n_patches, patch_life, w, h):
 def good_kind(seed, step, period):
     """지금 먹어도 되는 먹이 종류(0 또는 1). 구간마다 무작위로 다시 정해진다."""
     return int(u01(seed, S_KIND, step // period, 1) * 2.0)
+
+
+def kind_seed_of(cfg):
+    """독 순서를 정하는 씨앗(kind_seed가 -1이면 seed)."""
+    return cfg.seed if cfg.kind_seed < 0 else cfg.kind_seed
+
+
+def cfg_good_kind(cfg, step):
+    """세계 설정 기준으로 이 스텝에 먹어도 되는 종류. 커널 eat과 같은 셈(kind_seed·kind_step0 반영)."""
+    return int(good_kind(kind_seed_of(cfg), step + cfg.kind_step0, cfg.kind_flip_period))
 
 
 @njit(cache=True, inline="always")
@@ -1080,7 +1093,7 @@ def eat(step, s, fp, ip):
     kinds = ip[Q_KINDS] != 0
     good = 0
     if kinds:
-        good = good_kind(ip[Q_SEED], step, ip[Q_KIND_PERIOD])
+        good = good_kind(ip[Q_KIND_SEED], step + ip[Q_KIND_STEP0], ip[Q_KIND_PERIOD])
     gw = ip[Q_GW]
     gh = ip[Q_GH]
     w = fp[P_W]
