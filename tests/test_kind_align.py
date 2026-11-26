@@ -170,3 +170,35 @@ def test_hand_learner_rows_use_aligned_order(fn):
     rows = out["series"]
     assert rows
     assert all(r["good"] == k.cfg_good_kind(acfg, r["step"] - 1) for r in rows)
+
+
+def test_pack_to_compete_arena_follows_original_order(monkeypatch, tmp_path):
+    """묶음 → load_side → compete 전체를 지나, compete가 실제로 만든 마당 세계의 커널 독 순서가
+    원래 세계(뽑아 온 스텝 + 마당 스텝)의 독 순서와 같다. 가짜 assay가 아니라 진짜 compete를 돌린다."""
+    from kkumteul import checkpoint as ckpt, pack
+    from kkumteul.world import World
+    period, at, steps = 60, 37, 300
+    orig = _small_kinds(kind_flip_period=period)
+    w = World(orig)
+    w.run(at)
+    cp = ckpt.save(w, tmp_path / "c")
+    pack.export(cp, tmp_path / "p.npz", n=20)
+    side = measure.load_side(tmp_path / "p.npz")
+    built = []
+
+    class Spy(World):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            built.append(self)
+
+    monkeypatch.setattr(measure, "World", Spy)
+    seed = 11
+    # 마당 씨앗이 원래 씨앗과 달라 옛 셈이면 순서가 갈린다는 것을 먼저 확인(시험이 헛돌지 않게)
+    assert any(int(k.good_kind(seed, t, period)) != k.cfg_good_kind(orig, at + t) for t in range(steps))
+    measure.compete(side["cfg"], side["genomes"], side["genomes"], 10, steps, seed, sample_every=100)
+    assert built, "compete가 마당 세계를 만들지 않았다"
+    arena = built[0]
+    ip = arena.ip
+    assert ip[k.Q_KIND_SEED] == k.kind_seed_of(arena.cfg) and ip[k.Q_KIND_STEP0] == arena.cfg.kind_step0
+    assert all(int(k.good_kind(int(ip[k.Q_KIND_SEED]), t + int(ip[k.Q_KIND_STEP0]), period))
+               == k.cfg_good_kind(orig, at + t) for t in range(steps))
