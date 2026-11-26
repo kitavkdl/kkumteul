@@ -13,7 +13,7 @@ import numpy as np
 from numba import njit, prange
 
 from .config import (ACT_ATTACK, ACT_CARRY, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_THRUST, ACT_TURN, FIRST_MEALS, N_REWARD,
-                     N_TASTE_IN, N_TASTE_VIS, SOC_MODES, TASTE_VAL, TASTE_VIS)
+                     N_TASTE_IN, N_TASTE_VIS, SOC_BLIND, SOC_INERT, SOC_MODES, SOC_WHAT, TASTE_VAL, TASTE_VIS)
 from .rng import (S_BIRTH_ORDER, S_BIRTH_POS, S_FOOD, S_KIND, S_INIT_AGE, S_INIT_GENOME, S_INIT_POS, S_MUT_GENE,
                   S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, S_SOC_GENE, S_TASTE_GENE, normal, u01)
 
@@ -1130,6 +1130,7 @@ def eat(step, s, fp, ip):
     keep = 1.0 - fp[P_TASTE_DECAY]
     for i in range(n):
         s.ate[i] = 0.0
+        s.meal_o[i] = 0.0       # 이번 스텝의 끼니 기록(보고 배우기용). 죽은 칸·배불러 건너뛰는 개체도 비운다
         if not s.alive[i]:
             continue
         if taste:
@@ -1199,6 +1200,14 @@ def eat(step, s, fp, ip):
                         mc = 1 if fk == KIND_B else 0
                         o = -1.0 if poison else 1.0
                         s.taste_m[i, mc] += rate * (o - s.taste_m[i, mc])
+                        if soc:
+                            # 끼니 기록: 독 우선, 아니면 마지막 좋은 알(독 분기의 continue보다 앞에서 적는다)
+                            if poison:
+                                s.meal_k[i] = mc
+                                s.meal_o[i] = -1.0
+                            elif s.meal_o[i] != -1.0:
+                                s.meal_k[i] = mc
+                                s.meal_o[i] = 1.0
                     if poison:
                         # 독: 먹이의 에너지는 사라지고 먹은 쪽도 에너지를 잃는다
                         s.energy[i] -= fp[P_POISON]
@@ -1212,6 +1221,78 @@ def eat(step, s, fp, ip):
                     if s.energy[i] >= e_max:
                         full = True
                         break
+
+
+# ---- 보고 배우기 ----
+@njit(cache=True)
+def watch_meals(step, s, fp, ip):
+    """이번 스텝에 끼니를 먹은 개체(meal_o != 0)를 반지름 안의 이웃이 보고 맛 기억을 움직인다(사회 학습).
+
+    순차 전용: prange 금지, 상태 묶음 s를 거쳐 쓴다. 적용 순서 = 시연자 j의 칸 번호 오름차순
+    (같은 관찰자의 한 칸을 여러 시연자가 차례로 갱신하는 지수평활은 비가환이라 순서가 값을 가른다).
+    먹은 j 자신의 기억은 여기서 안 바뀐다(자기 끼니는 eat의 개인 학습). id < 2^32를 가정한다(눈가림 쌍 키).
+    모드: outcome = 시연자의 (모양, 결과)대로, what = 결과를 늘 +1로(무엇을 먹었나만), inert = 기억을 안 바꾼다(보기만),
+    blind = 모양 칸을 동전으로(과제 4). 보기 계수기는 모든 모드에서 같다.
+    """
+    n = s.x.shape[0]
+    gw = ip[Q_GW]
+    gh = ip[Q_GH]
+    w = fp[P_W]
+    hgt = fp[P_H]
+    inv_cell = fp[P_INV_CELL]
+    rad = fp[P_SOC_RADIUS]
+    rad2 = rad * rad
+    rate0 = fp[P_SOC_RATE]
+    mode = ip[Q_SOC_MODE]
+    for j in range(n):
+        if not s.alive[j] or s.meal_o[j] == 0.0:
+            continue
+        xj = s.x[j]
+        yj = s.y[j]
+        cx = int(xj * inv_cell)
+        cy = int(yj * inv_cell)
+        if cx >= gw:
+            cx = gw - 1
+        if cy >= gh:
+            cy = gh - 1
+        o_j = s.meal_o[j]
+        mc_j = s.meal_k[j]
+        for oy in range(-1, 2):
+            # 격자가 3칸보다 좁으면 같은 칸을 두 번 훑지 않게 겹치는 쪽을 건너뛴다
+            if (oy == 1 and gh <= 2) or (oy == -1 and gh == 1):
+                continue
+            yy = (cy + oy) % gh
+            for ox in range(-1, 2):
+                if (ox == 1 and gw <= 2) or (ox == -1 and gw == 1):
+                    continue
+                xx = (cx + ox) % gw
+                c = yy * gw + xx
+                for p in range(s.a_start[c], s.a_start[c + 1]):
+                    i = s.a_items[p]
+                    if i == j or not s.alive[i]:
+                        continue
+                    ddx = _wdiff(s.x[i] - xj, w)
+                    ddy = _wdiff(s.y[i] - yj, hgt)
+                    if ddx * ddx + ddy * ddy > rad2:
+                        continue
+                    s.n_seen[i] += 1
+                    if o_j < 0.0:
+                        s.n_seen_poison[i] += 1
+                    if (s.parent[i] == s.ids[j] or s.parent[j] == s.ids[i]
+                            or (s.parent[i] >= 0 and s.parent[i] == s.parent[j])):
+                        s.n_seen_kin[i] += 1
+                    s.seen_age_sum[i] += s.age[j]
+                    if mode == SOC_INERT or mode == SOC_BLIND:
+                        continue        # inert: 기억을 안 바꾼다. blind는 과제 4에서 모양 칸 동전으로
+                    rate = rate0 + s.soc_g[i]
+                    if rate < 0.0:
+                        rate = 0.0
+                    elif rate > 1.0:
+                        rate = 1.0
+                    o = o_j
+                    if mode == SOC_WHAT:
+                        o = 1.0
+                    s.taste_m[i, mc_j] += rate * (o - s.taste_m[i, mc_j])
 
 
 # ---- 유전체 ----

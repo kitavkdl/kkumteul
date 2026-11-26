@@ -1,4 +1,4 @@
-"""사회 학습(보고 배우기) 시험. 과제 1: 설정·난수·필드·옛 호환(동작 변화 없음). 과제 2: 속도 유전자 변이·비용.
+"""사회 학습(보고 배우기) 시험. 과제 1: 설정·난수·필드·옛 호환(동작 변화 없음). 과제 2: 속도 유전자 변이·비용. 과제 3: 끼니 기록·watch_meals·세계 연결.
 
 설계 docs/superpowers/specs/2026-11-07-social-learning-design.md, 계획 docs/superpowers/plans/2026-11-26-social-learning.md.
 
@@ -14,6 +14,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from test_harsh import _place  # noqa: E402
 from test_stages import rel_residual, small  # noqa: E402
 from test_taste import _natural_child, taste_world  # noqa: E402
 from kkumteul import config as cfgmod  # noqa: E402
@@ -361,3 +362,301 @@ def test_set_config_keeps_soc_g():
     w.s.soc_g[a] = 0.1
     w.set_config(w.cfg.with_overrides(["soc_taste_enabled=false"]))
     assert np.allclose(w.s.soc_g[a], 0.1)
+
+
+# ---- 과제 3: 끼니 기록·watch_meals·세계 연결·관찰 계수기 ----
+def _bad(w) -> int:
+    return 1 - k.good_kind(w.cfg.seed, w.step_no, w.cfg.kind_flip_period)
+
+
+def _shape_cell(kind) -> int:
+    return 1 if kind == k.KIND_B else 0
+
+
+def _feed_seq(w, i, kinds):
+    """개체 i 자리에 kinds 순서대로 먹이를 놓고(먼저 놓은 것이 먼저 먹힌다) eat를 한 번 부른다."""
+    s, cfg = w.s, w.cfg
+    s.energy[i] = 2.0
+    for kind in kinds:
+        _place(w, e=1.0, kind=kind, x=float(s.x[i]), y=float(s.y[i]))
+    k.build_grid(s.fx, s.fy, s.f_alive, 1.0 / cfg.cell, cfg.grid_w, cfg.grid_h, s.f_start, s.f_items, s.cursor)
+    k.eat(w.step_no, s, w.fp, w.ip)
+
+
+@pytest.mark.parametrize("poison_first", [True, False])
+def test_meal_record_poison_first(poison_first):
+    w = lone_soc(True)
+    bad = _bad(w)
+    good = 1 - bad
+    _feed_seq(w, 0, [bad, good] if poison_first else [good, bad])
+    assert w.s.n_meal[0] == 2 and w.s.n_poison[0] == 1          # 둘 다 먹었다(양성 확인)
+    assert w.s.meal_o[0] == -1.0 and w.s.meal_k[0] == _shape_cell(bad)
+
+
+def test_meal_record_last_good_when_no_poison():
+    w = lone_soc(True)
+    bad = _bad(w)
+    good = 1 - bad
+    _feed_seq(w, 0, [good])
+    assert w.s.meal_o[0] == 1.0 and w.s.meal_k[0] == _shape_cell(good)
+    _feed_seq(w, 0, [k.KIND_CORPSE])                            # 사체는 + 모양 칸 0
+    assert w.s.meal_o[0] == 1.0 and w.s.meal_k[0] == 0
+
+
+def test_meal_record_cleared_when_no_meal():
+    w = lone_soc(True)
+    _feed_seq(w, 0, [1 - _bad(w)])
+    assert w.s.meal_o[0] == 1.0
+    _eat_n(w, 1)                                                # 다음 스텝에 못 먹음
+    assert w.s.meal_o[0] == 0.0
+    # 배불러 continue하는 개체도 0
+    w.s.meal_o[0] = 1.0
+    w.s.energy[0] = w.cfg.e_max + 1.0
+    _eat_n(w, 1)
+    assert w.s.meal_o[0] == 0.0
+    # 죽은 칸도 0
+    j = _free_slot(w)
+    w.s.meal_o[j] = -1.0
+    _eat_n(w, 1)
+    assert w.s.meal_o[j] == 0.0
+
+
+def test_meal_record_off_when_soc_off():
+    w = lone_soc(False)
+    _feed_seq(w, 0, [_bad(w)])
+    assert w.s.n_meal[0] == 1 and w.s.meal_o[0] == 0.0
+
+
+def watch_world(n, mode="outcome", **kw) -> World:
+    """개체 n마리를 서로 멀리(40 간격) 놓은 세계. 맛 기억·계수기는 0, 보고 배우는 속도는 soc_rate(0.5)."""
+    kw.setdefault("soc_rate", 0.5)
+    w = taste_world("taste", soc_taste_enabled=True, soc_taste_mode=mode, init_agents=n, min_agents=0,
+                    food_inflow=0.0, **kw)
+    s = w.s
+    assert int(s.alive.sum()) == n
+    for i in range(n):
+        s.x[i] = 20.0 + 40.0 * i
+        s.y[i] = 100.0
+        s.soc_g[i] = 0.0
+        s.parent[i] = -1
+    s.taste_m[:] = 0.0
+    s.meal_o[:] = 0.0
+    return w
+
+
+def _at(w, i, x, y):
+    w.s.x[i] = x
+    w.s.y[i] = y
+
+
+def _meal(w, j, mc, o):
+    w.s.meal_k[j] = mc
+    w.s.meal_o[j] = o
+
+
+def _grid(w):
+    s, cfg = w.s, w.cfg
+    k.build_grid(s.x, s.y, s.alive, 1.0 / cfg.cell, cfg.grid_w, cfg.grid_h, s.a_start, s.a_items, s.cursor)
+
+
+def _watch(w):
+    _grid(w)
+    k.watch_meals(w.step_no, w.s, w.fp, w.ip)
+
+
+def test_watch_meals_moves_observer_toward_outcome():
+    w = watch_world(2)
+    s = w.s
+    _at(w, 0, 100.0, 100.0)
+    _at(w, 1, 103.0, 100.0)
+    s.taste_m[0] = (0.2, 0.4)
+    s.taste_m[1] = (0.1, 0.1)
+    s.soc_g[0] = 0.1                                            # 실제 속도 0.5 + 0.1
+    _meal(w, 1, 1, -1.0)
+    _watch(w)
+    assert s.n_seen[0] == 1                                     # 양성 확인: 보았다
+    assert s.taste_m[0, 1] == pytest.approx(0.4 + 0.6 * (-1.0 - 0.4))
+    assert s.taste_m[0, 0] == pytest.approx(0.2)                # 다른 칸은 그대로
+    assert s.taste_m[1] == pytest.approx((0.1, 0.1))            # 먹은 j 자신은 이 커널로 안 바뀜
+    assert s.n_seen[1] == 0
+
+
+@pytest.mark.parametrize("xo,xj,seen", [
+    (20.0, 27.9, True), (20.0, 28.1, False),                    # 반지름 8 바로 안·밖
+    (7.9, 8.1, True), (8.1, 7.9, True),                         # 격자 칸 경계 건너편
+    (0.5, 255.5, True), (255.5, 0.5, True),                     # 토러스 반대편(세계 256)
+    (0.5, 247.9, False),                                        # 반대편이라도 멀면 안 보임
+])
+def test_watch_meals_radius_edges(xo, xj, seen):
+    w = watch_world(2)
+    _at(w, 0, xo, 100.0)
+    _at(w, 1, xj, 100.0)
+    _meal(w, 1, 0, 1.0)
+    _watch(w)
+    assert int(w.s.n_seen[0]) == int(seen)
+    assert (w.s.taste_m[0, 0] != 0.0) == seen
+
+
+def test_watch_meals_skips_dead_and_nonmeal():
+    w = watch_world(4)
+    s = w.s
+    _at(w, 0, 100.0, 100.0)
+    _at(w, 1, 103.0, 100.0)             # 끼니 있음
+    _at(w, 2, 100.0, 103.0)             # 끼니 없음
+    _at(w, 3, 97.0, 100.0)              # 끼니 있지만 죽음
+    _meal(w, 1, 0, 1.0)
+    _meal(w, 3, 0, 1.0)
+    _grid(w)
+    s.alive[3] = False                  # 격자를 지은 뒤 죽인다: 커널이 스스로 산 개체인지 본다
+    k.watch_meals(w.step_no, s, w.fp, w.ip)
+    assert s.n_seen[0] == 1 and s.taste_m[0, 0] == pytest.approx(0.5)
+    # 죽은 관찰자는 안 바뀐다
+    w2 = watch_world(2)
+    _at(w2, 0, 100.0, 100.0)
+    _at(w2, 1, 103.0, 100.0)
+    _meal(w2, 1, 0, 1.0)
+    _grid(w2)
+    w2.s.alive[0] = False
+    k.watch_meals(w2.step_no, w2.s, w2.fp, w2.ip)
+    assert w2.s.n_seen[0] == 0 and w2.s.taste_m[0, 0] == 0.0
+
+
+@pytest.mark.parametrize("mode,expect", [("outcome", 0.4 + 0.5 * (-1.0 - 0.4)), ("what", 0.4 + 0.5 * (1.0 - 0.4)),
+                                         ("inert", 0.4)])
+def test_watch_meals_modes(mode, expect):
+    w = watch_world(2, mode)
+    s = w.s
+    _at(w, 0, 100.0, 100.0)
+    _at(w, 1, 103.0, 100.0)
+    s.taste_m[0] = (0.2, 0.4)
+    _meal(w, 1, 1, -1.0)                # 독을 먹었다
+    _watch(w)
+    assert s.n_seen[0] == 1 and s.n_seen_poison[0] == 1         # 보기는 모든 모드에서 같다
+    assert s.taste_m[0, 1] == pytest.approx(expect)
+    assert s.taste_m[0, 0] == pytest.approx(0.2)
+
+
+def test_watch_meals_zero_rate_observer():
+    w = watch_world(2)
+    s = w.s
+    _at(w, 0, 100.0, 100.0)
+    _at(w, 1, 103.0, 100.0)
+    s.soc_g[0] = -0.5                   # 실제 속도 0
+    s.taste_m[0] = (0.2, 0.4)
+    _meal(w, 1, 1, -1.0)
+    _watch(w)
+    assert s.n_seen[0] == 1             # 보기는 보았다
+    assert s.taste_m[0] == pytest.approx((0.2, 0.4))
+
+
+def _crowd(w):
+    """관찰자 0과 겹쳐 보이는 시연자 둘(1, 2: 같은 모양 칸에 독·좋은 알)과 서로를 보는 자리."""
+    _at(w, 0, 100.0, 100.0)
+    _at(w, 1, 103.0, 100.0)
+    _at(w, 2, 100.0, 103.0)
+    w.s.taste_m[0] = (0.3, 0.0)
+    _meal(w, 1, 0, -1.0)
+    _meal(w, 2, 0, 1.0)
+
+
+def test_watch_meals_order_deterministic():
+    hashes = []
+    for _ in range(2):
+        w = watch_world(3)
+        _crowd(w)
+        _watch(w)
+        hashes.append(w.state_hash())
+    assert hashes[0] == hashes[1]
+    # 한 관찰자의 한 칸을 시연자 1 < 2가 차례로 갱신하는 값이 칸 번호순 식과 같다(지수평활은 비가환)
+    w = watch_world(3)
+    _crowd(w)
+    _watch(w)
+    m = 0.3
+    m += 0.5 * (-1.0 - m)               # 시연자 1(독)
+    m += 0.5 * (1.0 - m)                # 시연자 2(좋은 알)
+    assert w.s.taste_m[0, 0] == pytest.approx(m)
+    assert w.s.n_seen[0] == 2
+
+
+def test_seen_counters():
+    w = watch_world(5)
+    s = w.s
+    s.ids[:5] = (10, 11, 77, 13, 14)
+    s.parent[0] = 77                    # 관찰자의 부모는 칸 2의 개체
+    s.parent[1] = 10                    # 칸 1은 관찰자의 자식
+    s.parent[2] = -1
+    s.parent[3] = 77                    # 칸 3은 형제(같은 부모)
+    s.parent[4] = -1                    # 칸 4는 남(부모 없음끼리는 형제가 아니다)
+    s.parent[0] = 77
+    for j, age in zip((1, 2, 3, 4), (5, 7, 11, 13)):
+        s.age[j] = age
+    _at(w, 0, 100.0, 100.0)
+    _at(w, 1, 103.0, 100.0)
+    _at(w, 2, 100.0, 104.0)
+    _at(w, 3, 96.0, 100.0)
+    _at(w, 4, 100.0, 96.0)
+    _meal(w, 1, 0, -1.0)
+    _meal(w, 2, 0, 1.0)
+    _meal(w, 3, 0, 1.0)
+    _meal(w, 4, 1, -1.0)
+    _watch(w)
+    assert s.n_seen[0] == 4
+    assert s.n_seen_poison[0] == 2
+    assert s.n_seen_kin[0] == 3
+    assert s.seen_age_sum[0] == 5 + 7 + 11 + 13
+
+
+def test_world_step_rebuilds_grid_before_watch(monkeypatch):
+    w = soc_world(soc_rate=0.5)
+    w.run(5)
+    s, cfg = w.s, w.cfg
+    gw, gh, inv = cfg.grid_w, cfg.grid_h, 1.0 / cfg.cell
+    seen = []
+    real = k.watch_meals
+
+    def spy(step, st, fp, ip):
+        start2 = np.zeros_like(st.a_start)
+        items2 = np.zeros_like(st.a_items)
+        cur2 = np.zeros_like(st.cursor)
+        k.build_grid(st.x, st.y, st.alive, inv, gw, gh, start2, items2, cur2)
+        n = int(start2[-1])
+        seen.append(bool((st.a_start == start2).all() and (st.a_items[:n] == items2[:n]).all()))
+        return real(step, st, fp, ip)
+
+    monkeypatch.setattr(k, "watch_meals", spy)
+    w.run(5)
+    assert seen == [True] * 5
+    # 장치가 꺼진 세계: watch_meals도, 추가 build_grid도 없다
+    calls = {"watch": 0, "grid": 0}
+    real_grid = k.build_grid
+
+    def spy_watch(*a):
+        calls["watch"] += 1
+        return real(*a)
+
+    def spy_grid(*a):
+        calls["grid"] += 1
+        return real_grid(*a)
+
+    monkeypatch.setattr(k, "watch_meals", spy_watch)
+    monkeypatch.setattr(k, "build_grid", spy_grid)
+    off = taste_world("taste")
+    off.run(3)
+    grid_off = calls["grid"]
+    assert calls["watch"] == 0
+    on = soc_world()
+    calls["grid"] = 0
+    on.run(3)
+    assert calls["watch"] == 3 and calls["grid"] == grid_off + 3
+
+
+def test_soc_off_world_never_calls_watch(monkeypatch):
+    n = []
+    real = k.watch_meals
+    monkeypatch.setattr(k, "watch_meals", lambda *a: (n.append(1), real(*a))[1])
+    w = taste_world("taste")
+    w.run(30)
+    assert n == []
+    w_gene_only = taste_world("taste", taste_gene_enabled=True)
+    w_gene_only.run(10)
+    assert n == []
