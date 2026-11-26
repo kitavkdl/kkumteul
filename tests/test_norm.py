@@ -1074,3 +1074,169 @@ def test_mem_not_inherited_by_default():
             assert (s.mem[new] == 0).all()
             born += int(new.sum())
     assert born > 0
+
+
+# ======================= 과제 8: 집행 역할·친족·에너지 표 =======================
+def _pun_scene(**kw):
+    """0(집행자)이 표시된 4를 친다. 6은 멀리 있는 피해자 후보."""
+    w = _pair("norm", **kw)
+    s = w.s
+    s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    return w
+
+
+def _punish(w, step, vslot, vid):
+    s = w.s
+    s.energy[:] = 1.0
+    s.mark_t[4] = step
+    s.mark_vslot[4] = vslot
+    s.mark_vid[4] = vid
+    st.attack(step, s, w.fs, w.isp)
+    assert s.pun_t[4] == step
+
+
+def test_no_kin_theta_key():
+    assert "norm_kin_theta" not in Config().to_dict()
+
+
+def test_pun_role_counts():
+    w = _pun_scene()
+    s, cfg = w.s, w.cfg
+    fine, cost = cfg.attack_damage * cfg.norm_pun_return, cfg.attack_cost
+    rt = s.norm_tab_role
+    # 2자: 피해자가 집행자 자신
+    _punish(w, 10, 0, s.ids[0])
+    assert nt(w, 0, k.NT_PUN_2ND) == 1 and s.pun_role[4] == 0
+    assert rt[0, k.RT_N_PUN] == 1 and rt[0, k.RT_PUN_FINE] == pytest.approx(fine)
+    assert rt[0, k.RT_PUN_COST] == pytest.approx(cost)
+    # 3자 친족(계보): 6이 0의 자식, 같은 색(닮음 구간 3)
+    s.parent[6] = s.ids[0]
+    _punish(w, 20, 6, s.ids[6])
+    assert nt(w, 0, k.NT_PUN_3_KIN) == 1 and nt(w, 0, k.NT_PUN_3_LINE) == 1 and nt(w, 0, k.NT_PUN_3_SIM3) == 1
+    assert s.pun_role[4] == 1 and rt[1, k.RT_N_PUN] == 1
+    # 3자 남: 계보 없음, 색이 멀다(구간 0)
+    s.parent[6] = -1
+    s.color[6] = (0.8, 0.5, 0.5)
+    _punish(w, 30, 6, s.ids[6])
+    assert nt(w, 0, k.NT_PUN_3_STR) == 1 and nt(w, 0, k.NT_PUN_3_SIM0) == 1 and nt(w, 0, k.NT_PUN_3_LINE) == 1
+    assert s.pun_role[4] == 2 and rt[2, k.RT_N_PUN] == 1
+    # 닮음만 높은 남(0.93, 구간 2): pun_role·PUN_3_KIN은 닮음 상위 두 구간도 친족으로 친다(계보 칸은 안 오름)
+    s.color[6] = (0.5 + 0.07 * 1.7320508075688772, 0.5, 0.5)
+    _punish(w, 40, 6, s.ids[6])
+    assert nt(w, 0, k.NT_PUN_3_KIN) == 2 and nt(w, 0, k.NT_PUN_3_SIM2) == 1 and nt(w, 0, k.NT_PUN_3_LINE) == 1
+    assert s.pun_role[4] == 1 and rt[1, k.RT_N_PUN] == 2
+    assert nt(w, 0, k.NT_PUN) == 4 and rt[:, k.RT_N_PUN].sum() == 4
+
+
+def test_pun_unknown_novict_vgone():
+    w = _pun_scene()
+    s = w.s
+    _punish(w, 10, -1, -1)                       # sig·잡음 표시: 피해자 없음
+    assert nt(w, 0, k.NT_PUN_NOVICT) == 1 and s.pun_role[4] == -1
+    _punish(w, 20, -2, -2)                       # 이어 읽은 직후 등: 피해자 미지
+    assert nt(w, 0, k.NT_PUN_UNKNOWN) == 1 and s.pun_role[4] == -1
+    vid6 = s.ids[6]
+    s.alive[6] = False                           # 피해자가 죽었다
+    _punish(w, 30, 6, vid6)
+    assert nt(w, 0, k.NT_PUN_VGONE) == 1 and s.pun_role[4] == -1
+    s.alive[6] = True
+    s.ids[6] = vid6 + 1000                       # 그 칸이 다른 개체로 바뀌었다(칸 재사용)
+    _punish(w, 40, 6, vid6)
+    assert nt(w, 0, k.NT_PUN_VGONE) == 2 and s.pun_role[4] == -1
+    assert nt(w, 0, k.NT_PUN_2ND) + nt(w, 0, k.NT_PUN_3_KIN) + nt(w, 0, k.NT_PUN_3_STR) == 0
+    assert not s.norm_tab_role[:, k.RT_N_PUN].any()
+
+
+def test_opportunity_counts_self_other_sim_line():
+    w = _pair("norm")
+    s = w.s
+    s.mark_t[4] = 5
+    s.mark_vslot[4], s.mark_vid[4] = 0, s.ids[0]          # 4가 0에게서 가로챘다
+    st.attack(5, s, w.fs, w.isp)                          # 아무도 안 친다: 훑기만
+    assert nt(w, 0, k.NT_OPP_SELF) == 1 and nt(w, 0, k.NT_OPP_OTHER) == 0
+    assert nt(w, 0, k.NT_OPP_MARKED) == 1 and nt(w, 0, k.NT_OPP_PLAIN) == 1    # 4의 차례: 0은 표시 안 됨
+    s.parent[6] = s.ids[0]                                # 피해자 6은 0의 자식(같은 색)
+    s.mark_vslot[4], s.mark_vid[4] = 6, s.ids[6]
+    st.attack(6, s, w.fs, w.isp)
+    assert nt(w, 0, k.NT_OPP_OTHER) == 1 and nt(w, 0, k.NT_OPP_OTHER_LINE) == 1
+    assert nt(w, 0, k.NT_OPP_OTHER_SIM3) == 1 and nt(w, 0, k.NT_OPP_SELF) == 1
+    # 피해자 없음·미지·죽음은 어느 분모에도 안 든다
+    for vs, vid in ((-1, -1), (-2, -2)):
+        s.mark_vslot[4], s.mark_vid[4] = vs, vid
+        st.attack(7, s, w.fs, w.isp)
+    assert nt(w, 0, k.NT_OPP_OTHER) == 1 and nt(w, 0, k.NT_OPP_SELF) == 1 and nt(w, 0, k.NT_OPP_MARKED) == 4
+    # 실제 세계에서 p2·p3 ≤ 1(분모가 분자의 기회 전체)
+    wr = World(small("stage4", "conflict", "norm", norm_impulse=0.02))
+    wr.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+    wr.run(500)
+    tot = wr.s.norm_tab.sum(axis=0)
+    assert tot[k.NT_PUN] > 0 and tot[k.NT_OPP_SELF] + tot[k.NT_OPP_OTHER] > 0
+    assert tot[k.NT_PUN_2ND] <= tot[k.NT_OPP_SELF]
+    assert tot[k.NT_PUN_3_KIN] + tot[k.NT_PUN_3_STR] <= tot[k.NT_OPP_OTHER]
+    sims = sum(tot[k.NT_OPP_OTHER_SIM0 + b] for b in range(4))
+    assert sims == tot[k.NT_OPP_OTHER] and tot[k.NT_OPP_OTHER_LINE] <= tot[k.NT_OPP_OTHER]
+
+
+def test_selectivity_denominators():
+    w = hand_world("norm")
+    s = w.s
+    put(w, 0, 100.0, 100.0)
+    put(w, 1, 101.5, 100.0)                  # 0의 이웃(표시됨)
+    put(w, 2, 150.0, 150.0)
+    put(w, 3, 151.5, 150.0)                  # 2의 이웃(표시 안 됨)
+    regrid(w)
+    s.mark_t[1] = 3
+    s.mark_vslot[1], s.mark_vid[1] = 7, s.ids[7]
+    s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    s.act[2, cfgmod.ACT_ATTACK] = 1.0
+    st.attack(3, s, w.fs, w.isp)
+    # 0: 표시된 기회 1·자발 공격 1. 1: 닿는 0이 표시 안 됨(plain). 2: plain 기회 1·자발 공격 1. 3: 닿는 2가 방금 표시됐다면
+    # 순서에 따라 marked가 될 수 있어 둘의 합만 본다
+    om, op = nt(w, 0, k.NT_OPP_MARKED), nt(w, 0, k.NT_OPP_PLAIN)
+    am, ap = nt(w, 0, k.NT_ATK_VOL_MARKED), nt(w, 0, k.NT_ATK_VOL_PLAIN)
+    assert om + op == 4 and am == 1 and ap == 1 and om >= 1 and op >= 2
+    sel = (am / om) / (ap / op)
+    assert sel == pytest.approx((1 / om) / (1 / op))
+
+
+def test_energy_tables_by_tag_and_role():
+    w = World(small("stage4", "conflict", "norm", norm_impulse=0.02))
+    s = w.s
+    s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+    s.tag[s.alive] = np.arange(int(s.alive.sum())) % 6 - 1      # 태그 −1~4: 접기(행 4)가 안 넘친다
+    w.run(200)
+    checked = 0
+    for _ in range(40):
+        w.step()
+        t = w.step_no
+        led, tab = s.ledger.copy(), s.norm_tab.copy()
+        st.attack(t, s, w.fs, w.isp)
+        d = s.norm_tab - tab
+        tot = d.sum(axis=0)
+        assert s.ledger[k.L_MOVE] - led[k.L_MOVE] == pytest.approx(tot[k.NT_ATK_COST], abs=1e-9)
+        lost = tot[k.NT_TAKE_DMG_RECV] + tot[k.NT_PUN_DMG_RECV] - tot[k.NT_TAKE_GAIN] - tot[k.NT_PUN_FINE]
+        assert s.ledger[k.L_LOST] - led[k.L_LOST] == pytest.approx(lost, abs=1e-9)
+        checked += tot[k.NT_PUN] > 0
+    tot = s.norm_tab.sum(axis=0)
+    rt = s.norm_tab_role
+    assert tot[k.NT_PUN] > 0 and checked > 0
+    roles = tot[k.NT_PUN_2ND] + tot[k.NT_PUN_3_KIN] + tot[k.NT_PUN_3_STR]
+    assert rt[:, k.RT_N_PUN].sum() == roles
+    assert rt[:, k.RT_PUN_FINE].sum() <= tot[k.NT_PUN_FINE] + 1e-12
+    assert rt[:, k.RT_PUN_COST].sum() <= tot[k.NT_PUN_COST] + 1e-12
+    assert s.norm_tab.shape[0] == k.TAG_ROWS_NORM
+    assert set(np.unique(s.pun_role[s.alive])) <= {-1, 0, 1, 2}
+
+
+def test_summary_norm_fields():
+    w = World(small("stage4", "conflict", "norm", norm_impulse=0.02))
+    w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+    w.run(400)
+    out = w.summary()
+    tot = w.s.norm_tab.sum(axis=0)
+    assert tot[k.NT_OPP_SELF] > 0 and tot[k.NT_OPP_OTHER] > 0
+    assert out["norm_pun_rate_2nd"] == pytest.approx(tot[k.NT_PUN_2ND] / tot[k.NT_OPP_SELF])
+    assert out["norm_pun_rate_3rd"] == pytest.approx((tot[k.NT_PUN_3_KIN] + tot[k.NT_PUN_3_STR]) / tot[k.NT_OPP_OTHER])
+    wm = World(small("stage4", "conflict", "norm_size", norm_measure=True))
+    wm.run(20)
+    assert "norm_pun_rate_2nd" not in wm.summary() and "norm_pun_rate_3rd" not in wm.summary()

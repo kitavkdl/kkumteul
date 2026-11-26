@@ -18,7 +18,10 @@ from .config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT
                      SRC_SIG, SRC_TAKE, TASTE_VIS)
 from .kernels import (C_ATTACKS, C_FERTILE, C_GIFTS, C_NFIELD, C_NFOOD, KIND_A, L_BASAL, L_BRAIN, L_DISCARD, L_LOST,
                       L_MOVE, L_SPAWN, NT_ALIVE_STEPS, NT_ATK_COST, NT_ATK_VOL_MARKED, NT_ATK_VOL_PLAIN, NT_EXPO,
-                      NT_OPP_MARKED, NT_OPP_PLAIN, NT_PUN, NT_PUN_COST, NT_PUN_DMG_RECV, NT_PUN_FINE, NT_PUN_KILL,
+                      NT_OPP_MARKED, NT_OPP_OTHER, NT_OPP_OTHER_LINE, NT_OPP_OTHER_SIM0, NT_OPP_PLAIN, NT_OPP_SELF,
+                      NT_PUN, NT_PUN_2ND, NT_PUN_3_KIN, NT_PUN_3_LINE, NT_PUN_3_SIM0, NT_PUN_3_STR, NT_PUN_COST,
+                      NT_PUN_DMG_RECV, NT_PUN_FINE, NT_PUN_KILL, NT_PUN_NOVICT, NT_PUN_UNKNOWN, NT_PUN_VGONE,
+                      RT_N_PUN, RT_PUN_COST, RT_PUN_FINE,
                       NT_TAKE, NT_TAKE_DMG_RECV, NT_TAKE_GAIN, NT_TAKE_IMP, NT_TAKE_KILL, NT_TAKE_KIN, NT_TAKE_LINE,
                       NT_TAKE_ON_MARKED, NT_TAKE_SIM0, NT_VIOL_DMG_RECV, TAG_ROWS_NORM,
                       TOUCH_HIT, _kin_class, _place_food, _wdiff, _wrap, make_room, pick_kind)
@@ -778,6 +781,66 @@ def _scan_touching(s, fs, isp, i, t):
     return nb, nm
 
 
+@njit(cache=True, inline="always")
+def _victim_of(s, m):
+    """표시된 개체 m의 피해자 칸. 피해자 없음(−1: sig·잡음) → −1, 미지(−2: 이어 읽음 등) → −2,
+    죽었거나 그 칸이 다른 개체로 바뀜 → −3(칸 번호와 id를 같이 보고 가린다)."""
+    vid = s.mark_vid[m]
+    if vid == -1:
+        return -1
+    if vid < 0:
+        return -2
+    v = s.mark_vslot[m]
+    if v < 0 or v >= s.x.shape[0] or not s.alive[v] or s.ids[v] != vid:
+        return -3
+    return v
+
+
+@njit(cache=True)
+def _count_opp(s, tab, ri, i, nm):
+    """훑기에서 닿는 표시된 이웃 nm이 있을 때: 그 피해자가 나(OPP_SELF)인지 산 남(OPP_OTHER + 닮음 구간·계보)인지.
+    피해자 없음·미지·죽음은 어느 분모에도 안 든다(PUN_2ND·PUN_3_*의 분자와 같은 규칙이라 p2·p3 ≤ 1)."""
+    v = _victim_of(s, nm)
+    if v < 0:
+        return
+    if v == i:
+        tab[ri, NT_OPP_SELF] += 1.0
+        return
+    tab[ri, NT_OPP_OTHER] += 1.0
+    tab[ri, NT_OPP_OTHER_SIM0 + _sim_bin(_color_sim(s.color, i, v))] += 1.0
+    if _kin_class(s, i, v) > 0:
+        tab[ri, NT_OPP_OTHER_LINE] += 1.0
+
+
+@njit(cache=True)
+def _count_pun_role(s, tab, ri, i, t):
+    """벌(집행자 i, 벌 받은 t)의 역할을 세고 돌려준다: 0 2자(피해자 = 집행자), 1 3자 친족(계보이거나 닮음 상위 두 구간),
+    2 3자 남, −1 가를 수 없음(피해자 없음 PUN_NOVICT, 미지 PUN_UNKNOWN, 죽음·칸 바뀜 PUN_VGONE)."""
+    v = _victim_of(s, t)
+    if v == -1:
+        tab[ri, NT_PUN_NOVICT] += 1.0
+        return -1
+    if v == -2:
+        tab[ri, NT_PUN_UNKNOWN] += 1.0
+        return -1
+    if v == -3:
+        tab[ri, NT_PUN_VGONE] += 1.0
+        return -1
+    if v == i:
+        tab[ri, NT_PUN_2ND] += 1.0
+        return 0
+    sb = _sim_bin(_color_sim(s.color, i, v))
+    line = _kin_class(s, i, v) > 0
+    tab[ri, NT_PUN_3_SIM0 + sb] += 1.0
+    if line:
+        tab[ri, NT_PUN_3_LINE] += 1.0
+    if line or sb >= 2:
+        tab[ri, NT_PUN_3_KIN] += 1.0
+        return 1
+    tab[ri, NT_PUN_3_STR] += 1.0
+    return 2
+
+
 # =========================== 다툼: 공격 ===========================
 @njit(cache=True)
 def attack(step, s, fs, isp):
@@ -819,6 +882,7 @@ def attack(step, s, fs, isp):
                 tab[ri, NT_EXPO] += 1.0
                 if nm >= 0:
                     tab[ri, NT_OPP_MARKED] += 1.0
+                    _count_opp(s, tab, ri, i, nm)
                 else:
                     tab[ri, NT_OPP_PLAIN] += 1.0
         a = float(s.act[i, ACT_ATTACK])
@@ -887,6 +951,12 @@ def attack(step, s, fs, isp):
             killed = s.energy[best] <= 0.0
             if pun:
                 tab[ri, NT_PUN] += 1.0
+                role = _count_pun_role(s, tab, ri, i, best)
+                s.pun_role[best] = role
+                if role >= 0:
+                    s.norm_tab_role[role, RT_PUN_FINE] += got
+                    s.norm_tab_role[role, RT_PUN_COST] += cost
+                    s.norm_tab_role[role, RT_N_PUN] += 1.0
                 tab[rb, NT_PUN_DMG_RECV] += dmg
                 tab[ri, NT_PUN_FINE] += got
                 tab[ri, NT_PUN_COST] += cost

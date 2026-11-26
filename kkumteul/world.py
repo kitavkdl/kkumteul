@@ -550,6 +550,12 @@ class World:
             if alive_steps > 0:
                 out["norm_expo_frac"] = float(tot[k.NT_EXPO]) / alive_steps      # 설계의 θ_t: 닿는 이웃이 있는 개체 스텝 비율
                 out["norm_take_per_step"] = float(tot[k.NT_TAKE]) / alive_steps
+            if self.cfg.norm_enabled:
+                # p2 = 2자 벌 ÷ 내가 피해자인 표시된 이웃이 닿은 기회, p3 = 3자 벌 ÷ 산 남이 피해자인 기회(분모가 없으면 안 낸다)
+                if tot[k.NT_OPP_SELF] > 0:
+                    out["norm_pun_rate_2nd"] = float(tot[k.NT_PUN_2ND] / tot[k.NT_OPP_SELF])
+                if tot[k.NT_OPP_OTHER] > 0:
+                    out["norm_pun_rate_3rd"] = float((tot[k.NT_PUN_3_KIN] + tot[k.NT_PUN_3_STR]) / tot[k.NT_OPP_OTHER])
         if self.cfg.huddle_enabled:
             out["huddle_cut_mean"] = float(s.huddle_cut[a].mean()) if n else 0.0
         if self.cfg.prey_enabled:
