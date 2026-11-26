@@ -1095,3 +1095,415 @@ def test_teach_pass_not_requiring_grid():
     s.a_items[:] = 0
     before = _tpass(w)
     assert _paid(w, before, 0) == pytest.approx(0.0005 * 0.8)
+
+
+# ---- 과제 6: watch_meals의 boost·앎 도우미·meal 비용·_kin_class ----
+def _wm_world(n=8, **kw) -> World:
+    """_teach_world에 보고 배우는 바탕 속도 0.5. 끼니 기록·soc_g는 0."""
+    kw.setdefault("soc_rate", 0.5)
+    w = _teach_world(n, **kw)
+    w.s.soc_g[:] = 0.0
+    w.s.meal_o[:] = 0.0
+    w.s.meal_k[:] = 0
+    return w
+
+
+def _wm(w):
+    s, cfg = w.s, w.cfg
+    k.build_grid(s.x, s.y, s.alive, 1.0 / cfg.cell, cfg.grid_w, cfg.grid_h, s.a_start, s.a_items, s.cursor)
+    k.watch_meals(w.step_no, s, w.fp, w.ip)
+
+
+def _wm_meal(w, j, mc, o):
+    w.s.meal_k[j] = mc
+    w.s.meal_o[j] = o
+
+
+def _kp(w) -> int:
+    return 1 - k.cfg_good_kind(w.cfg, w.step_no)
+
+
+def _wm_scene(w, show=0.6, mc=1, o=-1.0):
+    """0번 어른(부모, 강도 show)이 모양 칸 mc로 끼니 o를 먹는다. 1번은 0번의 새끼, 2번은 남의 새끼(부모는 멀리 있는 3번),
+    4번은 곁의 어른. 모두 0번에게서 반지름 8 안."""
+    s = w.s
+    s.show_g[0] = show
+    _at_xy(w, 1, 23.0, 20.0)
+    _child(w, 1, 0, 50)
+    _at_xy(w, 2, 20.0, 25.0)
+    _child(w, 2, 3, 50)
+    _at_xy(w, 4, 24.0, 24.0)
+    _wm_meal(w, 0, mc, o)
+
+
+def test_kin_class_matches_soc_inline():
+    w = _wm_world(6)
+    s = w.s
+    s.ids[:6] = (10, 11, 12, 13, 14, 15)
+    s.parent[:6] = (-1, 10, 10, -1, 99, 99)
+    kc = lambda i, j: int(k._kin_class(s, i, j))
+    assert kc(1, 0) == 1                            # j(0)가 i(1)의 부모
+    assert kc(0, 1) == 2                            # i가 j의 부모(자식)
+    assert kc(1, 2) == 2 and kc(2, 1) == 2          # 형제(같은 부모)
+    assert kc(4, 5) == 2                            # 부모가 죽었어도 같은 id면 형제
+    assert kc(1, 3) == 0 and kc(3, 0) == 0          # 부모 없음끼리는 형제가 아니다
+    assert kc(1, 4) == 0                            # 남
+    # 부모와 형제가 겹치면 부모가 먼저
+    s.parent[0] = 11
+    assert kc(1, 0) == 1 and kc(0, 1) == 1
+
+
+def test_boost_kin_parent_only():
+    w = _wm_world()
+    _wm_scene(w)
+    s = w.s
+    s.soc_g[1] = 0.1
+    _wm(w)
+    assert s.n_seen[1] == 1 and s.n_seen[2] == 1 and s.n_seen[4] == 1      # 양성 확인: 모두 보았다
+    assert s.taste_m[1, 1] == pytest.approx(-(0.5 + 0.1 + 0.5 * 0.6))      # 자기 새끼: 바탕 + soc_g + boost
+    assert s.taste_m[2, 1] == pytest.approx(-0.5)                          # 남의 새끼: 바탕만
+    assert s.taste_m[4, 1] == pytest.approx(-0.5)                          # 어른 관찰자: 바탕만
+    assert s.taste_m[3, 1] == 0.0                                          # 멀리 있어 못 봄
+    # 합이 1에서 잘린다
+    w = _wm_world()
+    _wm_scene(w)
+    w.s.soc_g[1] = 0.9
+    _wm(w)
+    assert w.s.taste_m[1, 1] == pytest.approx(-1.0)
+    # 시연자가 미숙기이면 boost 없음
+    w = _wm_world()
+    _wm_scene(w)
+    w.s.age[0] = 150
+    w.s.soc_g[1] = 0.1
+    _wm(w)
+    assert w.s.taste_m[1, 1] == pytest.approx(-0.6)
+    # 강도 0이면 boost 0
+    w = _wm_world()
+    _wm_scene(w, show=0.0)
+    _wm(w)
+    assert w.s.taste_m[1, 1] == pytest.approx(-0.5)
+    # any: 곁의 미숙기 누구나 boost, 어른 관찰자는 그대로
+    w = _wm_world(teach_mode="any")
+    _wm_scene(w)
+    w.s.soc_g[1] = 0.1
+    _wm(w)
+    assert w.s.taste_m[1, 1] == pytest.approx(-0.9)
+    assert w.s.taste_m[2, 1] == pytest.approx(-0.8)
+    assert w.s.taste_m[4, 1] == pytest.approx(-0.5)
+
+
+def test_boost_zero_for_costonly_drift_and_nonknower():
+    for mode in ("costonly", "drift"):
+        w = _wm_world(teach_mode=mode)
+        _wm_scene(w)
+        _wm(w)
+        assert w.s.n_seen[1] == 1
+        assert w.s.taste_m[1, 1] == pytest.approx(-0.5), mode
+        assert w.s.n_taught[1] == 0
+    for knows, want in ((False, -0.5), (True, -0.8)):
+        w = _wm_world(teach_mode="knower")
+        kp = _kp(w)
+        _wm_scene(w, mc=kp)
+        w.s.taste_m[0, kp] = -0.5 if knows else 0.0
+        _wm(w)
+        assert w.s.taste_m[1, kp] == pytest.approx(want), knows
+        assert w.s.taste_m[2, kp] == pytest.approx(-0.5)                   # 남의 새끼는 knower에서도 boost 없음
+    # 양성 대조: kin은 시연자가 몰라도 boost
+    w = _wm_world(teach_mode="kin")
+    _wm_scene(w, mc=_kp(w))
+    _wm(w)
+    assert w.s.taste_m[1, _kp(w)] == pytest.approx(-0.8)
+
+
+def test_taught_counters():
+    for mode in ("kin", "knower"):
+        w = _wm_world(teach_mode=mode)
+        kp = _kp(w)
+        _wm_scene(w, mc=kp)
+        s = w.s
+        s.taste_m[0, kp] = -0.5                    # 시연자는 독 모양을 안다
+        _wm(w)
+        assert s.n_taught[1] == 1 and s.n_taught_knower[1] == 1, mode
+        assert s.n_seen_par[1] == 1 and s.n_seen_par_poison[1] == 1
+        assert s.n_taught[2] == 0 and s.n_seen_par[2] == 0                 # 남의 새끼
+        assert s.n_taught[4] == 0 and s.n_seen_par[4] == 0                 # 어른 관찰자
+    # kin에서 시연자가 모르면 boost는 붙고 knower 수는 안 오른다
+    w = _wm_world()
+    kp = _kp(w)
+    _wm_scene(w, mc=kp)
+    _wm(w)
+    assert w.s.n_taught[1] == 1 and w.s.n_taught_knower[1] == 0 and w.s.n_seen_par[1] == 1
+    # 좋은 끼니: 독 수는 안 오른다
+    w = _wm_world()
+    _wm_scene(w, mc=1 - kp, o=1.0)
+    _wm(w)
+    assert w.s.n_seen_par[1] == 1 and w.s.n_seen_par_poison[1] == 0 and w.s.n_taught[1] == 1
+    # costonly: boost 없으니 n_taught 0, 부모 끼니는 센다
+    w = _wm_world(teach_mode="costonly")
+    _wm_scene(w, mc=kp)
+    _wm(w)
+    assert w.s.n_taught[1] == 0 and w.s.n_seen_par[1] == 1
+    # 한 번 더 보면 누적
+    _wm(w)
+    assert w.s.n_seen_par[1] == 2
+
+
+def _meal_drop(w, i=0):
+    s = w.s
+    e0, l0 = float(s.energy[i]), float(s.ledger[k.L_BRAIN])
+    t0 = float(s.grad_tab[:, k.GT_TEACH_COST].sum())
+    _wm(w)
+    drop = e0 - float(s.energy[i])
+    assert float(s.ledger[k.L_BRAIN]) - l0 == pytest.approx(drop, abs=1e-15)        # 에너지 감소 = L_BRAIN 증가
+    assert float(s.grad_tab[:, k.GT_TEACH_COST].sum()) - t0 == pytest.approx(drop, abs=1e-15)
+    return drop
+
+
+def test_meal_cost_only_when_boost_applies():
+    cost = 0.0005
+    w = _wm_world(teach_cost_when="meal")
+    _wm_scene(w, show=0.8)
+    _at_xy(w, 5, 17.0, 22.0)
+    _child(w, 5, 0, 60)                            # 새끼가 둘이어도 한 번
+    s = w.s
+    s.tag[0] = 99
+    assert _meal_drop(w) == pytest.approx(cost * 0.8)
+    assert s.grad_tab[7, k.GT_TEACH_COST] == pytest.approx(cost * 0.8)       # 태그 99는 7행
+    assert s.n_taught[1] == 1 and s.n_taught[5] == 1                         # 양성 확인: 효과는 붙었다
+    # near는 watch_meals가 안 건는다
+    w = _wm_world(teach_cost_when="near")
+    _wm_scene(w, show=0.8)
+    assert _meal_drop(w) == 0.0 and w.s.n_taught[1] == 1
+    # 새끼가 없다 / 반지름 밖 / 죽음 / 미숙기 아닌 곁
+    w = _wm_world(teach_cost_when="meal")
+    _wm_scene(w, show=0.8)
+    w.s.alive[1] = False
+    assert _meal_drop(w) == 0.0
+    w = _wm_world(teach_cost_when="meal")
+    _wm_scene(w, show=0.8)
+    _at_xy(w, 1, 20.0 + 9.0, 20.0)
+    assert _meal_drop(w) == 0.0
+    w = _wm_world(teach_cost_when="meal")
+    _wm_scene(w, show=0.8)
+    w.s.age[1] = 250                               # 자란 자식은 미숙기가 아니다
+    assert _meal_drop(w) == 0.0
+    # 끼니가 없으면(meal_o == 0) 0
+    w = _wm_world(teach_cost_when="meal")
+    _wm_scene(w, show=0.8)
+    w.s.meal_o[0] = 0.0
+    assert _meal_drop(w) == 0.0
+    # 모드별: kin·costonly·any 낸다, drift 안 낸다, knower는 아는 부모만
+    for mode, knows, want in (("kin", False, 0.8), ("costonly", False, 0.8), ("any", False, 0.8), ("drift", False, 0.0),
+                              ("knower", False, 0.0), ("knower", True, 0.8)):
+        w = _wm_world(teach_mode=mode, teach_cost_when="meal")
+        kp = _kp(w)
+        _wm_scene(w, show=0.8, mc=kp)
+        w.s.taste_m[0, kp] = -0.5 if knows else 0.0
+        assert _meal_drop(w) == pytest.approx(cost * want), (mode, knows)
+    # any: 부모 아닌 새끼만 곁에 있어도 낸다(kin은 0)
+    for mode, want in (("kin", 0.0), ("any", 0.8)):
+        w = _wm_world(teach_mode=mode, teach_cost_when="meal")
+        _wm_scene(w, show=0.8)
+        w.s.parent[1] = -1
+        assert _meal_drop(w) == pytest.approx(cost * want), mode
+
+
+def test_meal_cost_ledger_tab_two_demonstrators():
+    cost = 0.0005
+    w = _wm_world(teach_cost_when="meal")
+    s = w.s
+    # 시연자 0(태그 2, 강도 0.8)과 시연자 6(태그 5, 강도 0.4)이 각자 새끼 곁에서 먹는다
+    s.show_g[0], s.show_g[6] = 0.8, 0.4
+    s.tag[0], s.tag[6] = 2, 5
+    _at_xy(w, 1, 23.0, 20.0)
+    _child(w, 1, 0, 50)
+    _at_xy(w, 6, 100.0, 60.0)
+    _at_xy(w, 7, 103.0, 60.0)
+    _child(w, 7, 6, 50)
+    _wm_meal(w, 0, 1, -1.0)
+    _wm_meal(w, 6, 0, 1.0)
+    e0 = s.energy.copy()
+    led0 = float(s.ledger[k.L_BRAIN])
+    _wm(w)
+    assert float(e0[0] - s.energy[0]) == pytest.approx(cost * 0.8)
+    assert float(e0[6] - s.energy[6]) == pytest.approx(cost * 0.4)
+    assert float(s.ledger[k.L_BRAIN]) - led0 == pytest.approx(cost * 1.2)
+    assert s.grad_tab[2, k.GT_TEACH_COST] == pytest.approx(cost * 0.8)
+    assert s.grad_tab[5, k.GT_TEACH_COST] == pytest.approx(cost * 0.4)
+
+
+def _poison_step_pair():
+    """독 모양이 바뀌는 스텝 경계(t0 - 1, t0)를 찾는다."""
+    w = _lone_juv(juv_enabled=True, kind_flip_period=100)
+    per = w.cfg.kind_flip_period
+    for n in range(1, 60):
+        if k.cfg_good_kind(w.cfg, n * per - 1) != k.cfg_good_kind(w.cfg, n * per):
+            return n * per - 1, n * per
+    raise AssertionError("독 모양이 안 바뀌는 씨앗")
+
+
+def test_know_helper_sources():
+    # 1: 자기 끼니
+    w = _lone_juv(juv_enabled=True)
+    s = w.s
+    s.taste_m[0] = 0.0
+    s.know_age[0] = -1
+    s.know_src[0] = 0
+    _eat_one(w, _good(w), age=51)                  # 좋은 알은 앎이 아니다
+    assert s.know_age[0] == -1 and s.know_src[0] == 0
+    _eat_one(w, 1 - _good(w), age=51)
+    assert s.taste_m[0, _kp(w)] <= -0.2            # 양성 확인
+    assert s.know_age[0] == 51 and s.know_src[0] == 1
+    _eat_one(w, 1 - _good(w), age=61)              # 한 번만 기록
+    assert s.know_age[0] == 51 and s.know_src[0] == 1
+    # 어른은 기록하지 않는다
+    w = _lone_juv(juv_enabled=True)
+    w.s.taste_m[0] = 0.0
+    _eat_one(w, 1 - _good(w), age=201)
+    assert w.s.know_age[0] == -1
+    # 장치가 꺼진 세계는 기록하지 않는다. juv_measure만 켠 세계는 기록한다
+    w = _lone_juv()
+    w.s.taste_m[0] = 0.0
+    _eat_one(w, 1 - _good(w), age=51)
+    assert w.s.know_age[0] == -1
+    w = _lone_juv(juv_measure=True)
+    w.s.taste_m[0] = 0.0
+    _eat_one(w, 1 - _good(w), age=51)
+    assert w.s.know_age[0] == 51 and w.s.know_src[0] == 1
+    # 독 모양은 그 스텝 good_kind로: 경계 전(t0 - 1)·후(t0) 각각
+    t_a, t_b = _poison_step_pair()
+    w = _lone_juv(juv_enabled=True, kind_flip_period=100)
+    w.s.taste_m[0] = 0.0
+    w.step_no = t_a
+    _eat_one(w, 1 - _good_at(w), age=51)
+    assert w.s.know_age[0] == 51
+    old_poison = 1 - k.cfg_good_kind(w.cfg, t_a)
+    w.s.know_age[0] = -1
+    w.step_no = t_b
+    assert 1 - k.cfg_good_kind(w.cfg, t_b) != old_poison                   # 독 모양이 바뀌었다
+    _eat_one(w, old_poison, age=71)                # 이제는 좋은 알: 예전 독 칸의 기억이 깊어도 새 독 칸이 아니라 앎이 아니다
+    assert w.s.know_age[0] == -1
+    _eat_one(w, 1 - old_poison, age=72)            # 새 독을 먹는다
+    assert w.s.know_age[0] == 72 and w.s.know_src[0] == 1
+
+
+def _good_at(w) -> int:
+    return k.cfg_good_kind(w.cfg, w.step_no)
+
+
+def _watch_know(setup):
+    w = _wm_world()
+    kp = _kp(w)
+    s = w.s
+    _at_xy(w, 1, 23.0, 20.0)
+    _child(w, 1, None, 50)
+    s.parent[1] = -1
+    setup(w)
+    _wm_meal(w, 0, kp, -1.0)
+    _wm(w)
+    return w
+
+
+def test_know_helper_watch_sources():
+    def parent(w):
+        w.s.parent[1] = w.s.ids[0]
+        w.s.age[0] = 250
+
+    def sibling(w):
+        w.s.parent[1] = 777
+        w.s.parent[0] = 777
+        w.s.age[0] = 250
+
+    def child_of_observer(w):
+        w.s.parent[0] = w.s.ids[1]
+
+    def stranger(w):
+        w.s.parent[0] = -1
+
+    for setup, src in ((parent, 2), (sibling, 3), (child_of_observer, 3), (stranger, 4)):
+        w = _watch_know(setup)
+        assert w.s.taste_m[1, _kp(w)] <= -0.2, setup.__name__                # 양성 확인: 기억이 움직였다
+        assert w.s.know_age[1] == 50 and w.s.know_src[1] == src, setup.__name__
+    # 한 번만 기록: 이미 앎이면 안 덮는다
+    w = _wm_world()
+    _at_xy(w, 1, 23.0, 20.0)
+    _child(w, 1, 0, 50)
+    w.s.know_age[1] = 30
+    w.s.know_src[1] = 1
+    _wm_meal(w, 0, _kp(w), -1.0)
+    _wm(w)
+    assert w.s.know_age[1] == 30 and w.s.know_src[1] == 1
+    # 어른 관찰자는 기록하지 않는다
+    w = _wm_world()
+    _at_xy(w, 1, 23.0, 20.0)
+    _child(w, 1, 0, 250)
+    _wm_meal(w, 0, _kp(w), -1.0)
+    _wm(w)
+    assert w.s.taste_m[1, _kp(w)] <= -0.2 and w.s.know_age[1] == -1
+    # 독 모양이 아닌 칸이 움직인 것은 앎이 아니다
+    w = _wm_world()
+    _at_xy(w, 1, 23.0, 20.0)
+    _child(w, 1, 0, 50)
+    _wm_meal(w, 0, 1 - _kp(w), -1.0)
+    _wm(w)
+    assert w.s.know_age[1] == -1
+
+
+def test_watch_meals_teach_off_unchanged():
+    """teach_enabled=false: watch_meals의 갱신이 사회 학습 단독 세계와 같다. 앎·부모 끼니 계수기는 읽기 전용으로 쌓인다."""
+    off = _wm_world(teach_enabled=False)
+    _wm_scene(off)
+    off.s.soc_g[1] = 0.1
+    _wm(off)
+    base = World(small("stage2", "kinds", "taste", soc_taste_enabled=True, init_agents=8, min_agents=0,
+                       food_inflow=0.0, soc_rate=0.5))
+    for i in range(8):
+        for name in ("x", "y", "energy", "age", "ids", "parent", "tag", "soc_g", "show_g"):
+            getattr(base.s, name)[i] = getattr(off.s, name)[i]
+    base.s.taste_m[:] = 0.0
+    base.s.meal_o[:] = off.s.meal_o
+    base.s.meal_k[:] = off.s.meal_k
+    _wm(base)
+    assert np.array_equal(off.s.taste_m, base.s.taste_m)
+    assert off.s.taste_m[1, 1] == pytest.approx(-0.6)
+    assert off.s.n_taught.sum() == 0 and off.s.n_taught_knower.sum() == 0
+    assert off.s.n_seen_par[1] == 1                # 읽기 전용 계수기
+    assert float(off.s.grad_tab[:, k.GT_TEACH_COST].sum()) == 0.0
+
+
+def _crowd_scene(w):
+    s = w.s
+    s.show_g[0], s.show_g[6] = 0.7, 0.3
+    s.age[6] = 250
+    _at_xy(w, 1, 23.0, 20.0)
+    _child(w, 1, 0, 50)
+    _at_xy(w, 6, 20.0, 26.0)
+    _at_xy(w, 2, 24.0, 25.0)
+    _child(w, 2, 6, 40)
+    _at_xy(w, 4, 18.0, 17.0)
+    _child(w, 4, 0, 30)
+    s.parent[6] = s.ids[0]
+    _wm_meal(w, 0, 1, -1.0)
+    _wm_meal(w, 6, 1, 1.0)
+    _wm_meal(w, 4, 1, -1.0)
+
+
+def test_boost_order_deterministic():
+    hashes = []
+    for _ in range(2):
+        w = _wm_world(teach_cost_when="meal")
+        _crowd_scene(w)
+        _wm(w)
+        hashes.append((w.state_hash(), w.s.taste_m.copy(), float(w.s.energy[0]), float(w.s.energy[6])))
+    assert hashes[0][0] == hashes[1][0]
+    assert np.array_equal(hashes[0][1], hashes[1][1]) and hashes[0][2:] == hashes[1][2:]
+    # 값 확인: 1번 관찰자는 칸 번호 오름차순(0 < 4 < 6)으로 세 시연자를 본다. 지수평활은 비가환이라 순서가 값을 가른다
+    w = _wm_world(teach_cost_when="meal")
+    _crowd_scene(w)
+    _wm(w)
+    assert w.s.n_seen[1] == 3
+    m = 0.0
+    m += (0.5 + 0.5 * 0.7) * (-1.0 - m)            # 0
+    m += 0.5 * (-1.0 - m)                          # 4(1과 같은 부모의 미숙기, 독)
+    m += 0.5 * (1.0 - m)                           # 6(좋은 알)
+    assert w.s.taste_m[1, 1] == pytest.approx(m)

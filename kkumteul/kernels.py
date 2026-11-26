@@ -14,7 +14,7 @@ from numba import njit, prange
 
 from .config import (ACT_ATTACK, ACT_CARRY, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_THRUST, ACT_TURN, FIRST_MEALS, N_REWARD,
                      N_TASTE_IN, N_TASTE_VIS, SOC_BLIND, SOC_INERT, SOC_MODES, SOC_WHAT, TASTE_VAL, TASTE_VIS,
-                     TEACH_ANY, TEACH_DRIFT, TEACH_KNOWER, TEACH_MODES, TEACH_WHENS)
+                     TEACH_ANY, TEACH_COSTONLY, TEACH_DRIFT, TEACH_KNOWER, TEACH_MODES, TEACH_WHENS, WHEN_MEAL)
 from .rng import (S_BIRTH_ORDER, S_BIRTH_POS, S_FOOD, S_KIND, S_INIT_AGE, S_INIT_GENOME, S_INIT_POS, S_MUT_GENE,
                   S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, S_SOC_BLIND, S_SOC_GENE, S_TASTE_GENE, S_TEACH_GENE, S_FEED_GENE, normal,
                   soc_pair_key, u01)
@@ -1202,6 +1202,8 @@ def eat(step, s, fp, ip):
     keep = 1.0 - fp[P_TASTE_DECAY]
     juv = ip[Q_JUV] != 0
     juv_steps = ip[Q_JUV_STEPS]
+    juv_count = ip[Q_JUV_COUNT] != 0
+    kp = _poison_slot(step, ip)
     for i in range(n):
         s.ate[i] = 0.0
         s.meal_o[i] = 0.0       # 이번 스텝의 끼니 기록(보고 배우기용). 죽은 칸·배불러 건너뛰는 개체도 비운다
@@ -1282,6 +1284,8 @@ def eat(step, s, fp, ip):
                         mc = 1 if fk == KIND_B else 0
                         o = -1.0 if poison else 1.0
                         s.taste_m[i, mc] += rate * (o - s.taste_m[i, mc])
+                        if juv_count and s.age[i] <= juv_steps:
+                            _note_know(s, i, kp, 1, fp)     # 앎 도우미: 미숙기 새끼의 자기 끼니(읽기 전용 계수)
                         if soc:
                             # 끼니 기록: 독 우선, 아니면 마지막 좋은 알(독 분기의 continue보다 앞에서 적는다)
                             if poison:
@@ -1321,6 +1325,15 @@ def watch_meals(step, s, fp, ip):
     먹은 j 자신의 기억은 여기서 안 바뀐다(자기 끼니는 eat의 개인 학습). id < 2^32를 가정한다(눈가림 쌍 키).
     모드: outcome = 시연자의 (모양, 결과)대로, what = 결과를 늘 +1로(무엇을 먹었나만), inert = 기억을 안 바꾼다(보기만),
     blind = 결과·속도·때는 outcome과 같되 갱신할 모양 칸을 동전으로(정보량만 0). 보기 계수기는 모든 모드에서 같다.
+
+    부모의 보여 주기(ip[Q_TEACH]): 시연자 j가 어른(age > juv_steps)이고 관찰자 i가 미숙기(age <= juv_steps)인 쌍에서
+    자격이 있으면(kin·costonly·drift = j가 i의 부모, knower = 부모이고 j가 그 스텝 독 모양을 앎, any = 모두)
+    실제 속도 = clamp(soc_rate + soc_g[i] + boost, 0, 1), boost = teach_gain × clamp(show_g[j], 0, 1)
+    (costonly·drift는 boost 0; 갱신식은 그대로). boost가 붙은 관찰마다 n_taught(시연자가 아는 쪽이면 n_taught_knower도).
+    teach_cost_when == "meal"이면 자격 있는 관찰이 하나라도 있었던 시연자 j가 그 스텝 한 번
+    teach_cost × clamp(show_g[j], 0, 1)을 energy에서 빼 L_BRAIN·GT_TEACH_COST에 더한다(drift 제외, boost 0이어도 자격이 있으면).
+    미숙기 관찰자는 앎 도우미 _note_know로 know_age·know_src를, 부모 끼니를 보면 n_seen_par(독이면 n_seen_par_poison)를 센다
+    (juv_enabled나 juv_measure일 때; 세계 동작을 안 바꾸는 읽기 전용 계수).
     """
     n = s.x.shape[0]
     gw = ip[Q_GW]
@@ -1332,6 +1345,12 @@ def watch_meals(step, s, fp, ip):
     rad2 = rad * rad
     rate0 = fp[P_SOC_RATE]
     mode = ip[Q_SOC_MODE]
+    juv_count = ip[Q_JUV_COUNT] != 0
+    juv_steps = ip[Q_JUV_STEPS]
+    teach = ip[Q_TEACH] != 0
+    tmode = ip[Q_TEACH_MODE]
+    meal_cost = teach and ip[Q_TEACH_WHEN] == WHEN_MEAL and tmode != TEACH_DRIFT
+    kp = _poison_slot(step, ip)
     for j in range(n):
         if not s.alive[j] or s.meal_o[j] == 0.0:
             continue
@@ -1345,6 +1364,11 @@ def watch_meals(step, s, fp, ip):
             cy = gh - 1
         o_j = s.meal_o[j]
         mc_j = s.meal_k[j]
+        j_adult = s.age[j] > juv_steps
+        j_knows = False
+        if teach and j_adult:
+            j_knows = _knows(s, j, kp, fp)
+        served = False
         for oy in range(-1, 2):
             # 격자가 3칸보다 좁으면 같은 칸을 두 번 훑지 않게 겹치는 쪽을 건너뛴다
             if (oy == 1 and gh <= 2) or (oy == -1 and gh == 1):
@@ -1366,13 +1390,36 @@ def watch_meals(step, s, fp, ip):
                     s.n_seen[i] += 1
                     if o_j < 0.0:
                         s.n_seen_poison[i] += 1
-                    if (s.parent[i] == s.ids[j] or s.parent[j] == s.ids[i]
-                            or (s.parent[i] >= 0 and s.parent[i] == s.parent[j])):
+                    kc = _kin_class(s, i, j)
+                    if kc != 0:
                         s.n_seen_kin[i] += 1
                     s.seen_age_sum[i] += s.age[j]
+                    i_juv = juv_count and s.age[i] <= juv_steps
+                    if i_juv and kc == 1:
+                        s.n_seen_par[i] += 1
+                        if o_j < 0.0:
+                            s.n_seen_par_poison[i] += 1
+                    # 보여 주기 자격과 boost(시연자 어른, 관찰자 미숙기)
+                    boost = 0.0
+                    if teach and j_adult and s.age[i] <= juv_steps:
+                        if tmode == TEACH_ANY:
+                            elig = True
+                        elif tmode == TEACH_KNOWER:
+                            elig = kc == 1 and j_knows
+                        else:
+                            elig = kc == 1
+                        if elig:
+                            served = True
+                            if tmode != TEACH_COSTONLY and tmode != TEACH_DRIFT:
+                                g = s.show_g[j]
+                                if g < 0.0:
+                                    g = 0.0
+                                elif g > 1.0:
+                                    g = 1.0
+                                boost = fp[P_TEACH_GAIN] * g
                     if mode == SOC_INERT:
                         continue        # inert: 기억을 안 바꾼다
-                    rate = rate0 + s.soc_g[i]
+                    rate = rate0 + s.soc_g[i] + boost
                     if rate < 0.0:
                         rate = 0.0
                     elif rate > 1.0:
@@ -1385,6 +1432,49 @@ def watch_meals(step, s, fp, ip):
                         # 눈가림: 같은 관찰·같은 결과·같은 속도, 모양 칸만 (스텝, 관찰자·시연자 쌍)의 동전으로
                         mc = int(u01(ip[Q_SEED], S_SOC_BLIND, step, soc_pair_key(s.ids[i], s.ids[j])) * 2.0)
                     s.taste_m[i, mc] += rate * (o - s.taste_m[i, mc])
+                    if boost > 0.0:
+                        s.n_taught[i] += 1
+                        if j_knows:
+                            s.n_taught_knower[i] += 1
+                    if i_juv:
+                        # 앎 도우미: 부모 끼니 2, 그 밖의 친족 3, 남 4
+                        src = 4
+                        if kc == 1:
+                            src = 2
+                        elif kc == 2:
+                            src = 3
+                        _note_know(s, i, kp, src, fp)
+        if meal_cost and served and s.show_g[j] > 0.0:
+            g = s.show_g[j]
+            if g > 1.0:
+                g = 1.0
+            cost = fp[P_TEACH_COST] * g
+            s.energy[j] -= cost
+            s.ledger[L_BRAIN] += cost
+            row = s.tag[j]
+            if row < 0:
+                row = 0
+            elif row > TAG_ROWS - 1:
+                row = TAG_ROWS - 1
+            s.grad_tab[row, GT_TEACH_COST] += cost
+
+
+@njit(cache=True, inline="always")
+def _kin_class(s, i, j):
+    """i가 본 j의 친족 분류: 0 남, 1 j가 i의 부모, 2 그 밖의 친족(i가 j의 부모, 같은 부모 >= 0)."""
+    if s.parent[i] == s.ids[j]:
+        return 1
+    if s.parent[j] == s.ids[i] or (s.parent[i] >= 0 and s.parent[i] == s.parent[j]):
+        return 2
+    return 0
+
+
+@njit(cache=True, inline="always")
+def _note_know(s, i, kp, src, fp):
+    """새끼 i가 독 모양(칸 kp)을 처음 "안" 때만 그 나이와 출처(src)를 적는다(한 번만; 읽기 전용 계수)."""
+    if kp >= 0 and s.know_age[i] < 0 and s.taste_m[i, kp] <= -fp[P_JUV_KNOW_THETA]:
+        s.know_age[i] = s.age[i]
+        s.know_src[i] = src
 
 
 @njit(cache=True, inline="always")
