@@ -1645,6 +1645,58 @@ def teach_pass(step, s, fp, ip):
         s.grad_tab[row, GT_TEACH_COST] += c
 
 
+@njit(cache=True)
+def feed_pass(step, s, fp, ip):
+    """먹이 대주기(돌봄 대조): 어른 p가 닿는 거리(2 x agent_radius + 0.5) 안의 자기 미숙기 새끼 가운데
+    가장 가까운 하나에게 스텝당 feed_rate x clamp(feed_g[p], 0, 1)을 건넨다.
+
+    순차 전용, prange 금지. 격자를 안 쓴다(juv_pass가 채운 par_slot과 선형 탐색). juv_pass 뒤에 부른다.
+    stages.give와 같은 식: 받는 쪽은 (1 - give_loss) 배, 손실은 L_LOST(새 에너지원 없음), 주는 쪽 에너지가
+    give_min_energy 이하이면 못 준다(그 위에서는 주고 나서 아래로 내려갈 수 있다). 받는 쪽 e_max 상한은 없다.
+    가장 가까운 새끼가 같은 거리면 칸 번호가 낮은 쪽. 어른은 칸 번호 오름차순으로 건넨다. 태그별 GT_FEED_GIVEN.
+    teach·soc 장치와 무관하게 동작한다(juv_enabled만 요구).
+    """
+    n = s.x.shape[0]
+    steps = ip[Q_JUV_STEPS]
+    w = fp[P_W]
+    hgt = fp[P_H]
+    reach = 2.0 * fp[P_A_RAD] + 0.5
+    reach2 = reach * reach
+    for q in range(n):
+        s.jscr_i[q] = -1
+        s.jscr_d[q] = 1e30
+    for i in range(n):
+        if not s.alive[i] or s.age[i] > steps:
+            continue
+        q = s.par_slot[i]
+        if q < 0 or not s.alive[q] or s.age[q] <= steps or s.feed_g[q] <= 0.0:
+            continue
+        ddx = _wdiff(s.x[q] - s.x[i], w)
+        ddy = _wdiff(s.y[q] - s.y[i], hgt)
+        d2 = ddx * ddx + ddy * ddy
+        if d2 <= reach2 and d2 < s.jscr_d[q]:
+            s.jscr_d[q] = d2
+            s.jscr_i[q] = i
+    for q in range(n):
+        i = s.jscr_i[q]
+        if i < 0 or s.energy[q] <= fp[P_FEED_MIN]:
+            continue
+        g = s.feed_g[q]
+        if g > 1.0:
+            g = 1.0
+        amt = fp[P_FEED_RATE] * g
+        got = amt * (1.0 - fp[P_FEED_LOSS])
+        s.energy[q] -= amt
+        s.energy[i] += got
+        s.ledger[L_LOST] += amt - got
+        row = s.tag[q]
+        if row < 0:
+            row = 0
+        elif row > TAG_ROWS - 1:
+            row = TAG_ROWS - 1
+        s.grad_tab[row, GT_FEED_GIVEN] += amt
+
+
 # ---- 유전체 ----
 @njit(cache=True)
 def _reset_body(s, j, aid, parent, gen, tag, step, px, py, hd, e):

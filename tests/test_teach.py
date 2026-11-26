@@ -1531,3 +1531,187 @@ def test_boost_order_deterministic():
     m += 0.5 * (-1.0 - m)                          # 4(1과 같은 부모의 미숙기, 독)
     m += 0.5 * (1.0 - m)                           # 6(좋은 알)
     assert w.s.taste_m[1, 1] == pytest.approx(m)
+
+
+# ---- 과제 7: feed_pass(먹이 대주기) ----
+def _feed_world(n, **kw) -> World:
+    """_juv_world에 먹이 대주기만 켠 세계(teach·soc는 꺼짐). 개체는 서로 멀리 놓인다."""
+    kw.setdefault("feed_enabled", True)
+    return _juv_world(n, **kw)
+
+
+def _fpass(w):
+    """juv_pass(par_slot을 채움) 뒤 feed_pass. 격자는 안 짓는다. 스텝 전 에너지를 돌려준다."""
+    before = w.s.energy.copy()
+    _jpass(w)
+    k.feed_pass(w.step_no, w.s, w.fp, w.ip)
+    return before
+
+
+def _gain(w, before, i) -> float:
+    return float(w.s.energy[i] - before[i])
+
+
+def test_feed_only_own_juvenile_within_touch():
+    rate = 0.02
+    w = _feed_world(8)
+    reach = 2.0 * float(w.fp[k.P_A_RAD]) + 0.5              # 닿는 거리(agent_radius 1.0 → 2.5)
+    assert w.ip[k.Q_FEED] == 1 and w.ip[k.Q_TEACH] == 0 and w.ip[k.Q_SOC] == 0
+    s = w.s
+    s.feed_g[0] = 0.8
+    _at_xy(w, 1, 20.0 + reach - 0.1, 20.0)
+    _child(w, 1, 0, 50)                            # 자기 새끼, 닿는 거리 안
+    before = _fpass(w)
+    assert _gain(w, before, 1) == pytest.approx(rate * 0.8 * 0.9)       # 양성 확인
+    assert _gain(w, before, 0) == pytest.approx(-rate * 0.8)
+    assert all(_gain(w, before, i) == 0.0 for i in range(2, 8))
+    # 거리 밖
+    w = _feed_world(8)
+    w.s.feed_g[0] = 0.8
+    _at_xy(w, 1, 20.0 + reach + 0.1, 20.0)
+    _child(w, 1, 0, 50)
+    before = _fpass(w)
+    assert all(_gain(w, before, i) == 0.0 for i in range(8))
+    # 비친족 미숙기·부모 없음은 못 받는다
+    w = _feed_world(8)
+    w.s.feed_g[0] = 0.8
+    _at_xy(w, 1, 22.0, 20.0)
+    _at_xy(w, 2, 18.0, 20.0)
+    _child(w, 1, 3, 50)
+    _child(w, 2, None, 50)
+    before = _fpass(w)
+    assert all(_gain(w, before, i) == 0.0 for i in range(8))
+    # 어른 자식(졸업한 새끼)은 못 받는다
+    w = _feed_world(8)
+    w.s.feed_g[0] = 0.8
+    _at_xy(w, 1, 22.0, 20.0)
+    w.s.parent[1] = w.s.ids[0]
+    before = _fpass(w)
+    assert all(_gain(w, before, i) == 0.0 for i in range(8))
+    # 죽은 새끼·죽은 부모
+    w = _feed_world(8)
+    w.s.feed_g[0] = 0.8
+    _at_xy(w, 1, 22.0, 20.0)
+    _child(w, 1, 0, 50)
+    w.s.alive[1] = False
+    before = _fpass(w)
+    assert all(_gain(w, before, i) == 0.0 for i in range(8))
+    # 미숙기 부모는 시연자 아닌 것처럼 못 준다
+    w = _feed_world(8)
+    w.s.feed_g[1] = 1.0
+    _at_xy(w, 1, 22.0, 20.0)
+    _at_xy(w, 2, 24.0, 20.0)
+    _child(w, 1, None, 50)
+    _child(w, 2, 1, 30)
+    before = _fpass(w)
+    assert all(_gain(w, before, i) == 0.0 for i in range(8))
+    # 강도 0이면 못 주고, 강도는 [0, 1]로 자른다
+    for g, amt in ((0.0, 0.0), (1.7, rate), (-0.5, 0.0)):
+        w = _feed_world(8)
+        w.s.feed_g[0] = g
+        _at_xy(w, 1, 22.0, 20.0)
+        _child(w, 1, 0, 50)
+        before = _fpass(w)
+        assert _gain(w, before, 1) == pytest.approx(amt * 0.9)
+        assert _gain(w, before, 0) == pytest.approx(-amt)
+    # 새끼가 둘이면 가까운 쪽에만
+    w = _feed_world(8)
+    w.s.feed_g[0] = 0.8
+    _at_xy(w, 1, 22.0, 20.0)
+    _at_xy(w, 2, 18.5, 20.0)
+    _child(w, 1, 0, 50)
+    _child(w, 2, 0, 60)
+    before = _fpass(w)
+    assert _gain(w, before, 2) == pytest.approx(rate * 0.8 * 0.9)
+    assert _gain(w, before, 1) == 0.0
+    assert _gain(w, before, 0) == pytest.approx(-rate * 0.8)
+    # 세계 가장자리를 가로질러도 닿는다(둘레 거리)
+    w = _feed_world(8)
+    w.s.feed_g[0] = 0.8
+    wd = float(w.fp[k.P_W])
+    _at_xy(w, 0, 0.5, 20.0)
+    _at_xy(w, 1, wd - 1.0, 20.0)
+    _child(w, 1, 0, 50)
+    before = _fpass(w)
+    assert _gain(w, before, 1) == pytest.approx(rate * 0.8 * 0.9)
+
+
+def test_feed_min_energy_and_loss():
+    rate = 0.02
+    loss = 0.1
+    # 에너지가 give_min_energy(1.0) 이하이면 못 준다
+    for e0, gives in ((1.0, False), (0.5, False), (1.005, True), (3.0, True)):
+        w = _feed_world(8)
+        w.s.feed_g[0] = 1.0
+        w.s.energy[0] = e0
+        _at_xy(w, 1, 22.0, 20.0)
+        _child(w, 1, 0, 50)
+        before = _fpass(w)
+        assert (_gain(w, before, 1) > 0.0) == gives, e0
+    # 주고 나서 최소 아래로 내려갈 수 있다
+    w = _feed_world(8)
+    w.s.feed_g[0] = 1.0
+    w.s.energy[0] = 1.005
+    _at_xy(w, 1, 22.0, 20.0)
+    _child(w, 1, 0, 50)
+    before = _fpass(w)
+    assert w.s.energy[0] == pytest.approx(1.005 - rate) and w.s.energy[0] < 1.0
+    # 받는 양 = (1 - 손실) x 건넨 양, 손실은 L_LOST, 태그별 GT_FEED_GIVEN
+    w = _feed_world(12)
+    s = w.s
+    for p, tag, g in ((0, 5, 0.8), (2, 99, 0.5), (4, -3, 1.0)):
+        s.feed_g[p] = g
+        s.tag[p] = tag
+        _at_xy(w, p + 1, s.x[p] + 2.0, s.y[p])
+        _child(w, p + 1, p, 50)
+    lost0 = float(s.ledger[k.L_LOST])
+    total0 = float(s.energy.sum())
+    before = _fpass(w)
+    given = rate * (0.8 + 0.5 + 1.0)
+    assert float(s.ledger[k.L_LOST]) - lost0 == pytest.approx(given * loss)
+    assert float(s.energy.sum()) - total0 == pytest.approx(-given * loss)      # 에너지 + 손실 = 보존
+    for p, g in ((0, 0.8), (2, 0.5), (4, 1.0)):
+        assert _gain(w, before, p + 1) == pytest.approx(rate * g * (1 - loss))
+    assert s.grad_tab[5, k.GT_FEED_GIVEN] == pytest.approx(rate * 0.8)
+    assert s.grad_tab[7, k.GT_FEED_GIVEN] == pytest.approx(rate * 0.5)     # 99는 7행에 접힌다
+    assert s.grad_tab[0, k.GT_FEED_GIVEN] == pytest.approx(rate * 1.0)     # -3은 0행에 접힌다
+    assert s.grad_tab[:, k.GT_FEED_GIVEN].sum() == pytest.approx(given)
+    # 새끼는 e_max 상한이 없다(큰 에너지여도 받는다)
+    w = _feed_world(8)
+    w.s.feed_g[0] = 1.0
+    w.s.energy[1] = 50.0
+    _at_xy(w, 1, 22.0, 20.0)
+    _child(w, 1, 0, 50)
+    before = _fpass(w)
+    assert _gain(w, before, 1) == pytest.approx(rate * 0.9)
+
+
+def test_feed_ledger_closes():
+    w = taste_world("taste", juv_enabled=True, feed_enabled=True, feed_rate=0.05)
+    w.s.feed_g[w.s.alive] = 0.8                    # 돌아가는 동안 건네기가 실제로 일어나게
+    w.run(1500)
+    assert rel_residual(w) < 1e-9
+    assert float(w.s.grad_tab[:, k.GT_FEED_GIVEN].sum()) > 0.0              # 양성 확인
+
+
+def test_feed_independent_of_teach():
+    w = taste_world("taste", juv_enabled=True, feed_enabled=True, feed_rate=0.05,
+                    teach_enabled=False, soc_taste_enabled=False)
+    assert w.ip[k.Q_FEED] == 1 and w.ip[k.Q_TEACH] == 0 and w.ip[k.Q_SOC] == 0
+    w.s.feed_g[w.s.alive] = 0.8
+    w.run(1500)
+    assert float(w.s.grad_tab[:, k.GT_FEED_GIVEN].sum()) > 0.0
+    assert rel_residual(w) < 1e-9
+
+
+def test_feed_off_not_called(monkeypatch):
+    calls = []
+    real = k.feed_pass
+    monkeypatch.setattr(k, "feed_pass", lambda *a: calls.append(1) or real(*a))
+    taste_world("taste").run(5)
+    taste_world("taste", juv_enabled=True).run(5)                                       # feed_enabled=false
+    taste_world("taste", soc_taste_enabled=True, juv_enabled=True, teach_enabled=True).run(5)
+    taste_world("taste", juv_measure=True).run(5)
+    assert calls == []
+    taste_world("taste", juv_enabled=True, feed_enabled=True).run(5)
+    assert len(calls) == 5                                                              # 양성 대조

@@ -257,6 +257,8 @@ class World:
             # 보고 배우기: 충돌로 위치가 바뀐 뒤라 격자를 새로 짓는다(꺼져 있으면 추가 호출 없음). 켜면 give·attack도 새 격자를 본다
             k.build_grid(s.x, s.y, s.alive, inv_cell, gw, gh, s.a_start, s.a_items, s.cursor)
             k.watch_meals(t, s, fp, ip)
+        if ip[k.Q_FEED]:
+            k.feed_pass(t, s, fp, ip)           # 먹이 대주기(돌봄 대조). juv_pass가 채운 par_slot을 쓴다
         if social:
             st.give(s, fs, isp)
         if cfg.conflict_enabled:

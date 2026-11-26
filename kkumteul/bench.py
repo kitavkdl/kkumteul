@@ -68,6 +68,8 @@ def kernel_breakdown(world: World, steps: int) -> dict:
         if ip[k.Q_SOC]:                 # 보고 배우기를 켠 세계의 성능을 잴 때만
             k.build_grid(s.x, s.y, s.alive, inv, gw, gh, s.a_start, s.a_items, s.cursor)
             k.watch_meals(t, s, fp, ip)
+        if ip[k.Q_FEED]:                # 먹이 대주기를 켠 세계의 성능을 잴 때만
+            k.feed_pass(t, s, fp, ip)
         e = time.perf_counter()
         k.process_deaths(t, s, fp, ip)
         nb = k.process_births(t, s, fp, ip)
