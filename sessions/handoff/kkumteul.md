@@ -11,7 +11,7 @@
 2. **가르침 체인 준비** — 구현 끝, 예측 절 커밋돼 있음, `teach_gate` None 고침 끝(`_ratio`가 None·nan이면 nan → 그 판 닫힘, 시험 5건 추가, 전체 597 통과). 남은 것: 사회 학습 체인이 끝난 뒤 `wayfinder/stage2-4/teach_chain.sh`를 **새 코드 사본**(지금 가지 머리)으로 돌림(한 번에 하나, 1.5GB·2스레드). 체인 띄우기는 서버 실행 시작이니 사용자 깨어 있으면 한 줄 보고 후.
 3. **규범의 씨앗 구현** — 계획 둘째 판 `f0a1cca`(`docs/superpowers/plans/2026-11-26-norms-seed.md`, 과제 0~19, sonnet 검토 22건 반영). 가르침과 같은 꼴 워크플로(과제마다 TDD 구현 → sonnet 검토 → 고치기, 같은 폴더에 구현 워크플로 둘 동시 금지). 열린 물음은 결정 대기 둘째 줄.
 4. **develop 창의성 다음 실측** — 2바퀴 기록 `sessions/develop/kkumteul-communication.md` "2바퀴"(`6403420`): 여섯 관점 방안·겹친 곳·실측 순서 2~8, 실측 1(용량 반응 추세: a 단조 +, b 뒤집힌 U, blind 강한 음)은 함. 다음: 실측 2(`saweat` 막기 겨루기)·3(방언 지도, 읽기 전용)을 사회 학습 체인 뒤에, 4(쌍둥이·심은 효과 눈금자, `measure.py` TDD). 5단계(말하는 뇌, `docs/stage5-proposal.md`) 시험판 검토는 아직.
-4b. 정렬 고침(`152357b`) 2축 검토 남은 것: 묶음 → `measure.compete` 전체를 지나는 시험이 없음(지금 시험은 cfg 값·가짜 assay만), `hand_learner.curve`·`solo`가 `cfg_good_kind`를 쓰는지 시험 없음 → 작은 세계로 하나씩 추가. `taste_judge.py`는 아레나가 아니라 원래 세계에 씨앗을 덮어쓴 세계라 일부러 안 고침(지시와 다르게 한 것).
+4b. 정렬 고침(`152357b`) 2축 검토 남은 것: 묶음 → `measure.compete` 전체를 지나는 시험이 없음(지금 시험은 cfg 값·가짜 assay만) → 작은 세계로 추가. (`hand_learner.curve`·`solo` 정렬 시험은 밤 3차에 넣음 — 정렬을 빼면 깨지는 것 확인.) `taste_judge.py`는 아레나가 아니라 원래 세계에 씨앗을 덮어쓴 세계라 일부러 안 고침(지시와 다르게 한 것).
 5. 8시 무렵: 아침 브리핑용으로 status·인수인계 정리(무엇을 재었고 무엇이 돌고 있는지).
 5b. 주의: `soc_chain.sh`를 도는 체인과 같은 기록 폴더로 DRY 돌리지 말 것 — 레포 판은 `5dda27e`로 고쳤지만 도는 코드 사본(`runs/code-faf9852`)은 옛 판이라 DRY가 갈래 로그를 자른다.
 6. 이전 계획(11/09 이전, 이제 위 순서 뒤): 11/06 판 "다음 할 일"(맛 기억 다음·사냥·2부-다·암수) → `grep -n '2026-11-09 대청소' archive/kkumteul-history.md`. 일하는 방식·서버 세계 재개 명령 → `grep -n '^## 일하는 방식\|^## 현재 상태' archive/kkumteul-history.md`.

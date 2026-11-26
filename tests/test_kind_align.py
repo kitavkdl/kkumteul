@@ -133,3 +133,40 @@ def test_hand_learner_after_flips_with_offset_order():
               for s in range(every, 1501, every)]
     out = hl.after_flips(series, period, acfg.seed, good=lambda t: k.cfg_good_kind(acfg, t))
     assert [o["flip"] for o in out] == flips
+
+
+def _hl():
+    import importlib.util
+    from pathlib import Path
+    p = Path(__file__).resolve().parent.parent / "wayfinder" / "stage2-4" / "hand_learner.py"
+    spec = importlib.util.spec_from_file_location("hand_learner_t2", p)
+    hl = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hl)
+    return hl
+
+
+@pytest.mark.parametrize("fn", ["curve", "solo"])
+def test_hand_learner_rows_use_aligned_order(fn):
+    """curve·solo의 줄마다 good = 마당 설정 기준(kind_seed·kind_step0 반영) 좋은 종류.
+    옛 셈(마당 씨앗·스텝만)과 갈리는 kind_step0을 골라, 정렬을 빼먹으면 이 시험이 깨지게 한다."""
+    from kkumteul.world import World
+    hl = _hl()
+    period, steps, every, n, seed = 100, 600, 50, 20, 4
+    w = World(_small_kinds(kind_flip_period=period))
+    side = measure.side_from_world(w)
+
+    def arena(c):
+        return hl.curve_arena(c, seed, n, lab=False) if fn == "curve" else measure.arena_config(c, seed, n)
+
+    def naive_differs(c):
+        a = arena(c)
+        return any(k.cfg_good_kind(a, t) != int(k.good_kind(a.seed, t, period)) for t in range(steps))
+
+    cfg = next(c for s0 in range(1, 2000, 37)
+               for c in [_small_kinds(kind_flip_period=period, kind_step0=s0)] if naive_differs(c))
+    acfg = arena(cfg)
+    out = hl.curve(cfg, side["genomes"], n, steps, seed, every=every, lab=False) if fn == "curve" \
+        else hl.solo(cfg, side["genomes"], n, steps, seed, every=every)
+    rows = out["series"]
+    assert rows
+    assert all(r["good"] == k.cfg_good_kind(acfg, r["step"] - 1) for r in rows)
