@@ -18,7 +18,7 @@ import numba
 import numpy as np
 
 from . import kernels as k
-from .config import Config
+from .config import WHEN_NEAR, Config
 from .world import World
 
 
@@ -63,6 +63,8 @@ def kernel_breakdown(world: World, steps: int) -> dict:
         k.eat(t, s, fp, ip)
         if ip[k.Q_JUV_COUNT]:           # 미숙기·곁 계수를 켠 세계의 성능을 잴 때만
             k.juv_pass(t, s, fp, ip)
+            if ip[k.Q_TEACH] and ip[k.Q_TEACH_WHEN] == WHEN_NEAR:
+                k.teach_pass(t, s, fp, ip)
         if ip[k.Q_SOC]:                 # 보고 배우기를 켠 세계의 성능을 잴 때만
             k.build_grid(s.x, s.y, s.alive, inv, gw, gh, s.a_start, s.a_items, s.cursor)
             k.watch_meals(t, s, fp, ip)

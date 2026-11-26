@@ -886,3 +886,212 @@ def test_summary_show_feed_mean():
     assert "feed_g_mean" in sm and "show_g_mean" not in sm
     w = _gparent(False, False, 0.3, 0.6)
     assert not {"show_g_mean", "feed_g_mean"} & set(w.summary())
+
+
+# ---- 과제 5: teach_pass(보여 주기 비용, near) ----
+def _teach_world(n, **kw) -> World:
+    """_juv_world에 보고 배우기(outcome)·보여 주기를 켠 세계. 개체는 서로 멀리 놓인다(0번 (20,20), 1번 (60,20) ...)."""
+    kw.setdefault("soc_taste_enabled", True)
+    kw.setdefault("teach_enabled", True)
+    return _juv_world(n, **kw)
+
+
+def _tpass(w):
+    """juv_pass(par_slot을 채움) 뒤 teach_pass. 격자는 안 짓는다. 스텝 전 에너지를 돌려준다."""
+    before = w.s.energy.copy()
+    _jpass(w)
+    k.teach_pass(w.step_no, w.s, w.fp, w.ip)
+    return before
+
+
+def _paid(w, before, i) -> float:
+    return float(before[i] - w.s.energy[i])
+
+
+def test_teach_cost_kin_only_when_own_juvenile_near():
+    cost = 0.0005
+    w = _teach_world(8)
+    assert w.ip[k.Q_TEACH] == 1 and w.ip[k.Q_TEACH_WHEN] == 0
+    s = w.s
+    s.show_g[0] = 0.8
+    _at_xy(w, 1, 23.0, 20.0)
+    _child(w, 1, 0, 50)                            # 자기 새끼, 곁
+    before = _tpass(w)
+    assert _paid(w, before, 0) == pytest.approx(cost * 0.8)            # 양성 확인
+    assert all(_paid(w, before, i) == 0.0 for i in range(1, 8))
+    # 반지름 밖
+    w = _teach_world(8)
+    w.s.show_g[0] = 0.8
+    _at_xy(w, 1, 20.0 + 9.0, 20.0)
+    _child(w, 1, 0, 50)
+    before = _tpass(w)
+    assert _paid(w, before, 0) == 0.0
+    # 새끼가 없다
+    w = _teach_world(8)
+    w.s.show_g[0] = 0.8
+    before = _tpass(w)
+    assert _paid(w, before, 0) == 0.0
+    # 새끼가 죽었다
+    w = _teach_world(8)
+    w.s.show_g[0] = 0.8
+    _at_xy(w, 1, 23.0, 20.0)
+    _child(w, 1, 0, 50)
+    w.s.alive[1] = False
+    before = _tpass(w)
+    assert _paid(w, before, 0) == 0.0
+    # 강도 0이면 0, 강도는 [0, 1]로 자른다
+    for g, want in ((0.0, 0.0), (1.7, cost), (-0.5, 0.0)):
+        w = _teach_world(8)
+        w.s.show_g[0] = g
+        _at_xy(w, 1, 23.0, 20.0)
+        _child(w, 1, 0, 50)
+        before = _tpass(w)
+        assert _paid(w, before, 0) == pytest.approx(want)
+    # 새끼가 둘이어도 스텝당 한 번
+    w = _teach_world(8)
+    w.s.show_g[0] = 0.8
+    _at_xy(w, 1, 23.0, 20.0)
+    _at_xy(w, 2, 17.0, 22.0)
+    _child(w, 1, 0, 50)
+    _child(w, 2, 0, 60)
+    before = _tpass(w)
+    assert _paid(w, before, 0) == pytest.approx(cost * 0.8)
+
+
+def test_teach_cost_kin_vs_any_for_nonkin_juvenile():
+    cost = 0.0005
+    for mode, want in (("kin", 0.0), ("any", cost * 0.8)):
+        w = _teach_world(8, teach_mode=mode)
+        w.s.show_g[0] = 0.8
+        _at_xy(w, 1, 23.0, 20.0)
+        _child(w, 1, 3, 50)                        # 부모는 멀리 있는 3번
+        before = _tpass(w)
+        assert _paid(w, before, 0) == pytest.approx(want), mode
+        assert _paid(w, before, 3) == 0.0          # 3번은 새끼 곁이 아니다(kin에서도 any에서도 0)
+    # any: 부모 없는 새끼 곁의 어른 모두가 낸다(각자 강도만큼)
+    w = _teach_world(8, teach_mode="any")
+    w.s.show_g[0] = 0.8
+    w.s.show_g[2] = 0.4
+    _at_xy(w, 1, 23.0, 20.0)
+    _at_xy(w, 2, 20.0, 25.0)
+    _child(w, 1, None, 50)
+    before = _tpass(w)
+    assert _paid(w, before, 0) == pytest.approx(cost * 0.8)
+    assert _paid(w, before, 2) == pytest.approx(cost * 0.4)
+
+
+def test_teach_cost_juvenile_not_payer():
+    cost = 0.0005
+    w = _teach_world(8)
+    s = w.s
+    s.show_g[0] = 1.0
+    s.show_g[1] = 1.0
+    _at_xy(w, 1, 23.0, 20.0)
+    _at_xy(w, 2, 25.0, 20.0)
+    _child(w, 1, 0, 50)                            # 1번은 미숙기이면서 2번의 부모
+    _child(w, 2, 1, 30)
+    before = _tpass(w)
+    assert _paid(w, before, 0) == pytest.approx(cost)       # 어른 0번은 낸다
+    assert _paid(w, before, 1) == 0.0                       # 미숙기 1번은 시연자가 아니다
+    # any에서도 미숙기는 안 낸다
+    w = _teach_world(8, teach_mode="any")
+    w.s.show_g[1] = 1.0
+    _at_xy(w, 1, 23.0, 20.0)
+    _at_xy(w, 2, 25.0, 20.0)
+    _child(w, 1, None, 50)
+    _child(w, 2, None, 30)
+    before = _tpass(w)
+    assert all(_paid(w, before, i) == 0.0 for i in range(8))
+
+
+def test_teach_cost_modes():
+    cost = 0.0005
+    w = _teach_world(8)
+    kp = 1 - k.cfg_good_kind(w.cfg, w.step_no)
+
+    def run(mode, knows):
+        w = _teach_world(8, teach_mode=mode)
+        w.s.show_g[0] = 0.8
+        _at_xy(w, 1, 23.0, 20.0)
+        _child(w, 1, 0, 50)
+        w.s.taste_m[0, kp] = -0.5 if knows else 0.0
+        before = _tpass(w)
+        return _paid(w, before, 0)
+
+    assert run("costonly", False) == pytest.approx(cost * 0.8)
+    assert run("costonly", True) == pytest.approx(cost * 0.8)
+    assert run("drift", False) == 0.0 and run("drift", True) == 0.0
+    assert run("knower", False) == 0.0
+    assert run("knower", True) == pytest.approx(cost * 0.8)
+    assert run("kin", False) == pytest.approx(cost * 0.8)
+    # 한 번 안 부모(know_age >= 0)는 기억이 식어도 계속 안다
+    w = _teach_world(8, teach_mode="knower")
+    w.s.show_g[0] = 0.8
+    _at_xy(w, 1, 23.0, 20.0)
+    _child(w, 1, 0, 50)
+    w.s.know_age[0] = 10
+    before = _tpass(w)
+    assert _paid(w, before, 0) == pytest.approx(cost * 0.8)
+
+
+def test_teach_cost_ledger_and_tab():
+    cost = 0.0005
+    w = _teach_world(12)
+    s = w.s
+    for p, tag, g in ((0, 5, 0.8), (2, 99, 0.5), (4, -3, 1.0)):
+        s.show_g[p] = g
+        s.tag[p] = tag
+        _at_xy(w, p + 1, s.x[p] + 3.0, s.y[p])
+        _child(w, p + 1, p, 50)
+    led0 = float(s.ledger[k.L_BRAIN])
+    before = _tpass(w)
+    drop = sum(_paid(w, before, i) for i in range(12))
+    assert drop == pytest.approx(cost * (0.8 + 0.5 + 1.0))
+    assert float(s.ledger[k.L_BRAIN]) - led0 == pytest.approx(drop)        # 에너지 감소 = L_BRAIN 증가
+    assert s.grad_tab[5, k.GT_TEACH_COST] == pytest.approx(cost * 0.8)
+    assert s.grad_tab[7, k.GT_TEACH_COST] == pytest.approx(cost * 0.5)     # 99는 7행에 접힌다
+    assert s.grad_tab[0, k.GT_TEACH_COST] == pytest.approx(cost * 1.0)     # -3은 0행에 접힌다
+    assert s.grad_tab[:, k.GT_TEACH_COST].sum() == pytest.approx(drop)
+
+
+def test_teach_ledger_closes_with_teach_pass():
+    w = taste_world("taste", soc_taste_enabled=True, juv_enabled=True, teach_enabled=True, teach_cost=0.02)
+    w.s.show_g[w.s.alive] = 0.8                    # 돌아가는 동안 비용이 실제로 걷히게
+    w.run(1500)
+    assert rel_residual(w) < 1e-9
+    assert float(w.s.grad_tab[:, k.GT_TEACH_COST].sum()) > 0.0              # 양성 확인
+
+
+def test_teach_when_meal_skips_teach_pass(monkeypatch):
+    calls = []
+    real = k.teach_pass
+    monkeypatch.setattr(k, "teach_pass", lambda *a: calls.append(1) or real(*a))
+    w = taste_world("taste", soc_taste_enabled=True, juv_enabled=True, teach_enabled=True, teach_cost_when="meal")
+    w.run(5)
+    assert calls == []
+    w = taste_world("taste", soc_taste_enabled=True, juv_enabled=True, teach_enabled=True, teach_cost_when="near")
+    w.run(5)
+    assert len(calls) == 5                         # 양성 대조
+
+
+def test_teach_pass_off_not_called(monkeypatch):
+    calls = []
+    real = k.teach_pass
+    monkeypatch.setattr(k, "teach_pass", lambda *a: calls.append(1) or real(*a))
+    taste_world("taste").run(5)
+    taste_world("taste", soc_taste_enabled=True, juv_enabled=True).run(5)       # teach_enabled=false
+    taste_world("taste", juv_measure=True).run(5)
+    assert calls == []
+
+
+def test_teach_pass_not_requiring_grid():
+    """손으로 놓은 쌍: build_grid를 안 부르고(a_start가 비어 있어도) 동작한다."""
+    w = _teach_world(8)
+    w.s.show_g[0] = 0.8
+    _at_xy(w, 1, 23.0, 20.0)
+    _child(w, 1, 0, 50)
+    s = w.s
+    s.a_start[:] = 0
+    s.a_items[:] = 0
+    before = _tpass(w)
+    assert _paid(w, before, 0) == pytest.approx(0.0005 * 0.8)

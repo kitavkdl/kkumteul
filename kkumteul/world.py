@@ -9,7 +9,7 @@ import numpy as np
 from . import animals as an
 from . import kernels as k
 from . import stages as st
-from .config import ACT_ATTACK, ACT_CARRY, EXT_CARRY, EXT_PREY, EXT_SEASON, Config, N_REWARD
+from .config import ACT_ATTACK, ACT_CARRY, EXT_CARRY, EXT_PREY, EXT_SEASON, WHEN_NEAR, Config, N_REWARD
 
 # 2~4단계에서 새로 생긴 저장 필드. 옛 체크포인트에는 없어도 된다(그 밖의 필드가 없으면 깨진 것이다)
 NEW_SINCE_STAGE1 = frozenset({"rw", "eta", "alpha", "horm", "mod", "exp_r", "e_prev", "fatigue", "asleep",
@@ -251,6 +251,8 @@ class World:
         if ip[k.Q_JUV_COUNT]:
             # 곁 머무름 계수기·졸업표(juv_enabled 또는 juv_measure). 격자를 안 쓰는 읽기 전용 측정이라 watch_meals 앞에 둔다
             k.juv_pass(t, s, fp, ip)
+            if ip[k.Q_TEACH] and ip[k.Q_TEACH_WHEN] == WHEN_NEAR:
+                k.teach_pass(t, s, fp, ip)      # 보여 주기 비용(near)
         if ip[k.Q_SOC]:
             # 보고 배우기: 충돌로 위치가 바뀐 뒤라 격자를 새로 짓는다(꺼져 있으면 추가 호출 없음). 켜면 give·attack도 새 격자를 본다
             k.build_grid(s.x, s.y, s.alive, inv_cell, gw, gh, s.a_start, s.a_items, s.cursor)

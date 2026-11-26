@@ -14,7 +14,7 @@ from numba import njit, prange
 
 from .config import (ACT_ATTACK, ACT_CARRY, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_THRUST, ACT_TURN, FIRST_MEALS, N_REWARD,
                      N_TASTE_IN, N_TASTE_VIS, SOC_BLIND, SOC_INERT, SOC_MODES, SOC_WHAT, TASTE_VAL, TASTE_VIS,
-                     TEACH_MODES, TEACH_WHENS)
+                     TEACH_ANY, TEACH_DRIFT, TEACH_KNOWER, TEACH_MODES, TEACH_WHENS)
 from .rng import (S_BIRTH_ORDER, S_BIRTH_POS, S_FOOD, S_KIND, S_INIT_AGE, S_INIT_GENOME, S_INIT_POS, S_MUT_GENE,
                   S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, S_SOC_BLIND, S_SOC_GENE, S_TASTE_GENE, S_TEACH_GENE, S_FEED_GENE, normal,
                   soc_pair_key, u01)
@@ -1485,6 +1485,66 @@ def juv_pass(step, s, fp, ip):
             tab[row, GT_MEALS] += s.n_meal[i]
             tab[row, GT_POISON_MEALS] += s.n_poison[i]
             tab[row, GT_E_GRAD] += s.energy[i]
+
+
+@njit(cache=True)
+def teach_pass(step, s, fp, ip):
+    """보여 주기 비용(teach_cost_when == "near"): 어른 시연자가 곁의 미숙기 새끼 때문에 스텝당 한 번 내는 비용.
+
+    순차 전용, prange 금지. 격자를 안 쓴다(juv_pass가 채운 par_slot과 선형 탐색). juv_pass 뒤에 부른다.
+    - kin·costonly·drift·knower: 어른 p가 자기 미숙기 새끼 i(par_slot[i] == p)가 soc_radius 안일 때 표시
+      (knower는 p가 독 모양을 알 때만). any: 곁(soc_radius 안)의 미숙기 새끼마다 그 곁의 어른 모두를 표시.
+    - 표시된 어른 q(칸 번호 오름차순)가 drift가 아니고 show_g[q] > 0이면 c = teach_cost × clamp(show_g[q], 0, 1)을
+      energy에서 빼 L_BRAIN에 더한다(새 에너지원 없음) + 태그별 GT_TEACH_COST. 새끼가 몇이든 어른 한 번.
+    - 미숙기(age <= juv_steps) 개체는 시연자가 아니다.
+    """
+    n = s.x.shape[0]
+    steps = ip[Q_JUV_STEPS]
+    mode = ip[Q_TEACH_MODE]
+    w = fp[P_W]
+    hgt = fp[P_H]
+    r2 = fp[P_SOC_RADIUS] * fp[P_SOC_RADIUS]
+    kp = _poison_slot(step, ip)
+    for q in range(n):
+        s.tflag[q] = 0
+    for i in range(n):
+        if not s.alive[i] or s.age[i] > steps:
+            continue
+        if mode == TEACH_ANY:
+            for j in range(n):
+                if j == i or not s.alive[j] or s.age[j] <= steps:
+                    continue
+                ddx = _wdiff(s.x[j] - s.x[i], w)
+                ddy = _wdiff(s.y[j] - s.y[i], hgt)
+                if ddx * ddx + ddy * ddy <= r2:
+                    s.tflag[j] = 1
+        else:
+            q = s.par_slot[i]
+            if q < 0 or not s.alive[q] or s.age[q] <= steps:
+                continue
+            if mode == TEACH_KNOWER and not _knows(s, q, kp, fp):
+                continue
+            ddx = _wdiff(s.x[q] - s.x[i], w)
+            ddy = _wdiff(s.y[q] - s.y[i], hgt)
+            if ddx * ddx + ddy * ddy <= r2:
+                s.tflag[q] = 1
+    if mode == TEACH_DRIFT:
+        return
+    for q in range(n):
+        if s.tflag[q] != 1 or s.show_g[q] <= 0.0:
+            continue
+        g = s.show_g[q]
+        if g > 1.0:
+            g = 1.0
+        c = fp[P_TEACH_COST] * g
+        s.energy[q] -= c
+        s.ledger[L_BRAIN] += c
+        row = s.tag[q]
+        if row < 0:
+            row = 0
+        elif row > TAG_ROWS - 1:
+            row = TAG_ROWS - 1
+        s.grad_tab[row, GT_TEACH_COST] += c
 
 
 # ---- 유전체 ----
