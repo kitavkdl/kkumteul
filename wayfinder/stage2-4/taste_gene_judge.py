@@ -9,16 +9,28 @@ rate-zero (판정 나):
     치우침: A는 배움 값(taste_cost × 속도)을 치르지 않는다 — 비용만큼 A에 유리하다. 그래서 A가 지면 보수적인 결론이고,
     A가 이기거나 비기면 "배움 값이 이득보다 크거나 같다"까지만 말할 수 있다.
     --gene eta: 같은 꼴로 헤브 학습률 유전자 eta를 0으로 둔 벌(기존 평생 학습 규칙이 살아남았나, 계획 1순위).
+    --gene soc: 같은 꼴로 보고 배우기 속도 유전자 soc_g를 −soc_rate로 둔 벌(실제 속도 0, 비용도 0).
+      겨루기 설정을 바꾸는 옵션(설계 4절 판정 0, 용량 반응): --set KEY=VAL(여러 번, 체크포인트 설정 위에 덮어쓴다 — 예: soc_taste_enabled=true
+      soc_taste_mode=blind soc_cost=0), --soc-d D(B쪽을 모두 실제 속도 D로), --no-individual(두 쪽 모두 개인 학습 속도 0: 사회 몫만),
+      --no-neutral(중립 겨루기를 건너뜀 — 그러면 min_detectable도 안 낸다).
 
 observe (단서, 판정 아님):
     끼니 계수기는 체크포인트에 저장되지 않으므로 체크포인트 설정 그대로 --steps(기본 3,000) 더 돌려 센다.
     무리 크기, 실제 배움 속도 평균·사분위(돌리기 전), 그동안 먹힌 알 가운데 독 비율(세계 계수기 C_POISONED / C_EATEN 차이),
     끝에 산 개체의 첫 10끼 독 비율(n_poison10 / min(n_meal, 10) 합 — 읽은 뒤 태어난 개체는 태어난 뒤부터, 그 전부터 산
     개체는 읽은 뒤부터 센 끼니). 독 비율 0.5 근처면 가려 먹지 못하는 것이다.
+    보고 배우기를 켠 설정이면: soc_rate(실제 속도 평균·사분위, 돌리기 전)와, 돌린 뒤 산 개체의 본 끼니 수(n_seen·n_seen_poison·
+    n_seen_kin·seen_age_sum 합)와 비율(seen_poison_frac, seen_kin_frac, 산 개체 1,000스텝당 본 끼니 seen_per_1000_steps — 근사).
 
-    PYTHONPATH=. python wayfinder/stage2-4/taste_gene_judge.py rate-zero <체크포인트.npz> [--gene taste|eta]
-        [--n 400] [--steps 8000] [--reps 6] [--seed 6000] [--json <출력.json>]
+gate (판정 0의 관문, 순수 계산 + 파일 읽기):
+    rate-zero가 남긴 j-dose-<이름>-<태그>.json들을 읽어 바탕(태그)마다 통과 / 검출 불능 / 도구 깨짐을 가른다(규칙은 gate_tag 문서).
+    종료 코드: 0 통과(한 바탕이라도), 3 검출 불능(모든 바탕), 4 통과 없이 도구 깨진 바탕이 있음.
+
+    PYTHONPATH=. python wayfinder/stage2-4/taste_gene_judge.py rate-zero <체크포인트.npz> [--gene taste|eta|soc]
+        [--n 400] [--steps 8000] [--reps 6] [--seed 6000] [--set KEY=VAL ...] [--soc-d D] [--no-individual] [--no-neutral]
+        [--json <출력.json>]
     PYTHONPATH=. python wayfinder/stage2-4/taste_gene_judge.py observe <체크포인트.npz> [--steps 3000] [--json <출력.json>]
+    PYTHONPATH=. python wayfinder/stage2-4/taste_gene_judge.py gate --dir <결과 폴더> --tags a b [--json <출력.json>]
 """
 from __future__ import annotations
 
@@ -37,8 +49,9 @@ from kkumteul import knockout, measure  # noqa: E402
 from kkumteul.config import FIRST_MEALS  # noqa: E402
 
 
-def zeroed_side(side: dict, gene: str = "taste") -> dict:
-    """배움을 없앤 한 벌(유전체 사본). taste: taste_g = −taste_rate(실제 속도 0), eta: eta = 0."""
+def zeroed_side(side: dict, gene: str = "taste", check: bool = True) -> dict:
+    """배움을 없앤 한 벌(유전체 사본). taste: taste_g = −taste_rate(실제 속도 0), eta: eta = 0,
+    soc: soc_g = −soc_rate(보고 배우기 실제 속도 0). check=False면 장치 켜짐 검사를 건너뛴다(음성 대조에서 장치를 끄는 설정을 줄 때)."""
     cfg = side["cfg"]
     g = {kk: v.copy() for kk, v in side["genomes"].items()}
     if gene == "taste":
@@ -49,21 +62,63 @@ def zeroed_side(side: dict, gene: str = "taste") -> dict:
         g["taste_g"][:] = -cfg.taste_rate
     elif gene == "eta":
         g["eta"][:] = 0.0
+    elif gene == "soc":
+        if check and not cfg.soc_taste_enabled:
+            raise ValueError("보고 배우기가 꺼진 체크포인트다: soc_g가 쓰이지 않는다(--set soc_taste_enabled=true로 켠다)")
+        g["soc_g"][:] = -cfg.soc_rate
     else:
-        raise ValueError(f"모르는 유전자: {gene} (taste 또는 eta)")
+        raise ValueError(f"모르는 유전자: {gene} (taste, eta, soc 중 하나)")
     return dict(side, genomes=g, path=f"{side['path']} ({gene} 배움 0)")
 
 
+def _with_cfg(side: dict, cfg) -> dict:
+    return dict(side, cfg=cfg, genomes={kk: v.copy() for kk, v in side["genomes"].items()})
+
+
+def apply_options(a: dict, b: dict, sets: list[str] | None = None, soc_d: float | None = None,
+                  no_individual: bool = False) -> tuple[dict, dict]:
+    """두 쪽에 겨루기 옵션을 적용한 사본 한 쌍을 돌려준다(원본은 그대로).
+    sets: "이름=값" 문자열들을 두 쪽 설정에 덮어쓴다(Config.with_overrides). soc_d: B쪽 soc_g = D − soc_rate(실제 속도 D;
+    soc_rate는 sets를 적용한 뒤의 값). no_individual: 두 쪽 모두 taste_g = −taste_rate(개인 학습 0, 사회 몫만 본다).
+    A쪽을 0으로 만드는 일(zeroed_side)은 이 함수 밖에서, sets를 적용한 뒤에 해야 soc_rate가 어긋나지 않는다(build_pair)."""
+    a2 = _with_cfg(a, a["cfg"].with_overrides(sets) if sets else a["cfg"])
+    b2 = _with_cfg(b, b["cfg"].with_overrides(sets) if sets else b["cfg"])
+    if soc_d is not None:
+        b2["genomes"]["soc_g"][:] = soc_d - b2["cfg"].soc_rate
+    if no_individual:
+        for s in (a2, b2):
+            if not s["cfg"].taste_gene_enabled:
+                raise ValueError("맛 배움 속도 유전자가 꺼진 설정이라 --no-individual이 뜻이 없다(taste_g가 쓰이지 않는다)")
+            s["genomes"]["taste_g"][:] = -s["cfg"].taste_rate
+    return a2, b2
+
+
+def build_pair(side: dict, gene: str, sets: list[str] | None = None, soc_d: float | None = None,
+               no_individual: bool = False) -> tuple[dict, dict]:
+    """겨루기 한 쌍 (A: 배움 0 벌, B: 원래 벌). sets를 먼저 설정에 적용한 뒤 A를 0으로 만들고 나머지 옵션을 적용한다.
+    soc는 --set이 soc_taste_enabled를 직접 건드릴 때(음성 대조로 끄는 판 포함) 켜짐 검사를 건너뛴다."""
+    cfg = side["cfg"].with_overrides(sets) if sets else side["cfg"]
+    base = _with_cfg(side, cfg)
+    touches_soc = any(x.split("=", 1)[0].strip() == "soc_taste_enabled" for x in (sets or []))
+    a = zeroed_side(base, gene, check=not touches_soc)
+    return apply_options(a, base, None, soc_d, no_individual)
+
+
 def rate_zero(path: Path, gene: str = "taste", n: int = 400, steps: int = 8000, reps: int = 6,
-              seed: int = 6000) -> dict:
+              seed: int = 6000, sets: list[str] | None = None, soc_d: float | None = None,
+              no_individual: bool = False, neutral: bool = True) -> dict:
     side = measure.load_side(path)
-    cfg = side["cfg"]
-    a = zeroed_side(side, gene)
-    res = measure.assay_sides(a, side, n, steps, reps, seed, neutral=False)
+    a, b = build_pair(side, gene, sets, soc_d, no_individual)
+    res = measure.assay_sides(a, b, n, steps, reps, seed, neutral=False)
     res["gene"] = gene
-    res["neutral_r_per_1000"] = knockout._neutral(side, cfg, n, steps, reps, seed)
-    nsd = res["neutral_r_per_1000"].get("sd", float("nan"))
-    res["min_detectable_r_per_1000"] = float(measure.t95(reps - 1) * nsd / np.sqrt(reps)) if reps > 1 else None
+    res["sets"] = list(sets or [])
+    res["soc_d"] = soc_d
+    res["no_individual"] = bool(no_individual)
+    if neutral:
+        # 중립 겨루기는 B쪽(옵션을 적용한 무리·설정)을 둘로 갈라 잰다: 옵션 아래에서의 측정 잡음
+        res["neutral_r_per_1000"] = knockout._neutral(b, b["cfg"], n, steps, reps, seed)
+        nsd = res["neutral_r_per_1000"].get("sd", float("nan"))
+        res["min_detectable_r_per_1000"] = float(measure.t95(reps - 1) * nsd / np.sqrt(reps)) if reps > 1 else None
     res["winner"] = measure.winner(res)
     res["verdict"] = measure.verdict(res, f"배움 0({gene}) 쪽이", "원래 쪽이")
     return res
@@ -82,6 +137,10 @@ def observe(path: Path, steps: int = 3000) -> dict:
         out["taste_rate"] = {"mean": float(np.mean(rate)), "q25": float(np.quantile(rate, 0.25)),
                              "median": float(np.median(rate)), "q75": float(np.quantile(rate, 0.75))}
     out["eta_mean"] = float(s.eta[a].mean())
+    if cfg.soc_taste_enabled:
+        srate = np.clip(cfg.soc_rate + s.soc_g[a], 0.0, 1.0)
+        out["soc_rate"] = {"mean": float(np.mean(srate)), "q25": float(np.quantile(srate, 0.25)),
+                           "median": float(np.median(srate)), "q75": float(np.quantile(srate, 0.75))}
     e0, p0 = int(s.counters[k.C_EATEN]), int(s.counters[k.C_POISONED])
     world.run(steps)
     a = s.alive
@@ -91,7 +150,124 @@ def observe(path: Path, steps: int = 3000) -> dict:
     first = int(np.minimum(s.n_meal[a], FIRST_MEALS).sum())
     out["poison_frac_first10"] = float(s.n_poison10[a].sum() / first) if first else None
     out["pop_end"] = int(a.sum())
+    if cfg.soc_taste_enabled:
+        seen = int(s.n_seen[a].sum())
+        out["n_seen"] = seen
+        out["n_seen_poison"] = int(s.n_seen_poison[a].sum())
+        out["n_seen_kin"] = int(s.n_seen_kin[a].sum())
+        out["seen_age_sum"] = int(s.seen_age_sum[a].sum())
+        out["seen_poison_frac"] = float(out["n_seen_poison"] / seen) if seen else None
+        out["seen_kin_frac"] = float(out["n_seen_kin"] / seen) if seen else None
+        out["seen_per_1000_steps"] = float(seen / (int(a.sum()) * steps) * 1000) if a.any() and steps else None
     return out
+
+
+# ---- 관문(판정 0, 설계 4절) ----
+GATE_DS = ("0.05", "0.25", "1.0")
+CONTROL_MAX_BOTH = 2          # 음성 대조의 양쪽 전멸이 이 판 수를 넘으면 도구 깨짐
+FRAC_POSITIVE = 5 / 6         # ①: 반복 중 B가 큰 판의 몫(6판 중 5판 = 이 비율 이상)
+
+
+def _mean(res: dict) -> float:
+    return float(res["r_per_1000"]["mean"])
+
+
+def _pair_pass(o: dict, bl: dict | None, md: float) -> dict:
+    """한 쌍(outcome, blind)의 ①②. ① outcome r > 0이고 반복의 5/6 이상(6판 중 5판)에서 B가 큼.
+    ② outcome − blind 차이가 양이고 Welch 검정(measure.t95, df = n − 1)과 md(min_detectable) 둘 다 넘음."""
+    out = {"r_outcome": _mean(o)}
+    rl = o.get("r_list") or []
+    n_pos = int(sum(x > 0 for x in rl))
+    need = int(np.ceil(FRAC_POSITIVE * len(rl) - 1e-9)) if rl else 0
+    out["n_pos"] = n_pos
+    out["c1"] = bool(out["r_outcome"] > 0 and rl and n_pos >= need)
+    if bl is None:
+        out.update(r_blind=None, welch_diff=None, welch_edge=None, c2=False)
+    else:
+        diff = out["r_outcome"] - _mean(bl)
+        so, sb = o["r_per_1000"], bl["r_per_1000"]
+        se = float(np.sqrt(so["sem"] ** 2 + sb["sem"] ** 2)) if np.isfinite(so["sem"]) and np.isfinite(sb["sem"]) else float("inf")
+        df = max(1, min(so["n"], sb["n"]) - 1)
+        edge = float(measure.t95(df) * se)
+        out.update(r_blind=_mean(bl), welch_diff=diff, welch_edge=edge, c2=bool(diff > 0 and diff > edge and diff > md))
+    out["pass"] = bool(out["c1"] and out["c2"])
+    return out
+
+
+def gate_tag(results: dict) -> dict:
+    """한 바탕(태그)의 관문. results: {판 이름: rate_zero 결과}, 이름은 outcome-d0.05 … blind-d1.0, off-d1.0, outcome-nocost-d0.25·d1.0,
+    outcome-noind-d1.0, blind-noind-d1.0. 없는 판은 건너뛴다.
+    규칙: min_detectable은 outcome-d0.05에서 읽는다(없으면 도구 깨짐). 음성 대조(off-d1.0)는 |r 평균| ≤ min_detectable이고
+    양쪽 전멸이 2판 이하여야 한다 — 아니면(또는 대조가 없으면) "broken". 대조가 멀쩡하면, 비용 있는 판(outcome-d*와 blind-d*의 쌍,
+    개인 학습 없는 outcome-noind-d1.0·blind-noind-d1.0 쌍) 가운데 하나라도 ①②를 통과하면 "pass"(비용 있는 d가 통과 못하고 개인 학습 없는
+    판만 통과하면 only_noind), 아무것도 통과 못 하면 "undetectable". 비용 없는 판(nocost)은 읽기용이라 값만 적는다."""
+    out = {"status": "", "reason": "", "only_noind": False, "min_detectable": None, "d": {}, "noind": None, "nocost": {},
+           "control": None}
+    ref = results.get("outcome-d0.05") or {}
+    md = ref.get("min_detectable_r_per_1000")
+    out["min_detectable"] = md
+    ctl = results.get("off-d1.0")
+    if ctl is not None:
+        ok = bool(md is not None and abs(_mean(ctl)) <= md and ctl.get("both_extinct_runs", 0) <= CONTROL_MAX_BOTH)
+        out["control"] = {"r_mean": _mean(ctl), "both_extinct_runs": ctl.get("both_extinct_runs", 0), "ok": ok}
+    if md is None:
+        out.update(status="broken", reason="min_detectable을 읽을 수 없음(outcome-d0.05가 없거나 중립 겨루기를 건너뜀)")
+        return out
+    if ctl is None:
+        out.update(status="broken", reason="음성 대조(off-d1.0)가 없어 판정을 쓰지 않는다")
+        return out
+    if not out["control"]["ok"]:
+        out.update(status="broken", reason=f"음성 대조가 깨짐: r 평균 {out['control']['r_mean']:.2f} "
+                   f"(한계 ±{md:.2f}), 양쪽 전멸 {out['control']['both_extinct_runs']}판")
+        return out
+    for d in GATE_DS:
+        o = results.get(f"outcome-d{d}")
+        if o is not None:
+            out["d"][d] = _pair_pass(o, results.get(f"blind-d{d}"), md)
+    o, bl = results.get("outcome-noind-d1.0"), results.get("blind-noind-d1.0")
+    if o is not None:
+        out["noind"] = _pair_pass(o, bl, md)
+    for d in ("0.25", "1.0"):
+        o = results.get(f"outcome-nocost-d{d}")
+        if o is not None:
+            bl = results.get(f"blind-d{d}")
+            out["nocost"][d] = {"r_outcome": _mean(o), "r_blind_ref": _mean(bl) if bl is not None else None}
+    if not out["d"] and out["noind"] is None:
+        out.update(status="broken", reason="읽을 outcome 판이 없음")
+        return out
+    cost_pass = any(v["pass"] for v in out["d"].values())
+    noind_pass = bool(out["noind"] and out["noind"]["pass"])
+    if cost_pass or noind_pass:
+        out.update(status="pass", only_noind=bool(not cost_pass and noind_pass))
+    else:
+        out.update(status="undetectable", reason="모든 d에서 ①②가 안 됨(음성 대조는 멀쩡)")
+    return out
+
+
+def gate_tags(per_tag: dict) -> dict:
+    """바탕마다 gate_tag를 돌려 합친다. 한 바탕이라도 통과면 0(통과한 바탕이 모두 개인 학습 없는 판만 통과면 only_noind),
+    통과 없이 깨진 바탕이 있으면 4, 그 밖에(모두 검출 불능) 3."""
+    tags = {tag: gate_tag(res) for tag, res in per_tag.items()}
+    passed = [g for g in tags.values() if g["status"] == "pass"]
+    if passed:
+        status, code = "pass", 0
+    elif any(g["status"] == "broken" for g in tags.values()) or not tags:
+        status, code = "broken", 4
+    else:
+        status, code = "undetectable", 3
+    return {"status": status, "exit_code": code, "only_noind": bool(passed and all(g["only_noind"] for g in passed)),
+            "tags": tags}
+
+
+def gate(directory: Path, tags: list[str]) -> dict:
+    per_tag = {}
+    for tag in tags:
+        res = {}
+        for f in sorted(Path(directory).glob(f"j-dose-*-{tag}.json")):
+            name = f.name[len("j-dose-"):-len(f"-{tag}.json")]
+            res[name] = json.loads(f.read_text())
+        per_tag[tag] = res
+    return gate_tags(per_tag)
 
 
 def main(argv=None) -> int:
@@ -99,26 +275,40 @@ def main(argv=None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("rate-zero")
     r.add_argument("ckpt", type=Path)
-    r.add_argument("--gene", choices=("taste", "eta"), default="taste")
+    r.add_argument("--gene", choices=("taste", "eta", "soc"), default="taste")
     r.add_argument("--n", type=int, default=400)
     r.add_argument("--steps", type=int, default=8000)
     r.add_argument("--reps", type=int, default=6)
     r.add_argument("--seed", type=int, default=6000)
+    r.add_argument("--set", dest="sets", action="append", metavar="KEY=VAL",
+                   help="겨루기 설정 덮어쓰기(여러 번 줄 수 있다)")
+    r.add_argument("--soc-d", type=float, default=None, help="B쪽을 모두 보고 배우기 실제 속도 D로(soc_g = D − soc_rate)")
+    r.add_argument("--no-individual", action="store_true", help="두 쪽 모두 개인 학습 속도 0(taste_g = −taste_rate)")
+    r.add_argument("--no-neutral", action="store_true", help="중립 겨루기를 건너뜀(min_detectable도 안 낸다)")
     r.add_argument("--json", type=Path)
     o = sub.add_parser("observe")
     o.add_argument("ckpt", type=Path)
     o.add_argument("--steps", type=int, default=3000)
     o.add_argument("--json", type=Path)
+    g = sub.add_parser("gate")
+    g.add_argument("--dir", type=Path, required=True)
+    g.add_argument("--tags", nargs="+", required=True)
+    g.add_argument("--json", type=Path)
     args = p.parse_args(argv)
+    code = 0
     if args.cmd == "rate-zero":
-        out = rate_zero(args.ckpt, args.gene, args.n, args.steps, args.reps, args.seed)
+        out = rate_zero(args.ckpt, args.gene, args.n, args.steps, args.reps, args.seed, args.sets, args.soc_d,
+                        args.no_individual, not args.no_neutral)
+    elif args.cmd == "gate":
+        out = gate(args.dir, args.tags)
+        code = out["exit_code"]
     else:
         out = observe(args.ckpt, args.steps)
     text = json.dumps(out, ensure_ascii=False, indent=1, default=float)
     if args.json:
         args.json.write_text(text)
     print(text)
-    return 0
+    return code
 
 
 if __name__ == "__main__":
