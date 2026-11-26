@@ -842,6 +842,8 @@ def attack(step, s, fs, isp):
             dmg = s.energy[best]          # 가진 것보다 더 빼앗을 수는 없다
         if pun:
             got = dmg * fs[F_NORM_PUN_RET]    # 벌금: 옮겨 가는 몫(≤ attack_gain), 나머지는 L_LOST
+            if got > dmg * fs[F_ATK_GAIN]:
+                got = dmg * fs[F_ATK_GAIN]    # 설정 검사가 막지만 커널에서도 상한(새는 값을 못 쓰게)
         else:
             got = dmg * fs[F_ATK_GAIN]
         s.energy[best] -= dmg
@@ -877,8 +879,8 @@ def attack(step, s, fs, isp):
                 tab[ri, NT_TAKE_SIM0 + sb] += 1.0
                 if line:
                     tab[ri, NT_TAKE_LINE] += 1.0
-                if line or sb >= 2:
-                    tab[ri, NT_TAKE_KIN] += 1.0
+                if line:
+                    tab[ri, NT_TAKE_KIN] += 1.0     # 친족 = 계보만(부모·자식·형제). 닮음은 SIM 구간으로 따로 본다
                 if killed:
                     tab[ri, NT_TAKE_KILL] += 1.0
             if not marked_t:

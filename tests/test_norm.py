@@ -449,10 +449,10 @@ def test_measure_counts_take_by_actor_tag():
     st.attack(1, s, w.fs, w.isp)
     assert nt(w, 1, k.NT_TAKE) == 2 and nt(w, 1, k.NT_TAKE_KIN) == 1 and nt(w, 1, k.NT_TAKE_LINE) == 1
     assert nt(w, 1, k.NT_TAKE_SIM0) == 1
-    # 닮음 0.93(구간 2)은 계보가 없어도 친족 칸에 든다
+    # TAKE_KIN은 계보만(부모·자식·형제): 닮음 0.93(구간 2)이어도 계보가 없으면 친족 칸에 안 든다
     s.color[4] = (0.5 + 0.07 * 1.7320508075688772, 0.5, 0.5)
     st.attack(2, s, w.fs, w.isp)
-    assert nt(w, 1, k.NT_TAKE_SIM2) == 1 and nt(w, 1, k.NT_TAKE_KIN) == 2 and nt(w, 1, k.NT_TAKE_LINE) == 1
+    assert nt(w, 1, k.NT_TAKE_SIM2) == 1 and nt(w, 1, k.NT_TAKE_KIN) == 1 and nt(w, 1, k.NT_TAKE_LINE) == 1
     assert st._sim_bin(0.8799) == 0 and st._sim_bin(0.88) == 1 and st._sim_bin(0.92) == 2 and st._sim_bin(0.96) == 3
 
 
@@ -495,7 +495,8 @@ def test_measure_only_hash_equals_off():
 
 
 def test_scan_not_called_when_both_off():
-    # 훑기는 attack(njit) 안에서 불려 파이썬에서 감쌀 수 없다 → 훑기에서만 세는 계수가 0인지로 확인한다
+    # 공통 규칙은 "꺼짐 = 호출 0"을 함수를 감싸 세어 확인하라지만, 훑기(_scan_touching)는 njit인 attack 안에서 불려
+    # 파이썬에서 감싸도 호출이 안 잡힌다(호출 수를 못 센다) → 훑기에서만 세는 계수가 0인지로 대신 확인한다
     w = World(small("stage4", "conflict", "norm_size", norm_impulse=0.05))
     w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
     w.run(100)
@@ -817,6 +818,20 @@ def test_pun_return_equal_to_attack_gain_is_plain_attack():
     assert s.ledger[k.L_LOST] == pytest.approx(lost + cfg.attack_damage * (1 - cfg.attack_gain))
 
 
+def test_pun_fine_capped_at_attack_gain_in_kernel():
+    # 설정 검사가 norm_pun_return > attack_gain을 막지만 커널도 벌금을 dmg × attack_gain으로 자른다(이중 안전)
+    w = _pair("norm")
+    s, cfg = w.s, w.cfg
+    w.fs[st.F_NORM_PUN_RET] = 0.9               # 검사를 우회한 값
+    s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    s.mark_t[4] = 10
+    lost = s.ledger[k.L_LOST]
+    st.attack(10, s, w.fs, w.isp)
+    assert s.pun_t[4] == 10
+    assert s.energy[0] == pytest.approx(1.0 - cfg.attack_cost + cfg.attack_damage * cfg.attack_gain)
+    assert s.ledger[k.L_LOST] == pytest.approx(lost + cfg.attack_damage * (1 - cfg.attack_gain))
+
+
 def test_inert_mode_all_attacks_are_takes():
     w = _tri("norm", norm_mode="inert")
     s, cfg = w.s, w.cfg
@@ -912,3 +927,4 @@ def test_cost_and_target_order_equivalent():
     assert s.energy[4] == pytest.approx(1.0 - dmg)
     assert s.ledger[k.L_MOVE] == pytest.approx(moved + cost) and s.ledger[k.L_LOST] == pytest.approx(lost + dmg - fine)
     assert nt(w, 0, k.NT_PUN_COST) == pytest.approx(cost) and nt(w, 0, k.NT_PUN_FINE) == pytest.approx(fine)
+

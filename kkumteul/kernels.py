@@ -195,7 +195,7 @@ TAG_ROWS_NORM = 5
  NT_MARK_EPIS0, NT_MARK_EPIS1, NT_MARK_EPIS2, NT_MARK_EPIS_PUN0, NT_MARK_EPIS_PUN1, NT_MARK_EPIS_PUN2,
  NT_ALIVE_STEPS, NT_MARKED_STEPS, NT_SAW_PUN, NT_TAKE_DMG_RECV, NT_PUN_DMG_RECV, NT_VIOL_DMG_RECV,
  NT_TAKE_GAIN, NT_PUN_FINE, NT_PUN_COST, NT_ATK_COST, NT_EATEN_DEAD, NT_LIVES_DONE, N_NT) = range(54)
-# 칸 뜻: TAKE = 벌이 아닌 공격이 맞음(KIN 친족 = 닮음 상위 두 구간이거나 계보, SIM 닮음 구간, LINE 계보 = 부모·자식·형제),
+# 칸 뜻: TAKE = 벌이 아닌 공격이 맞음(KIN 친족 = 계보만, SIM 닮음 구간, LINE 계보 = 부모·자식·형제 — KIN과 같은 값),
 # ATK_COST = 모든 공격 비용(빗나감 포함), PUN_COST = 그 가운데 벌의 몫,
 # VIOL_DMG_RECV = 때린 순간 표시가 없던 대상이 받은 피해(위반 피해율의 분자; 표시가 없는 측정 세계는 모든 피해)
 NT_NAMES = ("take", "take_kin", "take_sim0", "take_sim1", "take_sim2", "take_sim3", "take_line", "take_imp",
