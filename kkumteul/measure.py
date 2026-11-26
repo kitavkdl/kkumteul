@@ -149,6 +149,12 @@ def inject_agent(world: World, genomes: dict, row: int, tag: int, x: float, y: f
     s.jscr_i[j] = 0
     s.jscr_d[j] = 0.0
     s.tflag[j] = 0
+    # 규범: 표시·벌 없음, 삼가기 기억 0, 피해자는 −2(미지)
+    s.mark_t[j] = s.pun_t[j] = -1
+    s.mem[j] = 0.0
+    s.mark_vslot[j] = s.mark_vid[j] = -2
+    s.mark_pun[j] = 0
+    s.pun_role[j] = -1
     for name in ("horm", "sig", "epost", "epre_h", "epre_in", "Hin", "Hrec", "proto", "link",
                  "elig_in", "elig_rec", "taste_m"):
         getattr(s, name)[j] = 0.0

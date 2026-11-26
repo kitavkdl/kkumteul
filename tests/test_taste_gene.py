@@ -56,7 +56,8 @@ def test_new_rng_stream_appended():
     assert len(set(vals)) == len(vals)               # 용도 번호는 서로 겹치지 않는다
     assert rng.S_TASTE_GENE == 31 and rng.S_SOC_GENE == 32 and rng.S_SOC_BLIND == 33
     assert rng.S_TEACH_GENE == 34 and rng.S_FEED_GENE == 35
-    assert max(vals) == 35                           # 새 용도는 뒤에만 덧붙인다
+    assert rng.S_NORM_IMPULSE == 36 and rng.S_NORM_NOISE == 37 and rng.S_NORM_MIX == 38 and rng.S_NORM_BLIND == 39
+    assert max(vals) == 39                           # 새 용도는 뒤에만 덧붙인다
 
 
 # ---- 먹기: 실제 배움 속도 ----

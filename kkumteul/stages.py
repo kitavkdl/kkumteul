@@ -13,8 +13,8 @@ import numpy as np
 from numba import njit, prange
 
 from .config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT_SLEEP, ACT_THRUST, ACT_TURN,
-                     IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL, N_INTERNAL, N_TASTE_IN, N_TASTE_VIS,
-                     TASTE_VIS)
+                     IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL, N_INTERNAL, N_NORM_IN, N_TASTE_IN, N_TASTE_VIS,
+                     NORM_AIMS, NORM_MODES, NORM_OBS_MODES, NORM_SRCS, NORM_VIS, TASTE_VIS)
 from .kernels import (C_ATTACKS, C_FERTILE, C_GIFTS, C_NFIELD, C_NFOOD, KIND_A, L_BASAL, L_BRAIN, L_DISCARD, L_LOST,
                       L_MOVE, L_SPAWN, TOUCH_HIT, _place_food, _wdiff, _wrap, make_room, pick_kind)
 from .rng import S_ATTACK_ORDER, S_FERTILE, S_PERTURB, normal, u01
@@ -31,10 +31,16 @@ KIND_RNG_FERTILE = 1000003
  F_HEAR, F_SIG_COST, F_GIVE_RATE, F_GIVE_LOSS, F_GIVE_MIN,
  F_WEAR, F_TRAIL_DECAY, F_TRAIL_SAT, F_PATH_BONUS, F_DEP_RATE, F_DEP_LOSS, F_SOIL_DECAY,
  F_SOIL_REF, F_FERT_FRAC, F_SOIL_USE, F_CELL, F_ATK_DMG, F_ATK_GAIN, F_ATK_COST, F_KIND_RATIO,
- F_PERTURB, N_FS) = range(48)
+ F_PERTURB,
+ # 규범의 씨앗(뒤에만 덧붙인다)
+ F_NORM_PUN_RET, F_NORM_INHIBIT, F_NORM_MEM_RATE, F_NORM_MEM_OBS, F_NORM_MEM_TAU, F_NORM_IMPULSE, F_NORM_NOISE,
+ F_NORM_SIG_THETA, F_NORM_TAU, F_NORM_MIX_FRAC, F_NORM_RADIUS, F_NORM_VRANGE, F_NORM_FOV, N_FS) = range(61)
 # ---- 정수 설정 칸 ----
 (I_SEED, I_GW, I_GH, I_SECTORS, I_H_MAX, I_MIND, I_SOCIAL, I_NICHE, I_FOOD_CAP, I_STAGE_IN, I_KINDS,
- I_CAP_REPLACE, I_FIELD_CAP, I_TASTE_VIS0, N_IS) = range(15)
+ I_CAP_REPLACE, I_FIELD_CAP, I_TASTE_VIS0,
+ # 규범의 씨앗(뒤에만 덧붙인다). I_NORM_ON은 norm_enabled이고 입력 칸이 충분할 때만 1, IN0·VIS0은 꺼지면 −1
+ I_NORM_MEASURE, I_NORM_ON, I_NORM_MODE, I_NORM_SRC, I_NORM_AIM, I_NORM_OBS_MODE, I_NORM_IMP_LEN, I_NORM_BLOCK,
+ I_NORM_BLOCK3, I_NORM_MIX_PERIOD, I_NORM_IN0, I_NORM_VIS0, N_IS) = range(27)
 
 
 def pack_stage_params(cfg):
@@ -70,6 +76,20 @@ def pack_stage_params(cfg):
     # 물든 시야 칸의 첫 절대 번호(자는 개체의 시야와 함께 지운다). 맛 장치가 꺼져 있으면 -1
     taste_on = cfg.taste_enabled and cfg.n_in >= cfg.taste_in0 + N_TASTE_IN
     isp[I_TASTE_VIS0] = cfg.taste_in0 + TASTE_VIS if taste_on else -1
+    # 규범의 씨앗
+    fs[F_NORM_PUN_RET], fs[F_NORM_INHIBIT] = cfg.norm_pun_return, cfg.norm_inhibit
+    fs[F_NORM_MEM_RATE], fs[F_NORM_MEM_OBS], fs[F_NORM_MEM_TAU] = cfg.norm_mem_rate, cfg.norm_mem_obs, cfg.norm_mem_tau
+    fs[F_NORM_IMPULSE], fs[F_NORM_NOISE] = cfg.norm_impulse, cfg.norm_mark_noise
+    fs[F_NORM_SIG_THETA], fs[F_NORM_TAU], fs[F_NORM_MIX_FRAC] = cfg.norm_sig_theta, cfg.norm_mark_tau, cfg.norm_mix_frac
+    fs[F_NORM_RADIUS], fs[F_NORM_VRANGE], fs[F_NORM_FOV] = cfg.soc_radius, cfg.vision_range, cfg.vision_fov
+    norm_on = cfg.norm_enabled and cfg.n_in >= cfg.norm_in0 + N_NORM_IN
+    isp[I_NORM_MEASURE], isp[I_NORM_ON] = int(cfg.norm_measure), int(norm_on)
+    isp[I_NORM_MODE], isp[I_NORM_SRC] = NORM_MODES[cfg.norm_mode], NORM_SRCS[cfg.norm_mark_src]
+    isp[I_NORM_AIM], isp[I_NORM_OBS_MODE] = NORM_AIMS[cfg.norm_aim], NORM_OBS_MODES[cfg.norm_mem_obs_mode]
+    isp[I_NORM_IMP_LEN], isp[I_NORM_MIX_PERIOD] = cfg.norm_impulse_len, cfg.norm_mix_period
+    isp[I_NORM_BLOCK], isp[I_NORM_BLOCK3] = cfg.norm_block_tag, cfg.norm_block3_tag
+    isp[I_NORM_IN0] = cfg.norm_in0 if norm_on else -1
+    isp[I_NORM_VIS0] = cfg.norm_in0 + NORM_VIS if norm_on else -1
     return fs, isp
 
 

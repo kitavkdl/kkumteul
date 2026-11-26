@@ -77,6 +77,10 @@ AGENT_FIELDS = [
     ("soc_g", np.float32, (), True),          # 보고 배우기 속도 유전자: 0이면 안 배움(물려받음, 장치 꺼지면 안 쓰임)
     ("show_g", np.float32, (), True),         # 보여 주기 강도 유전자: 0이면 안 보여 줌(물려받음, 장치 꺼지면 안 쓰임)
     ("feed_g", np.float32, (), True),         # 먹이 대주기 강도 유전자: 0이면 안 건넴(물려받음, 장치 꺼지면 안 쓰임)
+    # 규범의 씨앗(평생 상태, 유전체가 아니다. 기본값이면 해시에 안 들어간다)
+    ("mark_t", np.int32, (), True),           # 표시가 마지막으로 붙은 스텝(−1이면 없음). 밝기는 이 시각에서 계산한다
+    ("pun_t", np.int32, (), True),            # 마지막으로 벌 받은 스텝(−1이면 없음)
+    ("mem", np.float32, (), True),            # 삼가기 기억 [0, 1]
     ("hnew", np.float32, ("H",), False),
     ("obs", np.float32, ("I",), False),
     ("act", np.float32, ("O",), False),
@@ -110,6 +114,11 @@ AGENT_FIELDS = [
     ("jscr_i", np.int32, (), False),          # 스크래치(정수)
     ("jscr_d", np.float64, (), False),        # 스크래치(실수)
     ("tflag", np.int8, (), False),            # 스크래치: 이번 스텝 보여 주기 표시
+    # 규범의 씨앗 계수용(저장하지 않는다). 피해자 칸·id는 −2 = 미지(이어 읽은 직후·주입·재사용), −1 = 없음(sig·잡음)
+    ("mark_vslot", np.int32, (), False),      # 이 표시의 피해자 칸
+    ("mark_vid", np.int64, (), False),        # 이 표시의 피해자 id(칸이 다른 개체로 바뀌었는지 가린다)
+    ("mark_pun", np.int8, (), False),         # 이 표시 에피소드 안에 벌 받았는가(0/1)
+    ("pun_role", np.int8, (), False),         # 벌 받았을 때 집행자의 역할(0 2자, 1 3자 친족, 2 3자 남, −1 없음)
 ]
 FOOD_FIELDS = [
     ("fx", np.float64, True),
@@ -156,8 +165,11 @@ PERTURB_FLEX = ("elig_in", "elig_rec")
 # 나중에 생긴 저장 필드의 기본값. 값이 모두 기본값이면 상태 해시에 넣지 않고(그 필드가 생기기 전 해시와 같게),
 # 이 필드가 없는 옛 체크포인트를 읽으면 기본값으로 둔다(alloc_state가 이 값으로 채운다). 새 저장 필드는 여기에 더한다.
 HASH_DEFAULTS = {"elig_in": 0, "elig_rec": 0, "a_held": -1, "f_holder": -1, "f_dropped": 0, "taste_m": 0, "taste_g": 0, "soc_g": 0,
-                 "show_g": 0, "feed_g": 0, "know_age": -1}
-OTHER_SCRATCH = ["a_start", "a_items", "f_start", "f_items", "cursor", "bbuf", "dbuf", "dbuf_f", "grad_tab"]
+                 "show_g": 0, "feed_g": 0, "know_age": -1, "mark_t": -1, "pun_t": -1, "mem": 0}
+# 저장하지 않는 필드 가운데 기본값이 0이 아닌 것(alloc_state가 채운다)
+UNSAVED_DEFAULTS = {"mark_vslot": -2, "mark_vid": -2, "pun_role": -1}
+OTHER_SCRATCH = ["a_start", "a_items", "f_start", "f_items", "cursor", "bbuf", "dbuf", "dbuf_f", "grad_tab",
+                 "norm_tab", "norm_tab_role", "norm_hist"]
 
 # ---- 졸업표(grad_tab[TAG_ROWS][N_GT], 저장하지 않는 세계 배열): 행은 태그(범위 밖은 접는다), 칸은 아래 GT_* ----
 TAG_ROWS = 8
@@ -170,6 +182,33 @@ GT_NAMES = ("grad", "dead", "n1", "m1", "k1", "n2", "m2", "k2", "m3", "k3",
             "src1", "src2", "src3", "src4", "par_near", "par_alive", "adult_near", "alive_steps",
             "seen", "seen_par", "seen_par_poison", "taught", "taught_knower", "meals", "poison_meals",
             "e_grad", "teach_cost", "feed_given")
+
+# ---- 규범 계수표(norm_tab[TAG_ROWS_NORM][N_NT], 저장하지 않는 세계 배열) ----
+# 행 = 행위 개체(공격자·집행자·관찰자)의 태그, 단 *_RECV 칸은 받은 개체의 태그. 태그 0~3은 그 행, 그 밖(음수 포함)은
+# 행 4에 접는다(tag는 int32이고 numba는 범위를 안 본다). 섬(4단계)의 무리별 칸은 이 판 밖이다.
+TAG_ROWS_NORM = 5
+(NT_TAKE, NT_TAKE_KIN, NT_TAKE_SIM0, NT_TAKE_SIM1, NT_TAKE_SIM2, NT_TAKE_SIM3, NT_TAKE_LINE, NT_TAKE_IMP,
+ NT_TAKE_ON_MARKED, NT_PUN, NT_TAKE_KILL, NT_PUN_KILL, NT_PUN_2ND, NT_PUN_3_KIN, NT_PUN_3_STR,
+ NT_PUN_3_SIM0, NT_PUN_3_SIM1, NT_PUN_3_SIM2, NT_PUN_3_SIM3, NT_PUN_3_LINE, NT_PUN_NOVICT, NT_PUN_UNKNOWN,
+ NT_PUN_VGONE, NT_EXPO, NT_OPP_SELF, NT_OPP_OTHER, NT_OPP_OTHER_SIM0, NT_OPP_OTHER_SIM1, NT_OPP_OTHER_SIM2,
+ NT_OPP_OTHER_SIM3, NT_OPP_OTHER_LINE, NT_OPP_MARKED, NT_OPP_PLAIN, NT_ATK_VOL_MARKED, NT_ATK_VOL_PLAIN,
+ NT_MARK_EPIS0, NT_MARK_EPIS1, NT_MARK_EPIS2, NT_MARK_EPIS_PUN0, NT_MARK_EPIS_PUN1, NT_MARK_EPIS_PUN2,
+ NT_ALIVE_STEPS, NT_MARKED_STEPS, NT_SAW_PUN, NT_TAKE_DMG_RECV, NT_PUN_DMG_RECV, NT_VIOL_DMG_RECV,
+ NT_TAKE_GAIN, NT_PUN_FINE, NT_PUN_COST, NT_ATK_COST, NT_EATEN_DEAD, NT_LIVES_DONE, N_NT) = range(54)
+# 칸 뜻: TAKE = 벌이 아닌 공격이 맞음(KIN 친족 = 닮음 상위 두 구간이거나 계보, SIM 닮음 구간, LINE 계보 = 부모·자식·형제),
+# ATK_COST = 모든 공격 비용(빗나감 포함), PUN_COST = 그 가운데 벌의 몫,
+# VIOL_DMG_RECV = 때린 순간 표시가 없던 대상이 받은 피해(위반 피해율의 분자; 표시가 없는 측정 세계는 모든 피해)
+NT_NAMES = ("take", "take_kin", "take_sim0", "take_sim1", "take_sim2", "take_sim3", "take_line", "take_imp",
+            "take_on_marked", "pun", "take_kill", "pun_kill", "pun_2nd", "pun_3_kin", "pun_3_str",
+            "pun_3_sim0", "pun_3_sim1", "pun_3_sim2", "pun_3_sim3", "pun_3_line", "pun_novict", "pun_unknown",
+            "pun_vgone", "expo", "opp_self", "opp_other", "opp_other_sim0", "opp_other_sim1", "opp_other_sim2",
+            "opp_other_sim3", "opp_other_line", "opp_marked", "opp_plain", "atk_vol_marked", "atk_vol_plain",
+            "mark_epis0", "mark_epis1", "mark_epis2", "mark_epis_pun0", "mark_epis_pun1", "mark_epis_pun2",
+            "alive_steps", "marked_steps", "saw_pun", "take_dmg_recv", "pun_dmg_recv", "viol_dmg_recv",
+            "take_gain", "pun_fine", "pun_cost", "atk_cost", "eaten_dead", "lives_done")
+# 집행 역할별 표(norm_tab_role[3][N_RT]): 행 = 2자·3자 친족·3자 남. 지킨 피해의 추정은 판정 도구가 norm_hist로 낸다
+(RT_PUN_FINE, RT_PUN_COST, RT_N_PUN, N_RT) = range(4)
+RT_ROLES = ("self", "kin", "stranger")
 
 State = namedtuple(
     "State",
@@ -425,8 +464,15 @@ def alloc_state(cfg) -> State:
     d["dbuf"] = np.zeros((2 * n + 8, 7), dtype=np.int64)
     d["dbuf_f"] = np.zeros(2 * n + 8, dtype=np.float64)
     d["grad_tab"] = np.zeros((TAG_ROWS, N_GT), dtype=np.float64)
+    d["norm_tab"] = np.zeros((TAG_ROWS_NORM, N_NT), dtype=np.float64)
+    d["norm_tab_role"] = np.zeros((3, N_RT), dtype=np.float64)
+    # 구간표: 행 0~2 = 벌 받은 개체를 벌 준 집행자의 역할, 행 3 = 표시됐으나 벌 안 받음; 열 = 벌 뒤 경과 구간 넷;
+    # 마지막 축 = [노출, 가로채기]
+    d["norm_hist"] = np.zeros((4, 4, 2), dtype=np.float64)
     for name, v in HASH_DEFAULTS.items():
         d[name][...] = v    # 옛 체크포인트에 없는 필드는 이 값 그대로 남는다(a_held가 0이면 0번 칸을 든 꼴이 된다)
+    for name, v in UNSAVED_DEFAULTS.items():
+        d[name][...] = v
     return State(**d)
 
 
@@ -1782,6 +1828,14 @@ def _reset_body(s, j, aid, parent, gen, tag, step, px, py, hd, e):
     s.jscr_i[j] = 0
     s.jscr_d[j] = 0.0
     s.tflag[j] = 0
+    # 규범: 표시·벌·삼가기 기억은 물려받지 않는다(norm_mem_inherit는 과제 19). 피해자는 −2(미지)
+    s.mark_t[j] = -1
+    s.pun_t[j] = -1
+    s.mem[j] = 0.0
+    s.mark_vslot[j] = -2
+    s.mark_vid[j] = -2
+    s.mark_pun[j] = 0
+    s.pun_role[j] = -1
     s.counters[C_NALIVE] += 1
 
 

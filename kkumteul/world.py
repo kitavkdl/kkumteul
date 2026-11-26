@@ -92,6 +92,10 @@ class World:
             self.s.huddle_cut[:] = 0.0          # 꺼진 동안 move가 지난 겨울의 절감을 쓰지 않게 비운다
         if old.taste_enabled and not cfg.taste_enabled:
             self.s.taste_m[:] = 0.0             # 꺼진 세계에 낡은 기억이 남아 해시·물려주기에 섞이지 않게 지운다
+        if old.norm_enabled and not cfg.norm_enabled:
+            # 꺼지면 norm_* 패스가 안 불려 기억 감쇠가 멈추고, 다시 켜면 낡은 표시·기억이 되살아난다 → 산 개체에서 지운다.
+            # 유전체가 아니므로 후손에게는 안 간다
+            self.clear_norm_state()
 
     # ---- 들기: 물건 칸 ----
     def recount_field(self) -> None:
@@ -417,6 +421,36 @@ class World:
     def reset_grad_table(self) -> None:
         """졸업표를 0으로(관찰 창·겨루기 시작에서 부른다)."""
         self.s.grad_tab[:] = 0.0
+
+    # ---- 규범의 씨앗: 상태 지우기와 계수표(계수표는 저장하지 않는다) ----
+    def clear_norm_state(self) -> None:
+        """산 개체의 표시·벌 시각·삼가기 기억과 계수용 칸을 기본값으로."""
+        s = self.s
+        a = s.alive
+        s.mark_t[a] = -1
+        s.pun_t[a] = -1
+        s.mem[a] = 0.0
+        s.mark_vslot[a] = -2
+        s.mark_vid[a] = -2
+        s.mark_pun[a] = 0
+        s.pun_role[a] = -1
+
+    def norm_table(self) -> dict:
+        """태그 행(0~3, 4 = 접힌 칸)마다 {NT_NAMES 이름: 값}."""
+        tab = self.s.norm_tab
+        return {row: {name: float(tab[row, c]) for c, name in enumerate(k.NT_NAMES)} for row in range(tab.shape[0])}
+
+    def norm_role_table(self) -> dict:
+        """집행 역할(self·kin·stranger)마다 {벌금, 벌 비용, 벌 횟수}."""
+        tab = self.s.norm_tab_role
+        names = ("pun_fine", "pun_cost", "n_pun")
+        return {role: {name: float(tab[r, c]) for c, name in enumerate(names)} for r, role in enumerate(k.RT_ROLES)}
+
+    def reset_norm_tables(self) -> None:
+        """규범 계수표·역할표·구간표를 0으로(관찰 창·겨루기 시작에서 부른다)."""
+        self.s.norm_tab[:] = 0.0
+        self.s.norm_tab_role[:] = 0.0
+        self.s.norm_hist[:] = 0.0
 
     # ---- 요약 ----
     def summary(self) -> dict:
