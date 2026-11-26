@@ -128,6 +128,8 @@ def read(path: Path) -> tuple[dict, Config, dict]:
 def load_side(path: Path) -> dict:
     """겨루기(`measure.assay_sides`)에 넣을 한쪽. 체크포인트에서 읽은 것과 같은 꼴이다."""
     genomes, cfg, info = read(path)
+    # 체크포인트에서 읽을 때(measure.side_from_world)처럼 마당이 뽑아 온 스텝의 독 순서를 잇게 한다
+    cfg = measure.kind_aligned(cfg, info["source_step"])
     return {"path": str(path), "step": info["source_step"], "genomes": genomes, "cfg": cfg,
             "gen_mean": float(genomes["gen"].mean()), "label": info["label"]}
 

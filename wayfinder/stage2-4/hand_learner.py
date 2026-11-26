@@ -144,7 +144,7 @@ def curve(cfg, genomes: dict, n: int, steps: int, seed: int, every: int = 250, l
     """같은 개체들이 구간을 넘기며 배우는지 본다. lab이면 LAB 세계에서 번식을 끈다(유전체의 번식 편향을 −5로).
     lab이 아니면 받은 설정 그대로 돌리고 번식도 그대로 둔다."""
     rng = np.random.default_rng(seed)
-    acfg = measure.arena_config(with_set(cfg, LAB) if lab else cfg, seed, n)
+    acfg = curve_arena(cfg, seed, n, lab)
     genomes = {name: v.copy() for name, v in genomes.items()}
     if lab:
         genomes["bout"][:, ACT_REPRO] = -5.0
@@ -163,7 +163,7 @@ def curve(cfg, genomes: dict, n: int, steps: int, seed: int, every: int = 250, l
         world.run(every)
         e, p = int(c[k.C_EATEN]), int(c[k.C_POISONED])
         alive = world.s.alive
-        good = int(k.good_kind(acfg.seed, world.step_no - 1, period))
+        good = k.cfg_good_kind(acfg, world.step_no - 1)    # 마당은 원래 세계의 독 순서를 잇는다(kind_aligned)
         idx, size = _pref(world.s, alive)
         placed, placed_poison = _placed(world.s, good)
         series.append({"step": world.step_no, "pop": int(alive.sum()), "eaten": e - pe, "poisoned": p - pp,
@@ -185,18 +185,27 @@ def curve(cfg, genomes: dict, n: int, steps: int, seed: int, every: int = 250, l
             "right_mean": _nanmean(x["right_end"] for x in later)}
 
 
-def after_flips(series: list, period: int, seed: int, win: int = 300) -> list[dict]:
+def curve_arena(cfg, seed: int, n: int, lab: bool = True):
+    """curve가 도는 마당의 설정. after_flips에 같은 독 순서를 넘길 때도 쓴다."""
+    return measure.arena_config(with_set(cfg, LAB) if lab else cfg, seed, n)
+
+
+def after_flips(series: list, period: int, seed: int, win: int = 300, good=None) -> list[dict]:
     """실제 바뀜(good이 앞 줄과 달라진 줄)마다 바뀐 뒤의 독 비율을 낸다(curve의 series를 받는다).
     줄 하나는 앞 줄 스텝부터 그 줄 스텝 직전까지 먹은 것이다. 바뀐 스텝(flip)은 그 사이 구간 경계 가운데
     좋은 종류가 실제로 달라진 곳이다(다시 정해졌지만 그대로인 경계는 바뀜이 아니다). 씨앗으로 보아 그런 경계가
     없으면 씨앗이나 주기를 잘못 넘긴 것이라 멈춘다.
-    first = flip부터 win스텝 안에서 시작한 줄들의 독 비율, rest = 그 뒤 다음 바뀜 줄 전까지(없으면 끝까지)."""
+    first = flip부터 win스텝 안에서 시작한 줄들의 독 비율, rest = 그 뒤 다음 바뀜 줄 전까지(없으면 끝까지).
+    good(스텝) → 좋은 종류. 주면 그것으로 바뀜을 찾는다(마당 설정의 kind_seed·kind_step0을 반영하려면
+    `lambda t: k.cfg_good_kind(acfg, t)`). 안 주면 씨앗·주기로 센다(옛 방식, kind_step0 = 0인 세계)."""
+    if good is None:
+        def good(t):
+            return int(k.good_kind(seed, t, period))
     at = [i for i in range(1, len(series)) if series[i]["good"] != series[i - 1]["good"]]
     out = []
     for m, i in enumerate(at):
         lo, hi = series[i - 1]["step"], series[i]["step"]
-        real = [b for b in range(-(-lo // period) * period, hi, period)
-                if b > 0 and k.good_kind(seed, b, period) != k.good_kind(seed, b - 1, period)]
+        real = [b for b in range(max(lo, 1), hi) if good(b) != good(b - 1)]
         if not real:
             raise ValueError(f"스텝 {lo}~{hi} 사이에 실제 바뀜이 없다: 씨앗({seed})이나 주기({period})가 이 줄들과 다르다")
         flip = real[-1]
@@ -236,7 +245,7 @@ def solo(cfg, genomes: dict, n: int, steps: int, seed: int, every: int = 500) ->
         e, p = int(c[k.C_EATEN]), int(c[k.C_POISONED])
         alive = world.s.alive
         series.append({"step": world.step_no, "pop": int(alive.sum()), "eaten": e - pe, "poisoned": p - pp,
-                       "good": int(k.good_kind(acfg.seed, world.step_no - 1, acfg.kind_flip_period)),
+                       "good": k.cfg_good_kind(acfg, world.step_no - 1),
                        "hin_abs": float(np.abs(world.s.Hin[alive, :8, 0]).mean()) if alive.any() else 0.0,
                        "flip": _flip(world.s, alive),
                        "mod": float(world.s.mod[alive].mean()) if alive.any() else 0.0,
@@ -301,7 +310,7 @@ def main():
             x = solo(cfg, gnm, n, steps, seed, every=250)
             print(name)
             for r in x["series"]:
-                good = k.good_kind(seed, r["step"] - 1, cfg.kind_flip_period)
+                good = r["good"]
                 print(f"  {r['step']:6d} good={good} pop={r['pop']:4d} eat={r['eaten']:5d} "
                       f"poi={r['poisoned']:5d} hin={r['hin_abs']:.3f} flip={r['flip']:+.2f} mod={r['mod']:+.4f}", flush=True)
     elif mode == "grid":
@@ -356,7 +365,9 @@ def main():
                 tcfg = cfg if on else with_set(cfg, ",".join(knockout.TASTE_OFF))
                 for seed in seeds:
                     x = curve(tcfg, gnm, n, steps, seed, every=100, lab=lab)
-                    flips = after_flips(x["series"], tcfg.kind_flip_period, seed)
+                    acfg = curve_arena(tcfg, seed, n, lab)
+                    flips = after_flips(x["series"], tcfg.kind_flip_period, seed,
+                                        good=lambda t, a=acfg: k.cfg_good_kind(a, t))
                     row = {"lab": lab, "taste": on, "seed": seed, "flips": flips,
                            "first_mean": _nanmean(f["first"] for f in flips),
                            "rest_mean": _nanmean(f["rest"] for f in flips),

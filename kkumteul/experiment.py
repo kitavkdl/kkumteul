@@ -129,7 +129,8 @@ def _assay(control_dir: Path, treat_dir: Path, base: Config, arms: dict, n_each:
     a = measure.load_side(ckpt.latest(control_dir / "checkpoints"))
     b = measure.load_side(ckpt.latest(treat_dir / "checkpoints"))
     # 겨루는 세계는 각본이 바꾸기 전의 바탕 설정이다. 카드에 기계의 경로가 남지 않게 이름으로 바꾼다
-    a["cfg"] = b["cfg"] = base
+    # 바탕 설정으로 덮어써도 독 순서는 체크포인트 스텝에서 잇는다(measure.kind_aligned, 두 쪽은 같은 스텝까지 돈다)
+    a["cfg"] = b["cfg"] = measure.kind_aligned(base, a["step"])
     a["path"], b["path"] = "control", "treatment"
     n = min(n_each, base.max_agents // 2)
     res = measure.assay_sides(a, b, n, steps, reps, seed)

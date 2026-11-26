@@ -65,3 +65,71 @@ def test_eat_uses_aligned_kind():
         counts.append((int(w.s.counters[k.C_POISONED]), int(w.s.counters[k.C_EATEN])))
     assert counts[0][1] > 0 and counts[1][1] > 0
     assert counts[0][0] != counts[1][0]
+
+
+# ---- 체크포인트 밖의 길: 묶음 겨루기·실험 카드 겨루기·손 개체 도구(2026-11-26 검토 지적) ----
+def _small_kinds(**kw):
+    base = dict(food_kinds_enabled=True, kind_flip_period=500, seed=3, world_w=256.0, world_h=256.0,
+                init_agents=60, max_agents=200)
+    base.update(kw)
+    return Config(**base)
+
+
+def test_pack_side_is_aligned_like_checkpoint(tmp_path):
+    """묶음에서 읽은 한쪽도 체크포인트에서 읽은 것처럼 뽑아 온 스텝의 독 순서를 잇는다."""
+    from kkumteul import checkpoint as ckpt, pack
+    from kkumteul.world import World
+    w = World(_small_kinds())
+    w.run(30)
+    cp = ckpt.save(w, tmp_path / "c")
+    pack.export(cp, tmp_path / "p.npz", n=20)
+    side = measure.load_side(tmp_path / "p.npz")
+    want = measure.load_side(cp)["cfg"]
+    assert side["cfg"].kind_step0 == 30 and side["cfg"].kind_seed == k.kind_seed_of(w.cfg)
+    assert side["cfg"] == want
+    assert pack.read(tmp_path / "p.npz")[1] == w.cfg, "파일에 적힌 설정은 그대로(읽을 때만 잇는다)"
+
+
+def test_experiment_assay_keeps_poison_order(monkeypatch, tmp_path):
+    """실험 카드 겨루기는 바탕 설정으로 덮어쓰지만 독 순서는 체크포인트 스텝에서 잇는다."""
+    from kkumteul import checkpoint as ckpt, experiment
+    from kkumteul.world import World
+    base = _small_kinds()
+    for name in ("ctl", "trt"):
+        w = World(base)
+        w.run(40)
+        ckpt.save(w, tmp_path / name / "checkpoints")
+    seen = []
+
+    def fake(a, b, n, steps, reps, seed, neutral=False):
+        seen.append((a["cfg"], b["cfg"]))
+        return {"r_per_1000": {}, "final_counts": [], "a_extinct_runs": 0, "b_extinct_runs": 0,
+                "both_extinct_runs": 0, "winner": ""}
+
+    monkeypatch.setattr(measure, "assay_sides", fake)
+    monkeypatch.setattr(measure, "verdict", lambda *a, **kw: "")
+    arms = {"control": {"pop_final": 100}, "treatment": {"pop_final": 100}}
+    experiment._assay(tmp_path / "ctl", tmp_path / "trt", base, arms, 20, 100, 1, 1)
+    a, b = seen[0]
+    assert a == b == measure.kind_aligned(base, 40)
+    assert k.cfg_good_kind(measure.arena_config(a, 9, 40), 0) == k.cfg_good_kind(base, 40)
+
+
+def test_hand_learner_after_flips_with_offset_order():
+    """kind_step0이 있는 마당에선 바뀜 경계가 주기의 배수가 아니다 — good을 넘기면 실제 바뀜을 찾는다."""
+    import importlib.util
+    from pathlib import Path
+    p = Path(__file__).resolve().parent.parent / "wayfinder" / "stage2-4" / "hand_learner.py"
+    spec = importlib.util.spec_from_file_location("hand_learner_t", p)
+    hl = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hl)
+    period, every = 250, 50
+    acfg = next(c for s0 in range(1, 400, 7)
+                for c in [_small_kinds(kind_flip_period=period, kind_step0=s0)]
+                if any(k.cfg_good_kind(c, t) != k.cfg_good_kind(c, t - 1) for t in range(1, 1500)))
+    flips = [t for t in range(1, 1500) if k.cfg_good_kind(acfg, t) != k.cfg_good_kind(acfg, t - 1)]
+    assert all((t + acfg.kind_step0) % period == 0 for t in flips)
+    series = [{"step": s, "good": k.cfg_good_kind(acfg, s - 1), "eaten": 10, "poisoned": 1}
+              for s in range(every, 1501, every)]
+    out = hl.after_flips(series, period, acfg.seed, good=lambda t: k.cfg_good_kind(acfg, t))
+    assert [o["flip"] for o in out] == flips
