@@ -16,7 +16,9 @@ from .config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT
                      IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL, N_INTERNAL, N_NORM_IN, N_TASTE_IN, N_TASTE_VIS,
                      NORM_AIMS, NORM_MODES, NORM_OBS_MODES, NORM_SRCS, NORM_VIS, TASTE_VIS)
 from .kernels import (C_ATTACKS, C_FERTILE, C_GIFTS, C_NFIELD, C_NFOOD, KIND_A, L_BASAL, L_BRAIN, L_DISCARD, L_LOST,
-                      L_MOVE, L_SPAWN, TOUCH_HIT, _place_food, _wdiff, _wrap, make_room, pick_kind)
+                      L_MOVE, L_SPAWN, NT_ALIVE_STEPS, NT_ATK_COST, NT_EXPO, NT_TAKE, NT_TAKE_DMG_RECV, NT_TAKE_GAIN,
+                      NT_TAKE_KILL, NT_TAKE_KIN, NT_TAKE_LINE, NT_TAKE_SIM0, NT_VIOL_DMG_RECV, TAG_ROWS_NORM,
+                      TOUCH_HIT, _kin_class, _place_food, _wdiff, _wrap, make_room, pick_kind)
 from .rng import S_ATTACK_ORDER, S_FERTILE, S_PERTURB, normal, u01
 
 # 거름 먹이의 종류를 뽑는 난수 번호의 밑. S_KIND 흐름에서 보통 먹이는 (일련번호, 0), 어느 쪽이 독인지는
@@ -105,6 +107,16 @@ def _cell_of(x, y, inv_cell, gw, gh):
 
 
 # =========================== 3단계: 사회 (감각) ===========================
+@njit(cache=True, inline="always")
+def _color_sim(color, i, j):
+    """색 유전자 닮음 1 − √(색 거리²)/√3 (같으면 1). 혈연 알아보기(IN_KIN)와 규범 계수기가 같은 식을 쓴다."""
+    dc = 0.0
+    for c3 in range(3):
+        t = color[i, c3] - color[j, c3]
+        dc += t * t
+    return 1.0 - math.sqrt(dc) / 1.7320508075688772
+
+
 @njit(cache=True, parallel=True)
 def _social_sense_par(fs, isp, alive, x, y, heading, color, ate, sig, obs, a_start, a_items):
     n = x.shape[0]
@@ -169,11 +181,7 @@ def _social_sense_par(fs, isp, alive, x, y, heading, color, ate, sig, obs, a_sta
         obs[i, base + IN_HEAR + 3] = math.tanh(h1b)
         kin = 0.0
         if near >= 0:
-            dc = 0.0
-            for c3 in range(3):
-                t = color[i, c3] - color[near, c3]
-                dc += t * t
-            kin = 1.0 - math.sqrt(dc) / 1.7320508075688772
+            kin = _color_sim(color, i, near)
         obs[i, base + IN_KIN] = kin
         obs[i, base + IN_SAWEAT] = saw
 
@@ -615,28 +623,121 @@ def give(s, fs, isp):
         s.counters[C_GIFTS] += 1
 
 
+# =========================== 규범의 씨앗: 도우미 ===========================
+@njit(cache=True, inline="always")
+def _norm_row(tag):
+    """계수표의 행: 태그 0~3은 그 행, 그 밖(음수 포함)은 4에 접는다."""
+    if tag < 0:
+        return TAG_ROWS_NORM - 1
+    if tag > TAG_ROWS_NORM - 1:
+        return TAG_ROWS_NORM - 1
+    return tag
+
+
+@njit(cache=True, inline="always")
+def _sim_bin(sim):
+    """닮음 구간: < 0.88, 0.88~0.92, 0.92~0.96, ≥ 0.96 → 0~3. 친척 경계는 분석에서 사후에 고른다(문턱 설정 키 없음)."""
+    if sim < 0.88:
+        return 0
+    if sim < 0.92:
+        return 1
+    if sim < 0.96:
+        return 2
+    return 3
+
+
+@njit(cache=True, inline="always")
+def _is_marked(t, mt, tau):
+    """스텝 t에 표시돼 있는가: 붙은 스텝과 그 뒤 τ스텝(모두 τ + 1스텝). 시각에서 계산하므로 감쇠 패스가 없다."""
+    return mt >= 0 and t - mt <= tau
+
+
+@njit(cache=True)
+def _scan_touching(s, fs, isp, i, t):
+    """훑기: i에게 닿는(_nearest_touching과 같은 거리·같은 순회·같은 동률 규칙, 에너지 0 이하 건너뜀) 가장 가까운 이웃 nb와
+    가장 가까운 표시된 이웃 nm을 한 번에 찾는다. 없으면 -1. 노출·기회·선택성 분모는 모두 여기서 센다."""
+    gw = isp[I_GW]
+    gh = isp[I_GH]
+    w = fs[F_W]
+    hgt = fs[F_H]
+    inv_cell = fs[F_INV_CELL]
+    tau = int(fs[F_NORM_TAU])
+    xi = s.x[i]
+    yi = s.y[i]
+    cx = int(xi * inv_cell)
+    cy = int(yi * inv_cell)
+    if cx >= gw:
+        cx = gw - 1
+    if cy >= gh:
+        cy = gh - 1
+    nb = -1
+    nm = -1
+    bd = _reach2(fs)
+    bm = bd
+    for oy in range(-1, 2):
+        yy = (cy + oy) % gh
+        for ox in range(-1, 2):
+            xx = (cx + ox) % gw
+            c = yy * gw + xx
+            for p in range(s.a_start[c], s.a_start[c + 1]):
+                j = s.a_items[p]
+                if j == i or not s.alive[j]:
+                    continue
+                if s.energy[j] <= 0.0:
+                    continue
+                ddx = _wdiff(s.x[j] - xi, w)
+                ddy = _wdiff(s.y[j] - yi, hgt)
+                d2 = ddx * ddx + ddy * ddy
+                if d2 < bd:
+                    bd = d2
+                    nb = j
+                if d2 < bm and _is_marked(t, s.mark_t[j], tau):
+                    bm = d2
+                    nm = j
+    return nb, nm
+
+
 # =========================== 다툼: 공격 ===========================
 @njit(cache=True)
 def attack(step, s, fs, isp):
     """공격 출력이 켜진 개체가 닿아 있는 가장 가까운 이웃의 에너지를 깎고 그 일부를 얻는다.
     맞은 개체는 닿음 감각이 TOUCH_HIT(2)가 된다(그냥 닿으면 1). 얻는 양은 깎은 양보다 적어 에너지가 생기지 않는다.
     훑는 시작 칸은 스텝마다 바꾼다. 늘 0번 칸부터 훑으면 낮은 칸의 개체가 늘 먼저 쳐서, 맞대결의 승패에
-    칸 번호(나이·세대와 얽혀 있다)가 섞인다."""
+    칸 번호(나이·세대와 얽혀 있다)가 섞인다.
+
+    규범 계수(norm_measure·norm_enabled)가 켜지면 산 모든 개체의 차례마다 먼저 이웃을 훑는다(훑기는 읽기만 해서
+    세계 동작은 같다). 에너지가 0 이하인 개체는 차례가 없다: ALIVE_STEPS에는 세고 EXPO·기회 계수에는 안 센다.
+    둘 다 꺼져 있으면 옛 공격과 똑같은 분기만 돈다."""
     n = s.x.shape[0]
     start = int(u01(isp[I_SEED], S_ATTACK_ORDER, step, 0) * n)
+    count = isp[I_NORM_MEASURE] != 0 or isp[I_NORM_ON] != 0
+    tab = s.norm_tab
     for q in range(n):
         i = start + q
         if i >= n:
             i -= n
         if not s.alive[i]:
             continue
+        ri = _norm_row(s.tag[i])
+        nb = -1
+        if count:
+            tab[ri, NT_ALIVE_STEPS] += 1.0
+            if s.energy[i] <= 0.0:
+                continue
+            nb, nm = _scan_touching(s, fs, isp, i, step)
+            if nb >= 0:
+                tab[ri, NT_EXPO] += 1.0
         a = float(s.act[i, ACT_ATTACK])
         if a <= 0.0 or s.energy[i] <= 0.0:
             continue
         cost = fs[F_ATK_COST] * a
         s.energy[i] -= cost
         s.ledger[L_MOVE] += cost
-        best = _nearest_touching(s, fs, isp, i, True)
+        if count:
+            tab[ri, NT_ATK_COST] += cost
+            best = nb       # 훑기의 nb는 _nearest_touching과 같은 칸이다(내 비용은 이웃 고르기에 안 닿는다)
+        else:
+            best = _nearest_touching(s, fs, isp, i, True)
         if best < 0:
             continue
         dmg = fs[F_ATK_DMG] * a
@@ -648,6 +749,21 @@ def attack(step, s, fs, isp):
         s.ledger[L_LOST] += dmg - got
         s.touch[best] = TOUCH_HIT
         s.counters[C_ATTACKS] += 1
+        if count:
+            rb = _norm_row(s.tag[best])
+            tab[ri, NT_TAKE] += 1.0
+            tab[rb, NT_TAKE_DMG_RECV] += dmg
+            tab[ri, NT_TAKE_GAIN] += got
+            tab[rb, NT_VIOL_DMG_RECV] += dmg      # 표시가 없는 측정 세계는 모든 피해가 위반 피해다
+            sb = _sim_bin(_color_sim(s.color, i, best))
+            line = _kin_class(s, i, best) > 0
+            tab[ri, NT_TAKE_SIM0 + sb] += 1.0
+            if line:
+                tab[ri, NT_TAKE_LINE] += 1.0
+            if line or sb >= 2:
+                tab[ri, NT_TAKE_KIN] += 1.0
+            if s.energy[best] <= 0.0:
+                tab[ri, NT_TAKE_KILL] += 1.0
 
 
 # =========================== 4단계: 땅 ===========================

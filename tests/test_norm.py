@@ -331,3 +331,184 @@ def test_norm_stage_params_packed():
              st.I_NORM_IMP_LEN, st.I_NORM_BLOCK, st.I_NORM_BLOCK3, st.I_NORM_MIX_PERIOD, st.I_NORM_IN0,
              st.I_NORM_VIS0)
     assert new_i == tuple(range(14, 26)) and st.N_IS == 26 == len(isp0)
+
+
+# ======================= 과제 3: 훑기와 norm_measure 계수기 =======================
+def hand_world(*presets, n=8, **kw):
+    """모든 칸이 산 작은 세계(먹이 없음). 개체는 서로 멀리(25 간격) 두고, 손 시험이 몇을 옮겨 붙인다."""
+    cfg = small("stage4", "conflict", *presets, max_agents=n, init_agents=n, min_agents=0, food_inflow=0.0, **kw)
+    w = World(cfg)
+    s = w.s
+    assert int(s.alive.sum()) == n
+    for q in range(n):
+        s.x[q], s.y[q] = 20.0 + 25.0 * (q % 9), 30.0 + 40.0 * (q // 9)
+    s.act[:] = 0
+    s.touch[:] = 0
+    s.energy[:] = 1.0
+    s.parent[:] = -1
+    s.color[:] = 0.5
+    s.tag[:] = 0
+    s.asleep[:] = 0
+    return w
+
+
+def regrid(w):
+    s, c = w.s, w.cfg
+    k.build_grid(s.x, s.y, s.alive, 1.0 / c.cell, c.grid_w, c.grid_h, s.a_start, s.a_items, s.cursor)
+
+
+def put(w, i, x, y):
+    w.s.x[i], w.s.y[i] = x, y
+
+
+def nt(w, row, col):
+    return float(w.s.norm_tab[row, col])
+
+
+def _brute(s, cfg, i, t, tau):
+    """i에게 닿는(거리 < 2r + 0.5) 가장 가까운 이웃과 표시된 이웃(에너지 > 0, 자기 제외, 토러스)."""
+    r2 = (2 * cfg.agent_radius + 0.5) ** 2
+    nb, nm, bd, bm = -1, -1, r2, r2
+    for j in np.flatnonzero(s.alive):
+        if j == i or s.energy[j] <= 0:
+            continue
+        dx = (s.x[j] - s.x[i] + cfg.world_w / 2) % cfg.world_w - cfg.world_w / 2
+        dy = (s.y[j] - s.y[i] + cfg.world_h / 2) % cfg.world_h - cfg.world_h / 2
+        d2 = dx * dx + dy * dy
+        if d2 < bd:
+            bd, nb = d2, j
+        if s.mark_t[j] >= 0 and t - s.mark_t[j] <= tau and d2 < bm:
+            bm, nm = d2, j
+    return nb, nm
+
+
+def test_scan_matches_nearest_touching():
+    w = World(small("stage4", "conflict", "norm_size", norm_measure=True, init_agents=300, max_agents=400))
+    s, cfg = w.s, w.cfg
+    gen = np.random.default_rng(3)
+    a = np.flatnonzero(s.alive)
+    # 빽빽하게: 절반은 가운데 상자, 절반은 토러스 가장자리를 걸친 상자
+    s.x[a] = np.where(np.arange(len(a)) % 2 == 0, 100.0 + gen.uniform(0, 25, len(a)), gen.uniform(-12, 12, len(a)) % 256)
+    s.y[a] = np.where(np.arange(len(a)) % 2 == 0, 100.0 + gen.uniform(0, 25, len(a)), gen.uniform(-12, 12, len(a)) % 256)
+    s.energy[a[::7]] = 0.0                     # 에너지 없는 이웃은 건너뛴다
+    t = 100
+    s.mark_t[a[::3]] = t - gen.integers(0, 60, len(a[::3]))     # 일부는 표시 창(τ = 50) 밖
+    regrid(w)
+    n_nb = n_nm = 0
+    for i in a:
+        nb, nm = st._scan_touching(s, w.fs, w.isp, i, t)
+        assert nb == st._nearest_touching(s, w.fs, w.isp, i, True)
+        bnb, bnm = _brute(s, cfg, i, t, cfg.norm_mark_tau)
+        assert (nb, nm) == (bnb, bnm), i
+        n_nb += nb >= 0
+        n_nm += nm >= 0
+    assert n_nb > 50 and n_nm > 10          # 양성 확인: 실제로 닿는 이웃이 있다
+
+
+def test_expo_counts_gap_neighbors_and_ignores_touch():
+    w = hand_world("norm_size", norm_measure=True)
+    s = w.s
+    put(w, 0, 100.0, 100.0)
+    put(w, 4, 102.2, 100.0)                  # 겹치지 않는 틈(2.0 < d < 2.5): collide의 touch는 안 켜진다
+    regrid(w)
+    st.attack(0, s, w.fs, w.isp)
+    assert nt(w, 0, k.NT_EXPO) == 2 and nt(w, 0, k.NT_ALIVE_STEPS) == 8
+    s.touch[4] = k.TOUCH_HIT
+    s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    st.attack(1, s, w.fs, w.isp)
+    assert nt(w, 0, k.NT_EXPO) == 4 and nt(w, 0, k.NT_ALIVE_STEPS) == 16
+    # 에너지가 0 이하인 개체는 차례가 없다(ALIVE_STEPS에는 세고 EXPO에는 안 센다)
+    s.act[:] = 0
+    s.energy[0] = 0.0
+    st.attack(2, s, w.fs, w.isp)
+    assert nt(w, 0, k.NT_EXPO) == 4 and nt(w, 0, k.NT_ALIVE_STEPS) == 24
+
+
+def test_measure_counts_take_by_actor_tag():
+    w = hand_world("norm_size", norm_measure=True)
+    s, cfg = w.s, w.cfg
+    put(w, 0, 100.0, 100.0)
+    put(w, 4, 101.5, 100.0)
+    regrid(w)
+    s.tag[0], s.tag[4] = 1, 2
+    s.parent[4] = s.ids[0]                    # 0이 4의 부모(계보 친족)
+    s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    st.attack(0, s, w.fs, w.isp)
+    dmg = cfg.attack_damage
+    assert nt(w, 1, k.NT_TAKE) == 1 and nt(w, 2, k.NT_TAKE) == 0
+    assert nt(w, 2, k.NT_TAKE_DMG_RECV) == pytest.approx(dmg) and nt(w, 1, k.NT_TAKE_DMG_RECV) == 0
+    assert nt(w, 1, k.NT_TAKE_GAIN) == pytest.approx(dmg * cfg.attack_gain)
+    assert nt(w, 2, k.NT_VIOL_DMG_RECV) == pytest.approx(dmg)
+    assert nt(w, 1, k.NT_TAKE_KIN) == 1 and nt(w, 1, k.NT_TAKE_LINE) == 1
+    assert nt(w, 1, k.NT_TAKE_SIM3) == 1                      # 같은 색 = 닮음 1
+    assert nt(w, 1, k.NT_ATK_COST) == pytest.approx(cfg.attack_cost)
+    # 남이고 색이 먼 쌍: 닮음 1 − 0.3/√3 ≈ 0.827 → 구간 0, 친족 아님
+    s.parent[4] = -1
+    s.color[4] = (0.8, 0.5, 0.5)
+    st.attack(1, s, w.fs, w.isp)
+    assert nt(w, 1, k.NT_TAKE) == 2 and nt(w, 1, k.NT_TAKE_KIN) == 1 and nt(w, 1, k.NT_TAKE_LINE) == 1
+    assert nt(w, 1, k.NT_TAKE_SIM0) == 1
+    # 닮음 0.93(구간 2)은 계보가 없어도 친족 칸에 든다
+    s.color[4] = (0.5 + 0.07 * 1.7320508075688772, 0.5, 0.5)
+    st.attack(2, s, w.fs, w.isp)
+    assert nt(w, 1, k.NT_TAKE_SIM2) == 1 and nt(w, 1, k.NT_TAKE_KIN) == 2 and nt(w, 1, k.NT_TAKE_LINE) == 1
+    assert st._sim_bin(0.8799) == 0 and st._sim_bin(0.88) == 1 and st._sim_bin(0.92) == 2 and st._sim_bin(0.96) == 3
+
+
+def test_viol_dmg_equals_total_in_measure_only():
+    w = World(small("stage4", "conflict", "norm_size", norm_measure=True))
+    w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+    w.run(300)
+    tab = w.s.norm_tab
+    assert tab[:, k.NT_TAKE].sum() > 0
+    assert tab[:, k.NT_VIOL_DMG_RECV].sum() == pytest.approx(tab[:, k.NT_TAKE_DMG_RECV].sum())
+    assert tab[:, k.NT_TAKE].sum() == w.s.counters[k.C_ATTACKS]
+
+
+def test_norm_tag_fold_no_overflow():
+    w = hand_world("norm_size", norm_measure=True)
+    s = w.s
+    put(w, 0, 100.0, 100.0)
+    put(w, 4, 101.5, 100.0)
+    regrid(w)
+    s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    for step, (ta, tb) in enumerate(((-3, 4), (99, -1), (4, 99))):
+        s.tag[0], s.tag[4] = ta, tb
+        s.energy[4] = 1.0
+        st.attack(step, s, w.fs, w.isp)
+    assert nt(w, 4, k.NT_TAKE) == 3 and nt(w, 4, k.NT_TAKE_DMG_RECV) > 0
+    assert s.norm_tab[:4, k.NT_TAKE].sum() == 0
+    assert not s.norm_tab_role.any() and not s.norm_hist.any()
+
+
+def test_measure_only_hash_equals_off():
+    hashes = []
+    for kw in (dict(), dict(norm_measure=True)):
+        w = World(small("stage4", "conflict", "norm_size", **kw))
+        w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+        w.run(300)
+        hashes.append(w.state_hash())
+        if kw:
+            assert w.s.norm_tab[:, k.NT_TAKE].sum() > 0 and w.s.norm_tab[:, k.NT_EXPO].sum() > 0
+    assert hashes[0] == hashes[1]
+
+
+def test_scan_not_called_when_both_off():
+    # 훑기는 attack(njit) 안에서 불려 파이썬에서 감쌀 수 없다 → 훑기에서만 세는 계수가 0인지로 확인한다
+    w = World(small("stage4", "conflict", "norm_size", norm_impulse=0.05))
+    w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+    w.run(100)
+    assert w.s.counters[k.C_ATTACKS] > 0
+    assert not w.s.norm_tab.any()
+
+
+def test_summary_norm_measure_keys():
+    w = World(small("stage4", "conflict", "norm_size", norm_measure=True))
+    w.run(30)
+    out = w.summary()
+    tab = w.s.norm_tab
+    assert out["norm_expo_frac"] == pytest.approx(tab[:, k.NT_EXPO].sum() / tab[:, k.NT_ALIVE_STEPS].sum())
+    assert out["norm_take_per_step"] == pytest.approx(tab[:, k.NT_TAKE].sum() / tab[:, k.NT_ALIVE_STEPS].sum())
+    w0 = World(small("stage4", "conflict", "norm_size"))
+    w0.run(5)
+    assert "norm_expo_frac" not in w0.summary()

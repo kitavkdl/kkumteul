@@ -540,6 +540,12 @@ class World:
                 out["grad_rate"] = grad / (grad + dead)
             if tot[k.GT_PAR_ALIVE] > 0:
                 out["par_near_frac"] = float(tot[k.GT_PAR_NEAR] / tot[k.GT_PAR_ALIVE])
+        if self.cfg.norm_measure or self.cfg.norm_enabled:
+            tot = self.s.norm_tab.sum(axis=0)
+            alive_steps = float(tot[k.NT_ALIVE_STEPS])
+            if alive_steps > 0:
+                out["norm_expo_frac"] = float(tot[k.NT_EXPO]) / alive_steps      # 설계의 θ_t: 닿는 이웃이 있는 개체 스텝 비율
+                out["norm_take_per_step"] = float(tot[k.NT_TAKE]) / alive_steps
         if self.cfg.huddle_enabled:
             out["huddle_cut_mean"] = float(s.huddle_cut[a].mean()) if n else 0.0
         if self.cfg.prey_enabled:
