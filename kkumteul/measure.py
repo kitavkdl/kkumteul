@@ -29,7 +29,7 @@ import numpy as np
 
 from . import checkpoint as ckpt
 from . import kernels as k
-from .config import Config
+from .config import FIRST_MEALS, Config
 from .world import World
 
 GENOME = ("Win", "Wrec", "bh", "Wout", "bout", "n_hidden", "sigma", "color", "rw", "eta", "alpha", "taste_g", "soc_g")
@@ -174,6 +174,7 @@ def compete(cfg: Config, ga: dict, gb: dict, n_each: int, steps: int, seed: int,
         tags = world.s.tag[world.s.alive]
         series.append([world.step_no, int((tags == 0).sum()), int((tags == 1).sum())])
     world.drain_events()
+    first10 = _first10(world)
     arr = np.asarray(series, dtype=float)
     # 한쪽이 전멸한 뒤에는 비가 더 변하지 않는다. 전멸한 표본까지만 쓴다
     # (그 뒤까지 넣으면 가장 크게 진 판의 기울기가 0에 가깝게 나온다).
@@ -188,7 +189,19 @@ def compete(cfg: Config, ga: dict, gb: dict, n_each: int, steps: int, seed: int,
     else:               # 표본이 모자라면 시작(1:1)에서 그 시점까지의 평균 기울기
         r = float(y[-1] / keep[-1, 0])
     return {"n_a": int(arr[-1, 1]), "n_b": int(arr[-1, 2]), "r": r, "series": series,
-            "extinct": extinct_label(int(arr[-1, 1]), int(arr[-1, 2]))}
+            "extinct": extinct_label(int(arr[-1, 1]), int(arr[-1, 2])), "first10": first10}
+
+
+def _first10(world: World) -> dict:
+    """끝에 산 개체의 첫 FIRST_MEALS끼 기록을 태그별로 합친다: {태그: [독 합, 먹은 끼니 합]}.
+    (독 합 = n_poison10, 끼니 합 = min(n_meal, FIRST_MEALS). 배운 개체가 첫 끼부터 덜 먹는지 보는 값.)"""
+    s = world.s
+    live = s.alive
+    out = {}
+    for tag in (0, 1):
+        m = live & (s.tag == tag)
+        out[tag] = [int(s.n_poison10[m].sum()), int(np.minimum(s.n_meal[m], FIRST_MEALS).sum())]
+    return out
 
 
 def extinct_label(n_a: int, n_b: int) -> str:
@@ -223,6 +236,9 @@ def assay_sides(a: dict, b: dict, n_each: int = 400, steps: int = 8000, reps: in
         "b": {key: b[key] for key in ("path", "step", "gen_mean")},
         "n_each": n_each, "steps": steps, "reps": reps,
         "r_per_1000": _stats([x["r"] * 1000 for x in runs]),
+        "r_list": [x["r"] * 1000 for x in runs],          # 반복별 r(판정 도구가 두 판 사이를 비교할 때 쓴다)
+        "first10_by_tag": {str(tag): [sum(x["first10"][tag][i] for x in runs) for i in (0, 1)]
+                           for tag in (0, 1)},            # 태그별 첫 10끼 [독 합, 끼니 합](반복을 합침)
         "final_counts": [[x["n_a"], x["n_b"]] for x in runs],
         "a_extinct_runs": sum(x["extinct"] == "a" for x in runs),
         "b_extinct_runs": sum(x["extinct"] == "b" for x in runs),

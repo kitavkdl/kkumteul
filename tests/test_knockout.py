@@ -114,7 +114,9 @@ def test_taste_channels_columns_and_rules():
     assert ko.columns(small("stage2"), "vision") == list(range(2 * 8))     # 맛 블록 없는 세계는 그대로
     for ch in ("taste", "taste_vis", "taste_val"):
         # 유전자 켠 세계도 설정 검사에 걸리지 않게 둘 다 끈다(설계 2026-11-07 개인 학습 둘째 판 규칙 축 2)
-        assert ko.OFF_RULES[ch] == ["taste_enabled=false", "taste_gene_enabled=false"]
+        # 보고 배우기(soc)까지 셋을 함께 끈다(과제 5: 장치를 켠 세계도 설정 검사에 걸리지 않게)
+        assert ko.OFF_RULES[ch] == ko.TASTE_OFF
+        assert "soc_taste_enabled=false" in ko.OFF_RULES[ch]
         with pytest.raises(ValueError):
             ko.columns(small("stage2"), ch)
 

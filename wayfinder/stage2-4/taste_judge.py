@@ -45,6 +45,7 @@ import numpy as np
 
 from kkumteul import checkpoint as ckpt
 from kkumteul import kernels as k
+from kkumteul import knockout
 from kkumteul import replay
 from kkumteul.config import FIRST_MEALS
 
@@ -229,8 +230,8 @@ def flip_diff(path, steps: int = 30000, every: int = 10, win: int = 300, expect:
     sides = {}
     for name, val in (("on", "true"), ("off", "false")):
         # 켬도 덮어쓰기를 준다: 빈 덮어쓰기는 ckpt.load(path)로 가서 끔 갈래와 읽기 길이 다르다
-        # 맛 끔 쪽은 배움 속도 유전자도 꺼야 설정 검사를 지난다(켬 쪽은 체크포인트 설정 그대로)
-        ov = [f"taste_enabled={val}"] + (["taste_gene_enabled=false"] if val == "false" else [])
+        # 맛 끔 쪽은 배움 속도 유전자·보고 배우기도 꺼야 설정 검사를 지난다(켬 쪽은 체크포인트 설정 그대로)
+        ov = ["taste_enabled=true"] if val == "true" else list(knockout.TASTE_OFF)
         rep = replay.record(path, steps, every, from_flip=True, overrides=ov)
         sides[name] = flip_deltas(rep.steps, rep.good_kind, rep.blind, win)
     d = paired_diff(sides["on"], sides["off"])

@@ -36,6 +36,7 @@ import numpy as np
 
 from kkumteul import checkpoint as ckpt
 from kkumteul import kernels as k
+from kkumteul import knockout
 from kkumteul import measure
 from kkumteul.config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT_SIG1,
                              ACT_SLEEP, ACT_THRUST, ACT_TURN, TASTE_VIS)
@@ -352,7 +353,7 @@ def main():
         rest = {}
         for lab in (True, False):
             for on in (True, False):
-                tcfg = cfg if on else with_set(cfg, "taste_enabled=false")
+                tcfg = cfg if on else with_set(cfg, ",".join(knockout.TASTE_OFF))
                 for seed in seeds:
                     x = curve(tcfg, gnm, n, steps, seed, every=100, lab=lab)
                     flips = after_flips(x["series"], tcfg.kind_flip_period, seed)

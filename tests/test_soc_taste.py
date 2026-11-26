@@ -738,3 +738,88 @@ def test_blind_same_observations_as_outcome():
     _grid(w)
     k.watch_meals(9, w.s, w.fp, w.ip)
     assert w.s.taste_m[0] == pytest.approx(expect)
+
+
+# ---- 과제 5: 끄는 규칙·겨루기 출력·옛 도구 정리 ----
+def test_taste_off_list_is_shared():
+    from kkumteul import knockout as ko
+    assert ko.TASTE_OFF == ["taste_enabled=false", "taste_gene_enabled=false", "soc_taste_enabled=false"]
+    for ch in ("taste", "taste_vis", "taste_val"):
+        assert ko.OFF_RULES[ch] == ko.TASTE_OFF
+        assert ko.OFF_RULES[ch] is not ko.TASTE_OFF         # 복사본(한쪽을 고쳐도 다른 쪽이 안 변함)
+
+
+def test_knockout_taste_split_with_soc_on_passes_config_check():
+    from kkumteul import knockout as ko
+    c = small("stage2", "kinds", "taste", taste_gene_enabled=True, soc_taste_enabled=True)
+    assert c.soc_taste_enabled and c.taste_gene_enabled
+    off = c.with_overrides(ko.TASTE_OFF)                     # 한꺼번에 적용해도 설정 검사에 안 걸린다
+    assert not (off.taste_enabled or off.taste_gene_enabled or off.soc_taste_enabled)
+    for ch in ("taste", "taste_vis", "taste_val"):
+        off = c.with_overrides(ko.OFF_RULES[ch])
+        assert not off.soc_taste_enabled
+
+
+def _judge_tools():
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "wayfinder" / "stage2-4"))
+    import hand_learner
+    import taste_judge
+    return taste_judge, hand_learner
+
+
+class _Stop(Exception):
+    pass
+
+
+def test_flip_diff_taste_off_with_soc(monkeypatch):
+    from kkumteul import knockout as ko
+    from kkumteul import replay
+    tj, _ = _judge_tools()
+    seen = []
+
+    class _Rep:
+        steps = np.zeros(0, dtype=np.int64)
+        good_kind = np.zeros(0, dtype=np.int64)
+        blind = np.zeros(0)
+
+    def fake_record(path, steps, every, from_flip=True, overrides=None):
+        seen.append(list(overrides))
+        return _Rep()
+
+    monkeypatch.setattr(replay, "record", fake_record)
+    monkeypatch.setattr(tj, "flip_deltas", lambda *a, **kw: [])
+    tj.flip_diff("x.npz", steps=10)
+    assert seen[0] == ["taste_enabled=true"]
+    assert seen[1] == ko.TASTE_OFF                           # 끔 쪽은 셋을 모두 끈다
+    c = small("stage2", "kinds", "taste", taste_gene_enabled=True, soc_taste_enabled=True)
+    c.with_overrides(seen[1])                                # 장치를 켠 설정에서 검사에 안 걸린다
+
+
+def test_hand_learner_taste_off_with_soc():
+    from kkumteul import knockout as ko
+    _, hl = _judge_tools()
+    assert hl.knockout is ko
+    c = small("stage2", "kinds", "taste", taste_gene_enabled=True, soc_taste_enabled=True)
+    off = hl.with_set(c, ",".join(ko.TASTE_OFF))
+    assert not (off.taste_enabled or off.taste_gene_enabled or off.soc_taste_enabled)
+    assert "TASTE_OFF" in (Path(hl.__file__).read_text())    # 맛 끔 갈래가 공용 목록을 쓴다
+
+
+def test_compete_reports_r_list_and_first10():
+    from kkumteul.config import FIRST_MEALS
+    w = taste_world("taste", init_agents=60)
+    w.run(200)
+    side = measure.side_from_world(w)
+    res = measure.compete(side["cfg"], side["genomes"], side["genomes"], 20, 150, 3, sample_every=50)
+    assert {"n_a", "n_b", "r", "series", "extinct", "first10"} <= set(res)       # 옛 키는 그대로
+    f = res["first10"]
+    assert set(f) == {0, 1}
+    for tag in (0, 1):
+        poison, meals = f[tag]
+        assert 0 <= poison <= meals <= FIRST_MEALS * res["n_a" if tag == 0 else "n_b"]
+    out = measure.assay_sides(side, side, n_each=20, steps=150, reps=2, seed=3, neutral=False)
+    assert len(out["r_list"]) == 2
+    assert out["r_per_1000"]["mean"] == pytest.approx(float(np.mean(out["r_list"])))
+    by = out["first10_by_tag"]
+    assert set(by) == {"0", "1"} and all(len(v) == 2 for v in by.values())
+    assert {"r_per_1000", "final_counts", "winner", "verdict", "reps"} <= set(out)
