@@ -1,5 +1,5 @@
 #!/bin/bash
-# 부모의 학습 보조 투자("가르침" 후보) 실험 체인(사용자 새 방향 3번). 설계: docs/superpowers/specs/2026-11-26-parent-teaching-design.md 둘째 판.
+# 부모의 학습 보조 투자("가르침" 후보) 실험 체인(사용자 새 방향 3번). 설계: docs/superpowers/specs/2026-11-26-parent-teaching-design.md 셋째 판(따름 반응 FOLLOW, 기본 켬).
 # 예측·문턱: wayfinder/stage2-4/results.md "부모의 가르침 — 예측"(실행 전에 적어 둔다).
 # 앞 실험(사회 학습 체인 포함)이 끝난 뒤 한 번에 하나(2스레드, nice).
 # 순서: 선결(사회 학습) → 세계 점검(−1) → 판정 0(용량 반응) → 관문(−2·α·β) → 진화 갈래 → 갈래별 판정.
@@ -27,6 +27,10 @@ START=ckpt_000002600000.npz     # 바탕: 개인 학습 갈래 g-p500-a/b 260만
 W_END=ckpt_000002630000.npz     # 세계 점검 갈래(3만 스텝) 끝
 END=ckpt_000002900000.npz       # 진화 갈래(30만 스텝) 끝
 export NUMBA_NUM_THREADS=${NUMBA_NUM_THREADS:-2} PYTHONPATH=.
+# 셋째 판(설계 6-1절): 곁 머무름 장치. FOLLOW="" 이면 둘째 판 그대로. RUN_TAG는 갈래 폴더 이름 앞에 붙어 둘째 판 갈래와 안 겹치게 한다.
+FOL=${FOLLOW-juv_follow=0.5 juv_move_floor=1.0}
+RT=${RUN_TAG-f1-}
+FOLSET=(); for s in $FOL; do FOLSET+=(--set "$s"); done
 mkdir -p "$E"
 logof() {  # 갈래 로그 자리. DRY면 임시 폴더로(리다이렉트는 runit보다 먼저 열려 진짜 로그를 자른다)
   if [ -n "${DRY:-}" ]; then echo "$E/$(basename "$1").log"; else echo "$1.log"; fi
@@ -65,7 +69,7 @@ PYEOF
 # ---- 세계 점검(판정 −1): 같은 체크포인트에서 갈라 3만 스텝, 끝에서 5,000스텝 창을 읽는다
 wbranch() {  # 태그 이름 설정...   (이름: off=juv_measure만, on=미숙기 기본, exp=독 배수 3)
   local tag=$1 name=$2 s; shift 2
-  local dir=$R/runs/t-w-$name-$tag ck out=$E/w-$name-$tag
+  local dir=$R/runs/t-w-$RT$name-$tag ck out=$E/w-$name-$tag
   local sets=(); for s in "$@"; do sets+=(--set "$s"); done
   if [ ! -f "$dir/done" ]; then
     note "세계 $name-$tag 시작 ($*)"
@@ -89,7 +93,7 @@ dose() {  # 바탕태그 이름 d [판정 옵션...]  (이름 예: kin-d0.5). �
   note "용량 반응 $name-$tag 시작"
   runit nice -n 15 "$PY" $J rate-zero "$ck" --gene "${GENE:-show}" --teach-d "$d" \
     --set juv_enabled=true --set soc_taste_enabled=true --set soc_taste_mode=outcome --set soc_rate=0.05 \
-    --set teach_enabled=true --set teach_mode=kin "$@" --json "$out.json" > "$out.log" 2>&1
+    --set teach_enabled=true --set teach_mode=kin "${FOLSET[@]}" "$@" --json "$out.json" > "$out.log" 2>&1
   local rc=$?
   note "용량 반응 $name-$tag 끝 ($rc): $(tail -1 "$out.log" 2>/dev/null | cut -c1-160)"
 }
@@ -116,7 +120,7 @@ dose_all() {  # 바탕태그 하나의 판정 0 열아홉 칸. 중립은 첫 칸
 run_branch() {  # 이름 씨앗(a=바탕 a·같은 흐름, b=바탕 b, c=바탕 a·--new-stream) 설정...
   local name=$1 seed=$2 s; shift 2
   local base=$seed; [ "$seed" = c ] && base=a
-  local dir=$R/runs/t-$name-$seed
+  local dir=$R/runs/t-$RT$name-$seed
   [ -f "$dir/done" ] && { note "$name-$seed 이미 끝남, 건너뜀"; return 0; }
   [ -f "$dir/run.json" ] && { note "$name-$seed 중간에 끊긴 흔적 — 건너뜀"; return 0; }
   local extra=(); [ "$seed" = c ] && extra=(--new-stream)
@@ -131,7 +135,7 @@ run_branch() {  # 이름 씨앗(a=바탕 a·같은 흐름, b=바탕 b, c=바탕 
 
 judge() {  # 갈래-씨앗 무엇(kin|costonly|any|ctrl|nocost|nosoc|obs)
   local tag=$1 what=$2
-  local ck=$R/runs/t-$tag/checkpoints/$END out=$E/j-$what-$tag
+  local ck=$R/runs/t-$RT$tag/checkpoints/$END out=$E/j-$what-$tag
   [ -s "$out.json" ] && { note "판정 $what-$tag 이미 있음"; return 0; }
   [ -f "$ck" ] || [ -n "${DRY:-}" ] || { note "판정 $what-$tag: 체크포인트 없음 $ck"; return 0; }
   note "판정 $what-$tag 시작"
@@ -168,8 +172,8 @@ note "선결(사회 학습 직접 지표) SOC_OK=$SOC_OK"
 G="preset=taste taste_inherit=0 taste_gene_enabled=true kind_flip_period=500"
 for t in a b; do
   wbranch $t off  $G juv_measure=true
-  wbranch $t on   $G juv_enabled=true
-  wbranch $t exp  $G juv_enabled=true juv_poison_mult=3
+  wbranch $t on   $G juv_enabled=true $FOL
+  wbranch $t exp  $G juv_enabled=true juv_poison_mult=3 $FOL
 done
 runit "$PY" $J gate-world --dir "$E" --tags a b > "$E/gate-world.json" 2> "$E/gate-world.log"
 rc=$?
@@ -198,7 +202,7 @@ if [ "$rc" != 0 ] && [ -z "${DRY:-}" ]; then
 fi
 
 # 3. 진화 갈래: 같은 체크포인트에서 갈라 30만 스텝. kin·drift·off는 a·b·c, any·feed는 a·b
-S="juv_enabled=true soc_taste_enabled=true soc_taste_mode=outcome soc_rate=0.05"
+S="juv_enabled=true soc_taste_enabled=true soc_taste_mode=outcome soc_rate=0.05 $FOL"
 for s in a b c; do
   run_branch kin   $s $G $S teach_enabled=true teach_mode=kin
   run_branch drift $s $G $S teach_enabled=true teach_mode=drift

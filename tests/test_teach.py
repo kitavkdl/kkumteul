@@ -5,6 +5,7 @@
     python3 -m pytest -q tests/test_teach.py
 """
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -143,7 +144,7 @@ def test_new_p_q_slots_appended_at_end():
     assert k.P_SOC_RADIUS == 62 and k.Q_SOC_MODE == 27
     new_p = (k.P_JUV_EAT_FLOOR, k.P_JUV_MOVE_FLOOR, k.P_JUV_POISON_MULT, k.P_JUV_KNOW_THETA, k.P_TEACH_GAIN,
              k.P_TEACH_COST, k.P_TEACH_GENE_SIGMA, k.P_FEED_RATE, k.P_FEED_GENE_SIGMA, k.P_FEED_LOSS, k.P_FEED_MIN)
-    assert new_p == tuple(range(63, 74)) and k.N_FP == 74
+    assert new_p == tuple(range(63, 74)) and k.N_FP >= 74   # 셋째 판이 74·75를 덧붙임
     new_q = (k.Q_JUV, k.Q_JUV_COUNT, k.Q_JUV_STEPS, k.Q_TEACH, k.Q_TEACH_MODE, k.Q_TEACH_WHEN, k.Q_FEED)
     assert new_q == tuple(range(28, 35)) and k.N_IP >= 35     # 규범의 씨앗이 Q_NORM·Q_NORM_TAU를 뒤에 덧붙였다
 
@@ -1822,3 +1823,127 @@ def test_assay_sides_reports_grad_by_tag_per_rep():
         assert {0, 1} <= set(g) and tuple(g[0]) == k.GT_NAMES
     assert len(out["r_list"]) == 2 and {"r_per_1000", "final_counts", "winner", "verdict", "reps"} <= set(out)
     json.dumps(out["grad_by_tag_list"])                         # 판정 도구가 json으로 저장한다
+
+
+# ---- 셋째 판 F1: 따름 반응(juv_follow) ----
+def test_follow_config_checks():
+    c = cfgmod.Config()
+    assert c.juv_follow == 0.0 and c.juv_follow_r == 3.0
+    with pytest.raises(ValueError, match="juv_follow"):
+        cfgmod.Config(juv_follow=0.5).validate()                 # juv_enabled 없이
+    for bad in (-0.1, 1.5):
+        with pytest.raises(ValueError, match="juv_follow"):
+            cfgmod.Config(juv_enabled=True, juv_follow=bad).validate()
+    with pytest.raises(ValueError, match="juv_follow_r"):
+        cfgmod.Config(juv_enabled=True, juv_follow=0.5, juv_follow_r=0.0).validate()
+    cfgmod.Config(juv_enabled=True, juv_follow=1.0).validate()
+
+
+def test_follow_slots_appended():
+    assert (k.P_JUV_FOLLOW, k.P_JUV_FOLLOW_R) == (74, 75) and k.N_FP == 76
+    w = _juv_world(2, juv_follow=0.7, juv_follow_r=2.5)
+    assert w.fp[k.P_JUV_FOLLOW] == pytest.approx(0.7) and w.fp[k.P_JUV_FOLLOW_R] == pytest.approx(2.5)
+
+
+def _follow_setup(follow=0.5, floor=1.0):
+    """부모 0번 (20, 20), 새끼 1번은 나이 50. 모두 출력 0·속도 0이라 끌림만 움직임을 만든다."""
+    w = _juv_world(6, juv_follow=follow, juv_move_floor=floor)
+    s = w.s
+    s.act[:] = 0.0
+    s.vx[:] = 0.0
+    s.vy[:] = 0.0
+    _child(w, 1, 0, 50)
+    return w
+
+
+def _move(w):
+    k.move(w.s, w.fp, w.ip)
+
+
+def test_follow_pulls_toward_parent_beyond_r():
+    w = _follow_setup(follow=0.5)
+    s = w.s
+    _at_xy(w, 1, 30.0, 20.0)                       # 부모에게서 10 > r 3
+    _jpass(w)
+    assert s.par_slot[1] == 0
+    _move(w)
+    assert s.vx[1] == pytest.approx(-0.5) and s.vy[1] == pytest.approx(0.0, abs=1e-12)
+    assert s.vx[0] == 0.0                          # 어른(부모)은 안 끌림
+
+
+def test_follow_respects_speed_cap():
+    w = _follow_setup(follow=1.0, floor=0.3)
+    s = w.s
+    _at_xy(w, 1, 30.0, 20.0)
+    _jpass(w)
+    _move(w)
+    vm = float(w.cfg.v_max) * k.juv_ramp(50, 0.3, 200)
+    assert math.hypot(s.vx[1], s.vy[1]) == pytest.approx(vm)
+
+
+def test_follow_none_within_r():
+    w = _follow_setup()
+    s = w.s
+    _at_xy(w, 1, 22.0, 20.0)                       # 2 ≤ r 3
+    _jpass(w)
+    _move(w)
+    assert s.vx[1] == 0.0 and s.vy[1] == 0.0
+
+
+def test_follow_wraps_torus():
+    w = _follow_setup()
+    s = w.s
+    W = float(w.cfg.world_w)
+    _at_xy(w, 0, 2.0, 20.0)
+    _at_xy(w, 1, W - 3.0, 20.0)                    # 토러스로 5 떨어짐, 짧은 쪽은 +x
+    _jpass(w)
+    _move(w)
+    assert s.vx[1] == pytest.approx(0.5)
+
+
+def test_follow_skips_adult_orphan_and_reused_slot():
+    w = _follow_setup()
+    s = w.s
+    _at_xy(w, 1, 30.0, 20.0)
+    _child(w, 2, None, 50)                         # 부모 없음
+    _jpass(w)
+    s.ids[0] = 99999                               # juv_pass 뒤 칸이 다른 개체로 바뀐 경우
+    _move(w)
+    assert s.vx[1] == 0.0 and s.vx[2] == 0.0
+    w2 = _follow_setup()
+    _at_xy(w2, 1, 30.0, 20.0)
+    w2.s.age[1] = 250                              # 어른이 된 새끼
+    _jpass(w2)
+    _move(w2)
+    assert w2.s.vx[1] == 0.0
+
+
+def test_follow_off_no_pull():
+    w = _follow_setup(follow=0.0)
+    _at_xy(w, 1, 30.0, 20.0)
+    _jpass(w)
+    _move(w)
+    assert w.s.vx[1] == 0.0
+
+
+def test_follow_charges_move_cost():
+    w = _follow_setup(follow=0.5)
+    s = w.s
+    _at_xy(w, 1, 30.0, 20.0)                       # 끌림
+    _child(w, 2, 0, 50)
+    _at_xy(w, 2, 21.0, 20.0)                       # 곁(끌림 없음)
+    _jpass(w)
+    m0 = float(s.ledger[k.L_MOVE])
+    _move(w)
+    assert float(s.ledger[k.L_MOVE]) - m0 == pytest.approx(w.cfg.thrust_cost * 0.5)
+
+
+def test_follow_changes_world_and_ledger_closes():
+    off = taste_world("taste", juv_enabled=True, juv_move_floor=1.0)
+    on = taste_world("taste", juv_enabled=True, juv_move_floor=1.0, juv_follow=1.0)
+    off.run(300)
+    on.run(300)
+    assert on.state_hash() != off.state_hash()
+    w = taste_world("taste", juv_enabled=True, juv_move_floor=1.0, juv_follow=1.0)
+    w.run(1500)
+    assert rel_residual(w) < 1e-9
