@@ -1024,14 +1024,15 @@ def test_teach_cost_modes():
     assert run("knower", False) == 0.0
     assert run("knower", True) == pytest.approx(cost * 0.8)
     assert run("kin", False) == pytest.approx(cost * 0.8)
-    # 한 번 안 부모(know_age >= 0)는 기억이 식어도 계속 안다
+    # 시연자의 앎은 그 스텝 기억만 본다: 미숙기에 한 번 안 부모(know_age >= 0)도 지금 기억이 0이면 모른다
     w = _teach_world(8, teach_mode="knower")
     w.s.show_g[0] = 0.8
     _at_xy(w, 1, 23.0, 20.0)
     _child(w, 1, 0, 50)
     w.s.know_age[0] = 10
+    w.s.taste_m[0, kp] = 0.0
     before = _tpass(w)
-    assert _paid(w, before, 0) == pytest.approx(cost * 0.8)
+    assert _paid(w, before, 0) == 0.0
 
 
 def test_teach_cost_ledger_and_tab():
@@ -1213,6 +1214,22 @@ def test_boost_zero_for_costonly_drift_and_nonknower():
     _wm_scene(w, mc=_kp(w))
     _wm(w)
     assert w.s.taste_m[1, _kp(w)] == pytest.approx(-0.8)
+    # 한 번 안 시연자(know_age >= 0)도 그 스텝 기억이 0이면 knower는 boost 없음, n_taught_knower도 안 오른다
+    w = _wm_world(teach_mode="knower")
+    kp = _kp(w)
+    _wm_scene(w, mc=kp)
+    w.s.know_age[0] = 10
+    w.s.taste_m[0, kp] = 0.0
+    _wm(w)
+    assert w.s.taste_m[1, kp] == pytest.approx(-0.5)
+    assert w.s.n_taught[1] == 0 and w.s.n_taught_knower[1] == 0
+    w = _wm_world(teach_mode="kin")
+    kp = _kp(w)
+    _wm_scene(w, mc=kp)
+    w.s.know_age[0] = 10
+    w.s.taste_m[0, kp] = 0.0
+    _wm(w)
+    assert w.s.n_taught[1] == 1 and w.s.n_taught_knower[1] == 0
 
 
 def test_taught_counters():
@@ -1300,6 +1317,13 @@ def test_meal_cost_only_when_boost_applies():
         _wm_scene(w, show=0.8, mc=kp)
         w.s.taste_m[0, kp] = -0.5 if knows else 0.0
         assert _meal_drop(w) == pytest.approx(cost * want), (mode, knows)
+    # know_age >= 0이어도 그 스텝 기억이 0이면 knower의 meal 비용은 0
+    w = _wm_world(teach_mode="knower", teach_cost_when="meal")
+    kp = _kp(w)
+    _wm_scene(w, show=0.8, mc=kp)
+    w.s.know_age[0] = 10
+    w.s.taste_m[0, kp] = 0.0
+    assert _meal_drop(w) == 0.0
     # any: 부모 아닌 새끼만 곁에 있어도 낸다(kin은 0)
     for mode, want in (("kin", 0.0), ("any", 0.8)):
         w = _wm_world(teach_mode=mode, teach_cost_when="meal")

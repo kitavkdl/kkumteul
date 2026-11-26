@@ -1367,7 +1367,7 @@ def watch_meals(step, s, fp, ip):
         j_adult = s.age[j] > juv_steps
         j_knows = False
         if teach and j_adult:
-            j_knows = _knows(s, j, kp, fp)
+            j_knows = _knows_now(s, j, kp, fp)
         served = False
         for oy in range(-1, 2):
             # 격자가 3칸보다 좁으면 같은 칸을 두 번 훑지 않게 겹치는 쪽을 건너뛴다
@@ -1493,6 +1493,14 @@ def _knows(s, i, kp, fp):
     return s.know_age[i] >= 0 or s.taste_m[i, kp] <= -fp[P_JUV_KNOW_THETA]
 
 
+@njit(cache=True, inline="always")
+def _knows_now(s, j, kp, fp):
+    """시연자 j(어른)가 그 스텝 독 모양(칸 kp)을 "아는가": 그 스텝 기억만 본다(누적 know_age는 안 봄)."""
+    if kp < 0:
+        return False
+    return s.taste_m[j, kp] <= -fp[P_JUV_KNOW_THETA]
+
+
 @njit(cache=True)
 def juv_pass(step, s, fp, ip):
     """미숙기 새끼의 곁 머무름 계수기와 졸업표(읽기 전용 측정: 세계 동작을 안 바꾼다).
@@ -1612,7 +1620,7 @@ def teach_pass(step, s, fp, ip):
             q = s.par_slot[i]
             if q < 0 or not s.alive[q] or s.age[q] <= steps:
                 continue
-            if mode == TEACH_KNOWER and not _knows(s, q, kp, fp):
+            if mode == TEACH_KNOWER and not _knows_now(s, q, kp, fp):
                 continue
             ddx = _wdiff(s.x[q] - s.x[i], w)
             ddy = _wdiff(s.y[q] - s.y[i], hgt)
