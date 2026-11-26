@@ -241,6 +241,8 @@ class Config:
     juv_move_floor: float = 0.3       # 나이 0의 속도 상한 비율(v_max * ramp). (0, 1]. 임시 결정
     juv_poison_mult: float = 1.0      # 미숙기 새끼가 독을 먹을 때 잃는 에너지 배수(1 이상). 기본은 안 건드림. 임시 결정
     juv_know_theta: float = 0.2       # "독 모양을 안다"의 문턱: 독 칸 기억이 -theta 이하. (0, 1]. 임시 결정
+    juv_follow: float = 0.0           # 따름 반응(셋째 판 F1): 미숙기 새끼를 부모 쪽으로 끄는 세기 [0, 1]. 0이면 꺼짐. 임시 결정
+    juv_follow_r: float = 3.0         # 부모와 이보다 멀 때만 끈다(먹는 반지름 1.5의 두 배). 임시 결정
     # 보여 주기: 어른이 끼니를 먹을 때 곁의 미숙기 관찰자가 보고 배우는 속도에 teach_gain * 강도를 더한다
     # (soc_taste_mode의 이름과 겹치지 않게 costonly·drift를 쓴다)
     teach_enabled: bool = False       # juv_enabled·soc_taste_enabled(outcome)·food_kinds_enabled가 필요하다
@@ -482,6 +484,12 @@ class Config:
         for name in ("juv_eat_floor", "juv_move_floor", "juv_know_theta"):
             if not (0.0 < getattr(self, name) <= 1.0):
                 raise ValueError(f"{name}은 0보다 크고 1 이하여야 한다")
+        if not (0.0 <= self.juv_follow <= 1.0):
+            raise ValueError("juv_follow는 0과 1 사이여야 한다")
+        if self.juv_follow > 0.0 and not self.juv_enabled:
+            raise ValueError("juv_follow는 미숙기(juv_enabled)가 켜져 있어야 쓸 수 있다")
+        if self.juv_follow_r <= 0.0:
+            raise ValueError("juv_follow_r는 0보다 커야 한다")
         if self.juv_poison_mult < 1.0:
             raise ValueError("juv_poison_mult는 1 이상이어야 한다(1 미만이면 독이 에너지를 만든다)")
         if not (0.0 <= self.teach_gain <= 1.0):

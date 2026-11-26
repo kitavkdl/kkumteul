@@ -300,7 +300,8 @@ DEATH_KILLED = 4         # 공격을 맞은 스텝에 에너지가 바닥남
  P_TASTE_RATE, P_TASTE_DECAY, P_TASTE_INHERIT, P_TASTE_GENE_SIGMA, P_TASTE_COST,
  P_SOC_RATE, P_SOC_COST, P_SOC_GENE_SIGMA, P_SOC_RADIUS,
  P_JUV_EAT_FLOOR, P_JUV_MOVE_FLOOR, P_JUV_POISON_MULT, P_JUV_KNOW_THETA, P_TEACH_GAIN, P_TEACH_COST,
- P_TEACH_GENE_SIGMA, P_FEED_RATE, P_FEED_GENE_SIGMA, P_FEED_LOSS, P_FEED_MIN, N_FP) = range(75)
+ P_TEACH_GENE_SIGMA, P_FEED_RATE, P_FEED_GENE_SIGMA, P_FEED_LOSS, P_FEED_MIN,
+ P_JUV_FOLLOW, P_JUV_FOLLOW_R, N_FP) = range(77)
 
 # ---- 정수 설정 칸 ----
 (Q_SEED, Q_GW, Q_GH, Q_FOOD_CAP, Q_N_PATCH, Q_PATCH_LIFE, Q_MAX_AGE, Q_MIN_AGENTS,
@@ -429,6 +430,8 @@ def pack_params(cfg):
     fp[P_FEED_GENE_SIGMA] = cfg.feed_gene_sigma
     fp[P_FEED_LOSS] = cfg.give_loss
     fp[P_FEED_MIN] = cfg.give_min_energy
+    fp[P_JUV_FOLLOW] = cfg.juv_follow
+    fp[P_JUV_FOLLOW_R] = cfg.juv_follow_r
     return fp, ip
 
 
@@ -1022,6 +1025,8 @@ def move(s, fp, ip, basal_mult=1.0):
     syn_max = h_max * h_max + h_max * n_io
     juv = ip[Q_JUV] != 0
     juv_steps = ip[Q_JUV_STEPS]
+    follow = fp[P_JUV_FOLLOW]
+    follow_r = fp[P_JUV_FOLLOW_R]
     for i in range(n):
         if not s.alive[i]:
             continue
@@ -1039,6 +1044,19 @@ def move(s, fp, ip, basal_mult=1.0):
             f *= fp[P_BACK]
         vx = (s.vx[i] + f * math.cos(hd)) * keep
         vy = (s.vy[i] + f * math.sin(hd)) * keep
+        # 따름 반응(셋째 판 F1): 미숙기 새끼가 부모에게서 juv_follow_r보다 멀면 부모 쪽으로 끈다.
+        # par_slot은 앞 스텝 juv_pass가 채운 것이라 그사이 칸이 다른 개체로 바뀌었을 수 있어 id로 다시 확인한다.
+        c_follow = 0.0
+        if follow > 0.0 and juv and s.age[i] < juv_steps:
+            q = s.par_slot[i]
+            if q >= 0 and s.alive[q] and s.ids[q] == s.parent[i]:
+                ddx = _wdiff(s.x[q] - s.x[i], w)
+                ddy = _wdiff(s.y[q] - s.y[i], hgt)
+                dd = math.sqrt(ddx * ddx + ddy * ddy)
+                if dd > follow_r:
+                    vx += follow * vm * ddx / dd
+                    vy += follow * vm * ddy / dd
+                    c_follow = fp[P_THRUST_COST] * follow   # 끌림도 이동이다: 추력 follow를 낸 것처럼 매긴다
         sp = math.sqrt(vx * vx + vy * vy)
         if sp > vm:
             vx *= vm / sp
@@ -1054,6 +1072,7 @@ def move(s, fp, ip, basal_mult=1.0):
             c_move += fp[P_THRUST_COST] * abs(thrust) * (fp[P_BACK_COST] - 1.0)
         if s.a_held[i] >= 0:
             c_move *= fp[P_CARRY_COST]      # 들고 있으면 이동·회전이 더 든다. 든 물건의 자리는 carry가 맞춘다
+        c_move += c_follow
         c_brain = fp[P_BRAIN] * nh / h_max + fp[P_SYN] * (nh * nh + nh * n_io) / syn_max
         if fp[P_BRAIN_ACT] > 0.0:
             a = 0.0
