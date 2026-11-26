@@ -1632,3 +1632,201 @@ def test_norm_sense_only_reads_state():
     snap = (s.mark_t.copy(), s.pun_t.copy(), s.mem.copy())
     st.norm_sense(w.step_no, s, w.fs, w.isp)
     assert (s.mark_t == snap[0]).all() and (s.pun_t == snap[1]).all() and (s.mem == snap[2]).all()
+
+
+# ======================= 과제 12: watch_pun·눈가림·attack 뒤 격자 재구성 =======================
+def _watch_scene(**kw):
+    w = hand_world("norm", **kw)
+    s = w.s
+    s.mem[:] = 0.0
+    put(w, 0, 7.8, 100.0)                    # 벌 받은 개체(칸 경계 8 바로 안쪽)
+    s.pun_t[0] = 50
+    return w
+
+
+def test_watch_pun_raises_neighbor_mem_within_radius():
+    w = _watch_scene()
+    s, cfg = w.s, w.cfg
+    r = cfg.soc_radius
+    put(w, 1, 8.2, 100.0)                    # 칸 경계 건너 0.4
+    put(w, 2, 7.8 + r - 0.01, 100.0)         # 반지름 바로 안
+    put(w, 3, 7.8 + r + 0.01, 100.0)         # 반지름 바로 밖
+    put(w, 4, 255.9, 100.0)                  # 토러스 반대편(거리 7.9)
+    put(w, 5, 7.8, 100.0 + r - 0.01)         # 아래 칸 경계 건너
+    put(w, 6, 9.0, 101.0)                    # 죽은 이웃
+    s.alive[6] = False
+    regrid(w)
+    st.watch_pun(50, s, w.fs, w.isp)
+    obs = cfg.norm_mem_obs
+    assert s.mem[1] == pytest.approx(obs) and s.mem[2] == pytest.approx(obs) and s.mem[4] == pytest.approx(obs)
+    assert s.mem[5] == pytest.approx(obs)
+    assert s.mem[3] == 0.0 and s.mem[6] == 0.0
+    assert s.mem[0] == 0.0, "벌 받은 본인은 여기서 안 오른다(norm_mem_rate로 이미 올랐다)"
+    assert nt(w, 0, k.NT_SAW_PUN) == 4
+    # 이번 스텝의 벌이 아니면(pun_t != t) 아무 일도 없다
+    st.watch_pun(51, s, w.fs, w.isp)
+    assert s.mem[1] == pytest.approx(obs) and nt(w, 0, k.NT_SAW_PUN) == 4
+
+
+def test_watch_pun_order_is_deterministic():
+    hashes = []
+    for _ in range(2):
+        w = _watch_scene()
+        s = w.s
+        put(w, 1, 10.0, 100.0)
+        put(w, 2, 12.0, 100.0)               # 1은 0과 2 둘의 벌을 본다
+        s.pun_t[2] = 50
+        s.mem[1] = 0.5
+        regrid(w)
+        st.watch_pun(50, s, w.fs, w.isp)
+        assert s.mem[1] == pytest.approx(1 - 0.5 * 0.8 * 0.8)
+        assert s.mem[0] == pytest.approx(0.2) and s.mem[2] == pytest.approx(0.2)    # 서로의 벌을 본다
+        hashes.append(w.state_hash())
+    assert hashes[0] == hashes[1]
+
+
+def _blind_world(punish, p_saw=250.0, p_alive=1000.0):
+    w = _watch_scene(norm_mem_obs_mode="blind")
+    s = w.s
+    put(w, 1, 10.0, 100.0)
+    if not punish:
+        s.pun_t[0] = -1
+    regrid(w)
+    # 이전 스텝까지: 본 벌 250 ÷ 개체 스텝 1000(이 스텝의 산 개체 8은 attack이 이미 더했다고 친다)
+    s.norm_tab[0, k.NT_SAW_PUN] = p_saw
+    s.norm_tab[0, k.NT_ALIVE_STEPS] = p_alive + 8
+    return w
+
+
+def test_mem_obs_mode_blind_and_off():
+    # blind: 같은 스텝에 벌이 났을 때와 안 났을 때 동전 집합이 같다(시간 정보 없음)
+    for t in (50, 51, 52, 77):
+        wa, wb = _blind_world(True), _blind_world(False)
+        wa.s.pun_t[0] = t                    # wa는 이 스텝에 벌이 났고 wb는 안 났다
+        st.watch_pun(t, wa.s, wa.fs, wa.isp)
+        st.watch_pun(t, wb.s, wb.fs, wb.isp)
+        assert ((wa.s.mem > 0) == (wb.s.mem > 0)).all(), t
+        want = np.array([rngmod.u01(wa.cfg.seed, rngmod.S_NORM_BLIND, t, wa.s.ids[i]) < 0.25 for i in range(8)])
+        assert ((wa.s.mem > 0) == want).all()
+        assert nt(wa, 0, k.NT_SAW_PUN) == 251 and nt(wb, 0, k.NT_SAW_PUN) == 250     # 실제 관찰은 센다
+    # 같은 시나리오 두 번이 같다
+    w1, w2 = _blind_world(True), _blind_world(True)
+    st.watch_pun(50, w1.s, w1.fs, w1.isp)
+    st.watch_pun(50, w2.s, w2.fs, w2.isp)
+    assert (w1.s.mem == w2.s.mem).all()
+    # 장기 평균 상승 횟수 = 본 벌 ÷ 개체 스텝(= outcome의 기대 상승 횟수)
+    w = _blind_world(False)
+    ups = 0
+    for t in range(3000):
+        w.s.mem[:] = 0.0
+        st.watch_pun(t, w.s, w.fs, w.isp)
+        ups += int((w.s.mem > 0).sum())
+    assert ups / (3000 * 8) == pytest.approx(0.25, abs=0.015)
+    # 처음(본 벌 0)에는 비율 0
+    w0 = _blind_world(True, p_saw=0.0)
+    st.watch_pun(50, w0.s, w0.fs, w0.isp)
+    assert not w0.s.mem.any()
+    # off: 기억은 안 바뀌고 관찰 수는 센다
+    wo = _watch_scene(norm_mem_obs_mode="off")
+    put(wo, 1, 10.0, 100.0)
+    regrid(wo)
+    st.watch_pun(50, wo.s, wo.fs, wo.isp)
+    assert not wo.s.mem.any() and nt(wo, 0, k.NT_SAW_PUN) == 1
+
+
+def test_saw_pun_counter():
+    got = []
+    for mode in ("outcome", "blind", "off"):
+        w = _watch_scene(norm_mem_obs_mode=mode)
+        s = w.s
+        put(w, 1, 10.0, 100.0)
+        put(w, 2, 12.0, 100.0)
+        put(w, 3, 30.0, 100.0)
+        s.pun_t[2] = 50
+        s.tag[1] = 3
+        regrid(w)
+        st.watch_pun(50, s, w.fs, w.isp)
+        got.append(s.norm_tab[:, k.NT_SAW_PUN].copy())
+    assert (got[0] == got[1]).all() and (got[0] == got[2]).all()
+    assert got[0][3] == 2 and got[0].sum() == 4         # 1(태그 3)은 둘을, 0과 2는 서로를 본다
+
+
+def test_grid_rebuild_after_attack_only_when_norm_on(monkeypatch):
+    calls = []
+    for mod, name in ((k, "build_grid"), (st, "attack"), (st, "watch_pun"), (k, "process_deaths")):
+        orig = getattr(mod, name)
+
+        def wrap(*a, _o=orig, _n=name):
+            calls.append(_n)
+            return _o(*a)
+        monkeypatch.setattr(mod, name, wrap)
+
+    def between():
+        out, cur = [], None
+        for c in calls:
+            if c == "attack":
+                cur = []
+            elif c == "process_deaths":
+                out.append(cur)
+                cur = None
+            elif cur is not None:
+                cur.append(c)
+        return out
+    World(small("stage4", "conflict", "norm")).run(3)
+    assert between() == [["build_grid", "watch_pun"]] * 3
+    for kw in (dict(), dict(norm_measure=True)):
+        calls.clear()
+        World(small("stage4", "conflict", "norm_size", **kw)).run(3)
+        assert between() == [[]] * 3 and "watch_pun" not in calls
+
+
+def test_attack_neighbor_set_unchanged_by_rebuild():
+    # 격자 재구성은 attack 뒤라 attack이 보는 이웃은 꺼진 세계와 같다: 불활성·고립 세계와 꺼진 세계를 나란히 돌려
+    # 스텝마다 공격 수·에너지가 같은지 본다(격자를 attack 앞에 지으면 이웃이 바뀌어 여기서 어긋난다)
+    ws = []
+    for kw in (dict(), dict(norm_enabled=True, norm_mode="inert", norm_impulse=0.0, norm_mark_src="none")):
+        w = World(small("stage4", "conflict", "norm_size", **kw))
+        w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+        ws.append(w)
+    for _ in range(200):
+        for w in ws:
+            w.step()
+        a, b = ws
+        assert a.s.counters[k.C_ATTACKS] == b.s.counters[k.C_ATTACKS]
+        assert (a.s.energy == b.s.energy).all()
+    assert ws[0].s.counters[k.C_ATTACKS] > 0
+
+
+def test_inert_isolated_hash_equals_off_still_holds():
+    test_inert_isolated_hash_equals_off()
+
+
+def test_watch_pun_off_not_called(monkeypatch):
+    calls = []
+    orig = st.watch_pun
+    monkeypatch.setattr(st, "watch_pun", lambda *a: (calls.append(1), orig(*a))[1])
+    for kw in (dict(), dict(norm_measure=True), dict(norm_impulse=0.05)):
+        World(small("stage4", "conflict", "norm_size", **kw)).run(3)
+    assert not calls
+    World(small("stage4", "conflict", "norm")).run(2)
+    assert len(calls) == 2
+
+
+def test_resume_gives_same_result_for_saved_fields():
+    cfg = small("stage4", "conflict", "norm", norm_impulse=0.03)
+    w = World(cfg)
+    w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+    w.run(250)
+    assert (w.s.mark_t[w.s.alive] >= 0).any() and (w.s.pun_t[w.s.alive] >= 0).any() and w.s.mem.any()
+    arrays = {kk: v.copy() for kk, v in w.state_arrays().items()}
+    step0 = w.step_no
+    w.run(200)
+    want = w.state_hash()
+    w2 = World(cfg, populate=False)
+    w2.step_no = step0
+    assert w2.load_arrays(arrays)
+    assert (w2.s.mark_vid[w2.s.alive] == -2).all()           # 저장 안 하는 피해자는 미지(−2)로 돌아온다
+    w2.run(200)
+    assert w2.state_hash() == want
+    # 계수기는 다를 수 있다(PUN_UNKNOWN 등): 이어 읽은 쪽만 미지 피해자 벌을 센다
+    assert w2.s.norm_tab[:, k.NT_PUN_UNKNOWN].sum() >= 0

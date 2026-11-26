@@ -273,7 +273,11 @@ class World:
         if cfg.conflict_enabled:
             st.attack(t, s, fs, isp)
         if isp[st.I_NORM_ON]:
-            st.norm_account(t, s, fs, isp)          # 규범: 유병률·만료 에피소드(process_deaths 앞)
+            # 규범: attack 뒤에 격자를 다시 지어(충돌로 바뀐 위치) 벌 보기, 그다음 유병률·만료 에피소드(process_deaths 앞).
+            # 격자를 attack 앞에 지으면 attack이 보는 이웃이 꺼진 세계와 달라져 불활성 = 꺼짐 해시가 깨진다
+            k.build_grid(s.x, s.y, s.alive, inv_cell, gw, gh, s.a_start, s.a_items, s.cursor)
+            st.watch_pun(t, s, fs, isp)
+            st.norm_account(t, s, fs, isp)
         if cfg.prey_enabled:
             an.attack_animals(t, s, self.fa, self.ia)
         nd = k.process_deaths(t, s, fp, ip)

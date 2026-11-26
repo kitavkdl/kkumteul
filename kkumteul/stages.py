@@ -16,7 +16,7 @@ from .config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT
                      ACT_TURN, AIM_MARKED, IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL, N_INTERNAL, N_NORM_IN,
                      N_NORM_VIS, N_TASTE_IN, N_TASTE_VIS, NORM_AIMS, NORM_FULL, NORM_LOCAL, NORM_MEM, NORM_MODES,
                      NORM_OBS_MODES, NORM_SAWPUN, NORM_SELF, NORM_SRCS, NORM_VIS,
-                     SRC_SIG, SRC_TAKE, TASTE_VIS)
+                     OBS_BLIND, OBS_OUTCOME, SRC_SIG, SRC_TAKE, TASTE_VIS)
 from .kernels import (C_ATTACKS, C_FERTILE, C_GIFTS, C_NFIELD, C_NFOOD, KIND_A, L_BASAL, L_BRAIN, L_DISCARD, L_LOST,
                       L_MOVE, L_SPAWN, NT_ALIVE_STEPS, NT_ATK_COST, NT_ATK_VOL_MARKED, NT_ATK_VOL_PLAIN, NT_EXPO,
                       NT_OPP_MARKED, NT_OPP_OTHER, NT_OPP_OTHER_LINE, NT_OPP_OTHER_SIM0, NT_OPP_PLAIN, NT_OPP_SELF,
@@ -24,9 +24,9 @@ from .kernels import (C_ATTACKS, C_FERTILE, C_GIFTS, C_NFIELD, C_NFOOD, KIND_A, 
                       NT_PUN_DMG_RECV, NT_PUN_FINE, NT_PUN_KILL, NT_PUN_NOVICT, NT_PUN_UNKNOWN, NT_PUN_VGONE,
                       RT_N_PUN, RT_PUN_COST, RT_PUN_FINE,
                       NT_TAKE, NT_TAKE_DMG_RECV, NT_TAKE_GAIN, NT_TAKE_IMP, NT_TAKE_KILL, NT_TAKE_KIN, NT_TAKE_LINE,
-                      NT_MARKED_STEPS, NT_TAKE_ON_MARKED, NT_TAKE_SIM0, NT_VIOL_DMG_RECV,
+                      NT_MARKED_STEPS, NT_SAW_PUN, NT_TAKE_ON_MARKED, NT_TAKE_SIM0, NT_VIOL_DMG_RECV,
                       TOUCH_HIT, _kin_class, _norm_close_episode, _norm_row, _place_food, _wdiff, _wrap, make_room, pick_kind)
-from .rng import S_ATTACK_ORDER, S_FERTILE, S_NORM_IMPULSE, S_NORM_NOISE, S_PERTURB, normal, u01
+from .rng import S_ATTACK_ORDER, S_FERTILE, S_NORM_BLIND, S_NORM_IMPULSE, S_NORM_NOISE, S_PERTURB, normal, u01
 
 # 거름 먹이의 종류를 뽑는 난수 번호의 밑. S_KIND 흐름에서 보통 먹이는 (일련번호, 0), 어느 쪽이 독인지는
 # (구간, 1)을 쓴다. 거름 먹이는 (스텝, 이 값 + 그 스텝의 몇 번째인지)를 써서 둘과 겹치지 않게 한다.
@@ -866,6 +866,81 @@ def _hist_cell(s, i, t):
     if e < 200:
         return row, 2
     return row, 3
+
+
+@njit(cache=True)
+def watch_pun(step, s, fs, isp):
+    """이번 스텝에 벌 받은 개체(pun_t == step)를 soc_radius 안의 산 이웃이 본다(attack 뒤 다시 지은 격자를 쓴다).
+    순차 전용(prange 금지). 적용 순서 = 벌 받은 개체의 칸 번호 오름차순. 벌 받은 본인은 여기서 안 오른다.
+    본 벌 수(SAW_PUN, 관찰자의 태그 행)는 모든 모드에서 같게 센다.
+    - outcome: 본 벌마다 mem += norm_mem_obs × (1 − mem)
+    - blind: 이 스텝의 사건과 무관한 비율 p = (이전 스텝까지의 SAW_PUN 합) ÷ (이전 스텝까지의 ALIVE_STEPS 합)로 산 개체마다
+      동전(S_NORM_BLIND, (step, id))을 던져 같은 식으로 올린다. 벌이 없는 스텝에도 같은 비율이라 시간·공간 정보가 없고
+      장기 평균 상승 횟수는 outcome과 같다. 처음(SAW_PUN 0)과 계수표를 지운 직후에는 덜 오르는 편향이 있다.
+      ALIVE_STEPS는 attack이 이 스텝 산 개체마다 이미 하나씩 더했으므로 그 수를 빼서 "이전 스텝까지"로 쓴다.
+    - off: 기억을 안 바꾼다."""
+    n = s.x.shape[0]
+    gw = isp[I_GW]
+    gh = isp[I_GH]
+    w = fs[F_W]
+    hgt = fs[F_H]
+    inv_cell = fs[F_INV_CELL]
+    rad = fs[F_NORM_RADIUS]
+    rad2 = rad * rad
+    obs = fs[F_NORM_MEM_OBS]
+    mode = isp[I_NORM_OBS_MODE]
+    tab = s.norm_tab
+    if mode == OBS_BLIND:
+        saw = 0.0
+        alive_steps = 0.0
+        for r in range(tab.shape[0]):
+            saw += tab[r, NT_SAW_PUN]
+            alive_steps += tab[r, NT_ALIVE_STEPS]
+        n_alive = 0
+        for i in range(n):
+            if s.alive[i]:
+                n_alive += 1
+        alive_steps -= n_alive
+        p = 0.0
+        if alive_steps > 0.0:
+            p = saw / alive_steps
+        if p > 0.0:
+            seed = isp[I_SEED]
+            for i in range(n):
+                if s.alive[i] and u01(seed, S_NORM_BLIND, step, s.ids[i]) < p:
+                    s.mem[i] += obs * (1.0 - s.mem[i])
+    for j in range(n):
+        if not s.alive[j] or s.pun_t[j] != step:
+            continue
+        xj = s.x[j]
+        yj = s.y[j]
+        cx = int(xj * inv_cell)
+        cy = int(yj * inv_cell)
+        if cx >= gw:
+            cx = gw - 1
+        if cy >= gh:
+            cy = gh - 1
+        for oy in range(-1, 2):
+            # 격자가 3칸보다 좁으면 같은 칸을 두 번 훑지 않게 겹치는 쪽을 건너뛴다(watch_meals와 같다)
+            if (oy == 1 and gh <= 2) or (oy == -1 and gh == 1):
+                continue
+            yy = (cy + oy) % gh
+            for ox in range(-1, 2):
+                if (ox == 1 and gw <= 2) or (ox == -1 and gw == 1):
+                    continue
+                xx = (cx + ox) % gw
+                c = yy * gw + xx
+                for p2 in range(s.a_start[c], s.a_start[c + 1]):
+                    i = s.a_items[p2]
+                    if i == j or not s.alive[i]:
+                        continue
+                    ddx = _wdiff(s.x[i] - xj, w)
+                    ddy = _wdiff(s.y[i] - yj, hgt)
+                    if ddx * ddx + ddy * ddy > rad2:
+                        continue
+                    tab[_norm_row(s.tag[i]), NT_SAW_PUN] += 1.0
+                    if mode == OBS_OUTCOME:
+                        s.mem[i] += obs * (1.0 - s.mem[i])
 
 
 @njit(cache=True)
