@@ -660,3 +660,81 @@ def test_soc_off_world_never_calls_watch(monkeypatch):
     w_gene_only = taste_world("taste", taste_gene_enabled=True)
     w_gene_only.run(10)
     assert n == []
+
+
+# ---- 과제 4: 눈가림 모드(blind) ----
+def _blind_coin(w, i, j, step):
+    """watch_meals가 쓰는 것과 같은 식: 모양 칸 = 동전(씨앗, 눈가림 용도, 스텝, 관찰자·시연자 묶음 키)."""
+    s = w.s
+    return int(rng.u01(w.cfg.seed, rng.S_SOC_BLIND, step, rng.soc_pair_key(int(s.ids[i]), int(s.ids[j]))) * 2.0)
+
+
+def _blind_pair(mode="blind", o=-1.0, mc=1):
+    w = watch_world(2, mode)
+    _at(w, 0, 100.0, 100.0)
+    _at(w, 1, 103.0, 100.0)
+    _meal(w, 1, mc, o)
+    return w
+
+
+def test_blind_reproducible():
+    hashes = []
+    for _ in range(2):
+        w = _blind_pair()
+        _grid(w)
+        for step in (5, 6, 7, 8):
+            k.watch_meals(step, w.s, w.fp, w.ip)
+        hashes.append(w.state_hash())
+    assert hashes[0] == hashes[1]
+    # 같은 (스텝, 쌍)이면 같은 칸, 식과도 같다
+    for step in (0, 1, 2, 3, 40, 41):
+        w = _blind_pair()
+        _grid(w)
+        k.watch_meals(step, w.s, w.fp, w.ip)
+        c = _blind_coin(w, 0, 1, step)
+        assert w.s.taste_m[0, c] == pytest.approx(-0.5)
+        assert w.s.taste_m[0, 1 - c] == 0.0
+        assert (w.s.taste_m[1] == 0.0).all()        # 먹은 이 자신은 안 바뀐다
+
+
+def test_blind_balanced():
+    w = _blind_pair()
+    _grid(w)
+    n = 4000
+    hits = 0
+    for step in range(n):
+        w.s.taste_m[:] = 0.0
+        k.watch_meals(step, w.s, w.fp, w.ip)
+        assert (w.s.taste_m[0] != 0.0).sum() == 1   # 한 번에 한 칸만
+        hits += int(w.s.taste_m[0, 1] != 0.0)
+    assert abs(hits - n / 2) < 5.0 * (n * 0.25) ** 0.5
+    # 관찰자·시연자 쌍이 바뀌면 같은 스텝에서도 다른 동전이 나올 수 있다(쌍 키가 쌍마다 다르다)
+    assert any(int(rng.u01(w.cfg.seed, rng.S_SOC_BLIND, s_, rng.soc_pair_key(1, 2)) * 2.0)
+               != int(rng.u01(w.cfg.seed, rng.S_SOC_BLIND, s_, rng.soc_pair_key(2, 1)) * 2.0) for s_ in range(64))
+
+
+def test_blind_same_observations_as_outcome():
+    res = {}
+    for mode in ("outcome", "blind"):
+        w = watch_world(3, mode)
+        _crowd(w)                                   # 시연자 1(독), 2(좋은 알)을 관찰자 0이 봄
+        w.s.taste_m[0] = (0.3, 0.1)
+        _grid(w)
+        k.watch_meals(9, w.s, w.fp, w.ip)
+        s = w.s
+        res[mode] = (s.n_seen.copy(), s.n_seen_poison.copy(), s.n_seen_kin.copy(), s.seen_age_sum.copy())
+    o, b = res["outcome"], res["blind"]
+    for a, c in zip(o, b):                                  # 보기 자체(계수기 넷, 개체 전부)는 같다
+        assert (a == c).all()
+    assert o[0][0] == 2 and o[1][0] == 1
+    # blind: 결과(독 −1, 좋은 알 +1)는 그대로 쓰되 칸만 동전으로 — 두 번의 갱신이 각자 동전 칸에 들어간다
+    w = watch_world(3, "blind")
+    _crowd(w)
+    w.s.taste_m[0] = (0.3, 0.1)
+    expect = np.array([0.3, 0.1])
+    for j, oj in ((1, -1.0), (2, 1.0)):
+        c = _blind_coin(w, 0, j, 9)
+        expect[c] += 0.5 * (oj - expect[c])
+    _grid(w)
+    k.watch_meals(9, w.s, w.fp, w.ip)
+    assert w.s.taste_m[0] == pytest.approx(expect)

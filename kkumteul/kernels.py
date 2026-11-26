@@ -15,7 +15,8 @@ from numba import njit, prange
 from .config import (ACT_ATTACK, ACT_CARRY, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_THRUST, ACT_TURN, FIRST_MEALS, N_REWARD,
                      N_TASTE_IN, N_TASTE_VIS, SOC_BLIND, SOC_INERT, SOC_MODES, SOC_WHAT, TASTE_VAL, TASTE_VIS)
 from .rng import (S_BIRTH_ORDER, S_BIRTH_POS, S_FOOD, S_KIND, S_INIT_AGE, S_INIT_GENOME, S_INIT_POS, S_MUT_GENE,
-                  S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, S_SOC_GENE, S_TASTE_GENE, normal, u01)
+                  S_MUT_W, S_NOISE, S_PASSIVE, S_PATCH, S_RESEED, S_SOC_BLIND, S_SOC_GENE, S_TASTE_GENE, normal, soc_pair_key,
+                  u01)
 
 # ---- 상태 묶음 ----
 AGENT_FIELDS = [
@@ -1232,7 +1233,7 @@ def watch_meals(step, s, fp, ip):
     (같은 관찰자의 한 칸을 여러 시연자가 차례로 갱신하는 지수평활은 비가환이라 순서가 값을 가른다).
     먹은 j 자신의 기억은 여기서 안 바뀐다(자기 끼니는 eat의 개인 학습). id < 2^32를 가정한다(눈가림 쌍 키).
     모드: outcome = 시연자의 (모양, 결과)대로, what = 결과를 늘 +1로(무엇을 먹었나만), inert = 기억을 안 바꾼다(보기만),
-    blind = 모양 칸을 동전으로(과제 4). 보기 계수기는 모든 모드에서 같다.
+    blind = 결과·속도·때는 outcome과 같되 갱신할 모양 칸을 동전으로(정보량만 0). 보기 계수기는 모든 모드에서 같다.
     """
     n = s.x.shape[0]
     gw = ip[Q_GW]
@@ -1282,8 +1283,8 @@ def watch_meals(step, s, fp, ip):
                             or (s.parent[i] >= 0 and s.parent[i] == s.parent[j])):
                         s.n_seen_kin[i] += 1
                     s.seen_age_sum[i] += s.age[j]
-                    if mode == SOC_INERT or mode == SOC_BLIND:
-                        continue        # inert: 기억을 안 바꾼다. blind는 과제 4에서 모양 칸 동전으로
+                    if mode == SOC_INERT:
+                        continue        # inert: 기억을 안 바꾼다
                     rate = rate0 + s.soc_g[i]
                     if rate < 0.0:
                         rate = 0.0
@@ -1292,7 +1293,11 @@ def watch_meals(step, s, fp, ip):
                     o = o_j
                     if mode == SOC_WHAT:
                         o = 1.0
-                    s.taste_m[i, mc_j] += rate * (o - s.taste_m[i, mc_j])
+                    mc = mc_j
+                    if mode == SOC_BLIND:
+                        # 눈가림: 같은 관찰·같은 결과·같은 속도, 모양 칸만 (스텝, 관찰자·시연자 쌍)의 동전으로
+                        mc = int(u01(ip[Q_SEED], S_SOC_BLIND, step, soc_pair_key(s.ids[i], s.ids[j])) * 2.0)
+                    s.taste_m[i, mc] += rate * (o - s.taste_m[i, mc])
 
 
 # ---- 유전체 ----
