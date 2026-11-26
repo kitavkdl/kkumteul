@@ -4,10 +4,13 @@
 
 ## ★ 11/26 밤 작업 (가지 `night/2026-11-26-kkumteul`, 작업 폴더 `.claude/worktrees/night-2026-11-26`, main에 안 합침)
 - 가지는 `night/2026-11-07b-kkumteul-learn`(맛 기억·개인 학습 포함) 위에 main을 합친 것. 원격에 push함.
-- 고침 `53f1000`: 겨루기 마당이 독 순서를 새 씨앗으로 다시 뽑던 버그 → `kind_seed`·`kind_step0`·`measure.kind_aligned`. 고정 갈래 "양쪽 전멸"의 원인(6판 중 5판이 독 뒤바뀐 마당). 다시 재기 유닛 `kkumteul-realign`(코드 사본 `runs/code-53f1000`, 진행 `runs/realign/progress.txt`, 결과 `runs/realign/j-*.json`) → 읽어서 results.md·status.md에 볼드윈 판정.
-- 사회 학습: 설계 둘째 판·계획 `4fa2462`(`docs/superpowers/plans/2026-11-26-social-learning.md`) → 구현 워크플로(과제 1~7) 진행 중 → 끝나면 `wayfinder/stage2-4/soc_chain.sh`를 코드 사본에서 memcap으로 띄움(판정 0 용량 반응 → 관문 → 진화 갈래 → 판정).
-- 부모의 가르침(3단계): 설계·검토·계획 워크플로 진행 중(`docs/superpowers/specs/2026-11-26-parent-teaching-design.md`, 계획 `plans/2026-11-26-parent-teaching.md`).
-- 그다음 후보: 규범(벌주기)의 씨앗 설계, `/develop 창의성`, 5단계(말하는 뇌, `docs/stage5-proposal.md`) 작은 시험판 — 유료 API는 쓰지 않음.
+- 고침 `53f1000`: 겨루기 마당이 독 순서를 새 씨앗으로 다시 뽑던 버그 → `kind_seed`·`kind_step0`·`measure.kind_aligned`. **다시 재기 끝**(`3d62b5d`·`a41aa98`, results.md 끝 두 절, status 반영): 고정 a·b 배움 0 벌 가를 수 없음(전멸 0) → 볼드윈 부분 지지, 15,000은 +0.30(옛 +2.28은 버그로 부풀음), 500은 +1.03 그대로.
+- **사회 학습 구현 끝**(과제 1~7 `874d7e3`…`6c244c0`, 전체 시험 472 통과, 예측은 results.md "사회 학습 — 예측"에 실행 전 기록). **실험 체인 돌고 있음**: 유닛 `kkumteul-soc`(04:5x ET 시작, 코드 사본 `runs/code-faf9852`, 기록 `runs/soc-exp/`, 로그 `runs/soc-exp/chain.log`). 순서: 판정 0 핵심 넷(outcome-d0.05·d1.0, blind-d1.0, off-d1.0)을 바탕 a·b 먼저 → 나머지 판정 0 → 관문(`gate.json`, 0 통과·3 검출 불능·4 도구 깨짐) → 통과면 진화 갈래·판정. 한 판 약 10~15분(서버 부하에 따라). **할 일: 핵심 여덟 판이 끝나면 바로 읽어(`taste_gene_judge.py gate`를 있는 판으로 돌리거나 j-dose-*.json 직접) results.md·status.md에 중간 판정**, 8시 전에 끝난 만큼 적는다.
+- 부모의 가르침(3단계): 설계 둘째 판·계획 `2b45163`(`docs/superpowers/specs/2026-11-26-parent-teaching-design.md`, `plans/2026-11-26-parent-teaching.md`, 과제 0~9) — **다음: 구현 워크플로**(사회 학습 구현과 같은 꼴: 과제마다 TDD 구현 → sonnet 검토 → 고치기, 시험은 memcap 2G·2스레드, 한 번에 하나). 실험은 사회 학습 체인이 끝난 뒤.
+- 규범의 씨앗: 설계 둘째 판 `25893f8`(`docs/superpowers/specs/2026-11-26-norms-seed-design.md`, 계획은 아직) — 가르침 구현 뒤 계획.
+- 그다음 후보: `/develop 창의성`, 5단계(말하는 뇌, `docs/stage5-proposal.md`) 작은 시험판 — 유료 API는 쓰지 않음.
+- 워크플로 쓰는 법(이번 밤 잘 된 꼴): 설계 = 초안 → 규칙·명세 축 sonnet 검토 둘 → 둘째 판+계획 커밋, 구현 = 과제마다 구현(opus)·검토(sonnet)·고치기. 에이전트에게 시뮬레이션은 시키지 않는다. 같은 폴더에서 동시에 두 구현 워크플로를 돌리지 않는다.
+- 사용자 `/goal`: 목요일(11/26) 오전 8시 전까지 계속 작업. 8시가 되면 실험 체인은 그대로 두고(멈추지 않음) 아침 브리핑용으로 인수인계·status를 정리한다.
 - 서버가 다른 일로 매우 바쁨(부하 25~30, 남은 메모리 5GB 안팎) — 시뮬레이션 한 번에 하나(1.5GB·2스레드), 시험 2GB, 에이전트 동시 2~3.
 
 ## 다음 세션이 이어서 할 것
