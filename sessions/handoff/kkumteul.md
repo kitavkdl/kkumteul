@@ -1,11 +1,19 @@
 # 꿈틀 인수인계
-마지막 갱신: 2026-11-12 12:21 ET · 새 양식 전환(내용은 11/09 02:5x ET 실험 중지 판 그대로)
-요약: 세계 시뮬레이션 꿈틀 — 아무도 가르치지 않았는데 생물이 스스로 행동·전략·신호를 만드는지 본다(공개 레포, 목적·규칙은 CLAUDE.md). **지금은 실험 중지** — 사용자 11/09 02:4x ET "일단 실험 중지다". 11/06 판 인수인계·교훈 전문은 `archive/kkumteul-history.md`.
+마지막 갱신: 2026-11-26 03:0x ET · 밤 작업 재개(사용자 11/26 02:39 ET)
+요약: 세계 시뮬레이션 꿈틀 — 아무도 가르치지 않았는데 생물이 스스로 행동·전략·신호를 만드는지 본다(공개 레포, 목적·규칙은 CLAUDE.md). **11/26 새벽 실험 재개** — 사용자 "오전 8시까지 할 만한 작업 쭉, 묻지 말고 끝까지, ultracode·/develop 창의성 허용, 메모리·CPU 뻑나지 않게", 이어서 "시간 남으면 develop이나 우리의 목표(철학, 규율과 법, 시뮬레이션 인식)까지". `/goal`: 목요일(11/26) 오전 8시 전까지 계속.
+
+## ★ 11/26 밤 작업 (가지 `night/2026-11-26-kkumteul`, 작업 폴더 `.claude/worktrees/night-2026-11-26`, main에 안 합침)
+- 가지는 `night/2026-11-07b-kkumteul-learn`(맛 기억·개인 학습 포함) 위에 main을 합친 것. 원격에 push함.
+- 고침 `53f1000`: 겨루기 마당이 독 순서를 새 씨앗으로 다시 뽑던 버그 → `kind_seed`·`kind_step0`·`measure.kind_aligned`. 고정 갈래 "양쪽 전멸"의 원인(6판 중 5판이 독 뒤바뀐 마당). 다시 재기 유닛 `kkumteul-realign`(코드 사본 `runs/code-53f1000`, 진행 `runs/realign/progress.txt`, 결과 `runs/realign/j-*.json`) → 읽어서 results.md·status.md에 볼드윈 판정.
+- 사회 학습: 설계 둘째 판·계획 `4fa2462`(`docs/superpowers/plans/2026-11-26-social-learning.md`) → 구현 워크플로(과제 1~7) 진행 중 → 끝나면 `wayfinder/stage2-4/soc_chain.sh`를 코드 사본에서 memcap으로 띄움(판정 0 용량 반응 → 관문 → 진화 갈래 → 판정).
+- 부모의 가르침(3단계): 설계·검토·계획 워크플로 진행 중(`docs/superpowers/specs/2026-11-26-parent-teaching-design.md`, 계획 `plans/2026-11-26-parent-teaching.md`).
+- 그다음 후보: 규범(벌주기)의 씨앗 설계, `/develop 창의성`, 5단계(말하는 뇌, `docs/stage5-proposal.md`) 작은 시험판 — 유료 API는 쓰지 않음.
+- 서버가 다른 일로 매우 바쁨(부하 25~30, 남은 메모리 5GB 안팎) — 시뮬레이션 한 번에 하나(1.5GB·2스레드), 시험 2GB, 에이전트 동시 2~3.
 
 ## 다음 세션이 이어서 할 것
 0. 사용자 최근 말(원문, 자동)
-- (11/12 12:16) "(개인 내용 — 생략)" → 처리됨(꿈틀 인수인계 새 양식 전환)
-1. ⛔ **실험 중지 유지** — 사용자가 다시 시작하라고 하실 때까지 실험·밤샘 체인·상주 세션(announcement·insight·research)을 띄우지 않는다.
+- (11/26 02:39) "오전 8시까지 … 쭉 돌려도 되긴 해 ultracode도 한시 허용 … /develop 창의성 해도 되고 … 물어볼거나 막히는거 없이 완전 쭉 … 메모리나 cpu 뻑나거나 그런것만 없도록" → 진행 중(위 절)
+1. (11/09~11/26 새벽까지) 실험 중지였음 — 11/26 새벽 사용자 지시로 재개. 상주 세션(announcement·insight·research)은 여전히 띄우지 않음.
    - 끈 것: 앱의 꿈틀 세션 셋 보관, RC 대기 창 `rc-kkumteul` 종료, 남아 있던 로그 보기 프로세스 종료. 서버 세계 둘(`kkumteul-main`·`kkumteul-world4`)은 11/09 이전에 이미 멈춤. 밤샘 체인 2026-11-07·07b는 둘 다 `stopped`.
    - 그대로 둔 것(지우지 않음): 밤샘 가지와 작업 폴더(`.claude/worktrees/night-*`), `runs/`, 아티팩트.
 2. 마지막 결과(밤샘 가지 `night/2026-11-07b-kkumteul-learn`, **main에 안 합침**): 신호 판정 `e9ba9cb`(world4 경계, atk-a 쓰지 않음), 개인 학습 `a118582`(주기 500 쓴다 — 씨앗 둘은 500만, 15,000은 5/6 전멸; 독 비율 0.43~0.46으로 이긴 까닭 미확인; 고정 갈래는 겨루기가 깨져 볼드윈 보류). 정리 아티팩트 https://claude.ai/artifact/E1vteozVx5B4Tvwf5JUweg
