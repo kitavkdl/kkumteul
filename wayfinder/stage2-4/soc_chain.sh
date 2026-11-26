@@ -120,6 +120,13 @@ judge() {  # 갈래-씨앗 무엇(out|blind|ctrl|nocost|noind|noindb|obs)
 pre_check a && pre_check b || { note "바탕 확인 실패 — 체인 중단"; exit 1; }
 
 # 1. 판정 0: 용량 반응(진화 전)
+# 핵심 넷을 두 바탕 모두 먼저(밤 시간이 모자랄 때 관문의 뼈대로 먼저 읽는다, 2026-11-26). dose는 끝난 판을 건너뛴다
+for t in a b; do
+  dose "$t" outcome-d0.05 0.05
+  dose "$t" outcome-d1.0 1.0 --no-neutral
+  dose "$t" blind-d1.0 1.0 --set soc_taste_mode=blind --no-neutral
+  dose "$t" off-d1.0 1.0 --set soc_taste_enabled=false --no-neutral
+done
 for t in a b; do dose_all $t; done
 runit "$PY" $J gate --dir "$E" --tags a b > "$E/gate.json" 2> "$E/gate.log"
 rc=$?
