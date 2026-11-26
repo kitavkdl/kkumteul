@@ -12,7 +12,7 @@ from collections import namedtuple
 import numpy as np
 from numba import njit, prange
 
-from .config import (ACT_ATTACK, ACT_CARRY, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_THRUST, ACT_TURN, FIRST_MEALS, N_REWARD,
+from .config import (ACT_ATTACK, ACT_CARRY, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_THRUST, ACT_TURN, FIRST_MEALS, N_NORM_IN, N_REWARD,
                      N_TASTE_IN, N_TASTE_VIS, SOC_BLIND, SOC_INERT, SOC_MODES, SOC_WHAT, TASTE_VAL, TASTE_VIS,
                      TEACH_ANY, TEACH_COSTONLY, TEACH_DRIFT, TEACH_KNOWER, TEACH_MODES, TEACH_WHENS, WHEN_MEAL)
 from .rng import (S_BIRTH_ORDER, S_BIRTH_POS, S_FOOD, S_KIND, S_INIT_AGE, S_INIT_GENOME, S_INIT_POS, S_MUT_GENE,
@@ -307,7 +307,9 @@ DEATH_KILLED = 4         # 공격을 맞은 스텝에 에너지가 바닥남
  Q_SECTORS, Q_H_MAX, Q_H_INIT, Q_H_MIN, Q_REPRO_BRAIN, Q_REPRO_MIN_AGE, Q_MUT, Q_CORPSE,
  Q_PASSIVE, Q_KINDS, Q_KIND_PERIOD, Q_CAP_REPLACE, Q_SPOIL_AFTER, Q_FIELD_CAP, Q_TASTE_IN0, Q_TASTE_GENE,
  Q_KIND_SEED, Q_KIND_STEP0, Q_SOC, Q_SOC_MODE,
- Q_JUV, Q_JUV_COUNT, Q_JUV_STEPS, Q_TEACH, Q_TEACH_MODE, Q_TEACH_WHEN, Q_FEED, N_IP) = range(36)
+ Q_JUV, Q_JUV_COUNT, Q_JUV_STEPS, Q_TEACH, Q_TEACH_MODE, Q_TEACH_WHEN, Q_FEED,
+ # 규범의 씨앗(뒤에만 덧붙인다): process_deaths가 표시 에피소드를 닫고 죽은 개체의 먹은 양을 모을 때만 읽는다
+ Q_NORM, Q_NORM_TAU, N_IP) = range(38)
 
 
 def pack_params(cfg):
@@ -418,6 +420,9 @@ def pack_params(cfg):
     ip[Q_TEACH_MODE] = TEACH_MODES[cfg.teach_mode]
     ip[Q_TEACH_WHEN] = TEACH_WHENS[cfg.teach_cost_when]
     ip[Q_FEED] = int(cfg.feed_enabled and juv_on)
+    # stages.I_NORM_ON과 같은 조건(입력 칸이 모자라면 장치 전체가 꺼진다)
+    ip[Q_NORM] = int(cfg.norm_enabled and cfg.n_in >= cfg.norm_in0 + N_NORM_IN)
+    ip[Q_NORM_TAU] = cfg.norm_mark_tau
     fp[P_JUV_EAT_FLOOR] = cfg.juv_eat_floor
     fp[P_JUV_MOVE_FLOOR] = cfg.juv_move_floor
     fp[P_JUV_POISON_MULT] = cfg.juv_poison_mult
@@ -1516,6 +1521,46 @@ def _kin_class(s, i, j):
 
 
 @njit(cache=True, inline="always")
+def _norm_row(tag):
+    """규범 계수표의 행: 태그 0~3은 그 행, 그 밖(음수 포함)은 TAG_ROWS_NORM − 1(4)에 접는다."""
+    if tag < 0:
+        return TAG_ROWS_NORM - 1
+    if tag > TAG_ROWS_NORM - 1:
+        return TAG_ROWS_NORM - 1
+    return tag
+
+
+@njit(cache=True)
+def _norm_close_episode(s, i):
+    """i의 표시 에피소드 하나를 닫아 센다: MARK_EPIS[종류], 이 에피소드 안에 벌 받았으면(mark_pun) MARK_EPIS_PUN[종류].
+    종류 = (마지막) 피해자 값: 0 가로채기(id ≥ 0), 1 피해자 없음(sig·잡음, −1), 2 미지(−2).
+    닫는 곳은 셋이고 한 에피소드는 한 곳에서만 닫힌다: 만료 스텝의 norm_account, 만료 스텝에 다시 붙는 _attach_mark,
+    표시된 채 죽을 때 process_deaths."""
+    row = _norm_row(s.tag[i])
+    v = s.mark_vid[i]
+    kind = 0
+    if v == -1:
+        kind = 1
+    elif v < 0:
+        kind = 2
+    s.norm_tab[row, NT_MARK_EPIS0 + kind] += 1.0
+    if s.mark_pun[i] != 0:
+        s.norm_tab[row, NT_MARK_EPIS_PUN0 + kind] += 1.0
+
+
+@njit(cache=True)
+def _norm_death_hook(step, s, i, ip):
+    """죽는 개체: 아직 표시돼 있으면(경과 ≤ τ) 그 에피소드를 닫는다(만료 스텝 경과 τ + 1은 norm_account가 이미 셌다).
+    먹은 양(eaten)과 끝난 생 하나를 태그 행에 더한다(개체 스텝당 순수입용)."""
+    mt = s.mark_t[i]
+    if mt >= 0 and step - mt <= ip[Q_NORM_TAU]:
+        _norm_close_episode(s, i)
+    row = _norm_row(s.tag[i])
+    s.norm_tab[row, NT_EATEN_DEAD] += s.eaten[i]
+    s.norm_tab[row, NT_LIVES_DONE] += 1.0
+
+
+@njit(cache=True, inline="always")
 def _note_know(s, i, kp, src, fp):
     """새끼 i가 독 모양(칸 kp)을 처음 "안" 때만 그 나이와 출처(src)를 적는다(한 번만; 읽기 전용 계수)."""
     if kp >= 0 and s.know_age[i] < 0 and s.taste_m[i, kp] <= -fp[P_JUV_KNOW_THETA]:
@@ -2091,6 +2136,8 @@ def process_deaths(step, s, fp, ip):
                 elif row > TAG_ROWS - 1:
                     row = TAG_ROWS - 1
                 s.grad_tab[row, GT_DEAD] += 1.0
+            if ip[Q_NORM] != 0:
+                _norm_death_hook(step, s, i, ip)    # 규범: 에피소드 닫기·먹은 양. strike(운석) 사망은 안 센다
             if s.touch[i] == TOUCH_HIT:
                 # 이번 스텝에 공격을 맞았고 에너지가 바닥났다. 굶어 죽음과 따로 센다
                 # (맞은 뒤 제 공격 비용으로 바닥난 드문 경우도 여기에 든다)
@@ -2101,6 +2148,8 @@ def process_deaths(step, s, fp, ip):
                 s.counters[C_DEATH_STARVE] += 1
             nd += 1
         elif s.age[i] >= ip[Q_MAX_AGE]:
+            if ip[Q_NORM] != 0:
+                _norm_death_hook(step, s, i, ip)
             _remove(s, i, DEATH_AGE, step, corpse, nd, ip[Q_FIELD_CAP])
             s.counters[C_DEATH_AGE] += 1
             nd += 1

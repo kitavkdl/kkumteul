@@ -145,7 +145,7 @@ def test_new_p_q_slots_appended_at_end():
              k.P_TEACH_COST, k.P_TEACH_GENE_SIGMA, k.P_FEED_RATE, k.P_FEED_GENE_SIGMA, k.P_FEED_LOSS, k.P_FEED_MIN)
     assert new_p == tuple(range(63, 74)) and k.N_FP == 74
     new_q = (k.Q_JUV, k.Q_JUV_COUNT, k.Q_JUV_STEPS, k.Q_TEACH, k.Q_TEACH_MODE, k.Q_TEACH_WHEN, k.Q_FEED)
-    assert new_q == tuple(range(28, 35)) and k.N_IP == 35
+    assert new_q == tuple(range(28, 35)) and k.N_IP >= 35     # 규범의 씨앗이 Q_NORM·Q_NORM_TAU를 뒤에 덧붙였다
 
 
 # ---- 필드 ----

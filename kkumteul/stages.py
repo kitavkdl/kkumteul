@@ -23,8 +23,8 @@ from .kernels import (C_ATTACKS, C_FERTILE, C_GIFTS, C_NFIELD, C_NFOOD, KIND_A, 
                       NT_PUN_DMG_RECV, NT_PUN_FINE, NT_PUN_KILL, NT_PUN_NOVICT, NT_PUN_UNKNOWN, NT_PUN_VGONE,
                       RT_N_PUN, RT_PUN_COST, RT_PUN_FINE,
                       NT_TAKE, NT_TAKE_DMG_RECV, NT_TAKE_GAIN, NT_TAKE_IMP, NT_TAKE_KILL, NT_TAKE_KIN, NT_TAKE_LINE,
-                      NT_TAKE_ON_MARKED, NT_TAKE_SIM0, NT_VIOL_DMG_RECV, TAG_ROWS_NORM,
-                      TOUCH_HIT, _kin_class, _place_food, _wdiff, _wrap, make_room, pick_kind)
+                      NT_MARKED_STEPS, NT_TAKE_ON_MARKED, NT_TAKE_SIM0, NT_VIOL_DMG_RECV,
+                      TOUCH_HIT, _kin_class, _norm_close_episode, _norm_row, _place_food, _wdiff, _wrap, make_room, pick_kind)
 from .rng import S_ATTACK_ORDER, S_FERTILE, S_NORM_IMPULSE, S_NORM_NOISE, S_PERTURB, normal, u01
 
 # 거름 먹이의 종류를 뽑는 난수 번호의 밑. S_KIND 흐름에서 보통 먹이는 (일련번호, 0), 어느 쪽이 독인지는
@@ -631,16 +631,6 @@ def give(s, fs, isp):
 
 # =========================== 규범의 씨앗: 도우미 ===========================
 @njit(cache=True, inline="always")
-def _norm_row(tag):
-    """계수표의 행: 태그 0~3은 그 행, 그 밖(음수 포함)은 4에 접는다."""
-    if tag < 0:
-        return TAG_ROWS_NORM - 1
-    if tag > TAG_ROWS_NORM - 1:
-        return TAG_ROWS_NORM - 1
-    return tag
-
-
-@njit(cache=True, inline="always")
 def _sim_bin(sim):
     """닮음 구간: < 0.88, 0.88~0.92, 0.92~0.96, ≥ 0.96 → 0~3. 친척 경계는 분석에서 사후에 고른다(문턱 설정 키 없음)."""
     if sim < 0.88:
@@ -674,7 +664,12 @@ def _attach_mark(s, i, step, vslot, vid, tau):
     """i에게 표시를 붙인다. 표시가 없던 개체면 새 에피소드(이 에피소드의 벌 여부 mark_pun을 0으로), 아직 표시된 동안
     또 붙으면 같은 에피소드의 연장이다(시각·피해자만 새로; 에피소드는 마지막으로 붙은 때부터 만료까지 한 번 센다).
     피해자 칸·id: 가로채기면 맞은 이, sig·잡음이면 −1(없음)."""
-    if not _is_marked(step, s.mark_t[i], tau):
+    mt = s.mark_t[i]
+    if not _is_marked(step, mt, tau):
+        if mt >= 0 and step - mt == tau + 1:
+            # 만료 스텝(경과 τ + 1)에 다시 붙는다: norm_account가 이 스텝 끝에 닫을 앞 에피소드를 여기서 닫는다
+            # (mark_t를 덮어쓰면 그쪽에서 못 본다). 그보다 오래된 것은 만료 스텝에 이미 닫혔다
+            _norm_close_episode(s, i)
         s.mark_pun[i] = 0
     s.mark_t[i] = step
     s.mark_vslot[i] = vslot
@@ -841,6 +836,52 @@ def _count_pun_role(s, tab, ri, i, t):
     return 2
 
 
+@njit(cache=True, inline="always")
+def _hist_cell(s, i, t):
+    """구간표(norm_hist)의 행·구간. 벌 받은 적 있으면 행 = 그 벌의 집행자 역할(pun_role 0~2; −1이면 뺌), 경과 = t − pun_t.
+    벌 받은 적 없이 표시된 적 있으면 행 3, 경과 = t − mark_t. 경과 0(그 스텝에 막 벌·표시)은 뺀다(처리 순서 인공물).
+    구간: [1, 10), [10, 50), [50, 200), [200, ∞). 해당 없으면 (−1, −1)."""
+    if s.pun_t[i] >= 0:
+        row = s.pun_role[i]
+        if row < 0:
+            return -1, -1
+        e = t - s.pun_t[i]
+    elif s.mark_t[i] >= 0:
+        row = 3
+        e = t - s.mark_t[i]
+    else:
+        return -1, -1
+    if e <= 0:
+        return -1, -1
+    if e < 10:
+        return row, 0
+    if e < 50:
+        return row, 1
+    if e < 200:
+        return row, 2
+    return row, 3
+
+
+@njit(cache=True)
+def norm_account(step, s, fs, isp):
+    """스텝 끝(attack 뒤, process_deaths 앞) 한 번: 표시된 개체 스텝(MARKED_STEPS, 유병률의 분자)과 이 스텝에 만료되는
+    (경과 τ + 1) 표시 에피소드 닫기. 유병률의 분모 ALIVE_STEPS는 attack이 센다(그 사이에 죽는 개체가 없다)."""
+    n = s.x.shape[0]
+    tau = int(fs[F_NORM_TAU])
+    tab = s.norm_tab
+    for i in range(n):
+        if not s.alive[i]:
+            continue
+        mt = s.mark_t[i]
+        if mt < 0:
+            continue
+        e = step - mt
+        if e <= tau:
+            tab[_norm_row(s.tag[i]), NT_MARKED_STEPS] += 1.0
+        elif e == tau + 1:
+            _norm_close_episode(s, i)
+
+
 # =========================== 다툼: 공격 ===========================
 @njit(cache=True)
 def attack(step, s, fs, isp):
@@ -873,6 +914,8 @@ def attack(step, s, fs, isp):
         ri = _norm_row(s.tag[i])
         nb = -1
         nm = -1
+        hr = -1
+        hb = -1
         if count:
             tab[ri, NT_ALIVE_STEPS] += 1.0
             if s.energy[i] <= 0.0:
@@ -880,6 +923,11 @@ def attack(step, s, fs, isp):
             nb, nm = _scan_touching(s, fs, isp, i, step)
             if nb >= 0:
                 tab[ri, NT_EXPO] += 1.0
+                if on:
+                    # 구간표: 차례를 받는 지금의 칸(이 차례에 친 뒤 표시가 붙어도 행은 그대로)
+                    hr, hb = _hist_cell(s, i, step)
+                    if hr >= 0:
+                        s.norm_hist[hr, hb, 0] += 1.0
                 if nm >= 0:
                     tab[ri, NT_OPP_MARKED] += 1.0
                     _count_opp(s, tab, ri, i, nm)
@@ -964,6 +1012,8 @@ def attack(step, s, fs, isp):
                     tab[ri, NT_PUN_KILL] += 1.0
             else:
                 tab[ri, NT_TAKE] += 1.0
+                if hr >= 0:
+                    s.norm_hist[hr, hb, 1] += 1.0
                 if imp:
                     tab[ri, NT_TAKE_IMP] += 1.0
                 if marked_t:

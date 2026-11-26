@@ -1240,3 +1240,178 @@ def test_summary_norm_fields():
     wm = World(small("stage4", "conflict", "norm_size", norm_measure=True))
     wm.run(20)
     assert "norm_pun_rate_2nd" not in wm.summary() and "norm_pun_rate_3rd" not in wm.summary()
+
+
+# ======================= 과제 9: 구간표·표시 에피소드·유병률·죽을 때 닫기 =======================
+def test_interval_table_boundaries_and_exclusions():
+    w = _pair("norm")
+    s = w.s
+    h = s.norm_hist
+    s.pun_t[0], s.pun_role[0] = 100, 2           # 0은 3자 남에게 벌 받았다
+    st.attack(100, s, w.fs, w.isp)               # 경과 0: 자기 차례가 와도 표에서 뺀다
+    assert not h.any()
+    want = {101: 0, 109: 0, 110: 1, 149: 1, 150: 2, 299: 2, 300: 3, 1000: 3}     # 경과 = t − 100
+    expo = np.zeros(4)
+    for t, b in want.items():
+        st.attack(t, s, w.fs, w.isp)
+        expo[b] += 1
+        assert (h[2, :, 0] == expo).all(), t
+    assert not h[[0, 1, 3]].any() and not h[2, :, 1].any()
+    # 가로채기는 차례를 받을 때의 칸에 센다(친 뒤 내가 표시돼도 행은 벌의 역할 그대로)
+    s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    st.attack(120, s, w.fs, w.isp)
+    assert h[2, 1, 1] == 1 and h[2, 1, 0] == expo[1] + 1 and s.mark_t[0] == 120
+    # 표시됐으나 벌 안 받은 개체(행 3): 경과는 표시가 붙은 뒤로
+    w3 = _pair("norm")
+    s3 = w3.s
+    s3.mark_t[4], s3.mark_vslot[4], s3.mark_vid[4] = 50, 6, s3.ids[6]
+    st.attack(50, s3, w3.fs, w3.isp)             # 경과 0은 뺀다
+    st.attack(55, s3, w3.fs, w3.isp)
+    st.attack(70, s3, w3.fs, w3.isp)
+    assert s3.norm_hist[3, 0, 0] == 1 and s3.norm_hist[3, 1, 0] == 1 and s3.norm_hist[3].sum() == 2
+    assert not s3.norm_hist[:3].any()
+    # 벌 받았으나 역할을 가를 수 없는 개체(pun_role −1)는 표에서 뺀다. 측정만 켠 세계는 표가 늘 0
+    w4 = _pair("norm")
+    w4.s.pun_t[0], w4.s.pun_role[0] = 10, -1
+    st.attack(20, w4.s, w4.fs, w4.isp)
+    assert not w4.s.norm_hist.any()
+    wm = World(small("stage4", "conflict", "norm_size", norm_measure=True))
+    wm.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+    wm.run(100)
+    assert not wm.s.norm_hist.any()
+
+
+def _epis(w, kind):
+    return nt(w, 0, k.NT_MARK_EPIS0 + kind), nt(w, 0, k.NT_MARK_EPIS_PUN0 + kind)
+
+
+def test_prevalence_and_episode_counts():
+    w = hand_world("norm", norm_mark_tau=5)
+    s = w.s
+    st._attach_mark(s, 0, 10, 4, s.ids[4], 5)              # 종류 0(가로채기)
+    st._attach_mark(s, 1, 10, -1, -1, 5)                   # 종류 1(피해자 없음)
+    s.mark_pun[1] = 1
+    s.mark_t[2], s.mark_vid[2] = 10, -2                    # 종류 2(미지)
+    for t in range(10, 16):
+        st.norm_account(t, s, w.fs, w.isp)
+        assert _epis(w, 0) == (0, 0)
+    assert nt(w, 0, k.NT_MARKED_STEPS) == 3 * 6            # 붙은 스텝과 그 뒤 τ스텝
+    st.norm_account(16, s, w.fs, w.isp)                    # 만료 스텝(경과 τ + 1)에 닫는다
+    assert _epis(w, 0) == (1, 0) and _epis(w, 1) == (1, 1) and _epis(w, 2) == (1, 0)
+    for t in range(17, 40):
+        st.norm_account(t, s, w.fs, w.isp)
+    assert _epis(w, 0) == (1, 0) and nt(w, 0, k.NT_MARKED_STEPS) == 18      # 한 번만 센다
+
+
+def test_punished_then_remarked_counts_as_punished():
+    w = hand_world("norm", norm_mark_tau=5)
+    s = w.s
+    st._attach_mark(s, 0, 10, 4, s.ids[4], 5)
+    s.mark_pun[0] = 1                                      # 벌 받음
+    s.pun_t[0] = 11
+    st._attach_mark(s, 0, 13, 4, s.ids[4], 5)              # 다시 가로챔: 같은 에피소드의 연장(pun_t < mark_t)
+    for t in range(10, 30):
+        st.norm_account(t, s, w.fs, w.isp)
+    assert _epis(w, 0) == (1, 1)
+
+
+def test_remark_at_expiry_step_closes_previous_episode():
+    # 만료 스텝(경과 τ + 1)에 다시 붙으면 norm_account가 그 스텝 끝에 못 보므로 붙이는 쪽이 앞 에피소드를 닫는다
+    w = hand_world("norm", norm_mark_tau=5)
+    s = w.s
+    st._attach_mark(s, 0, 10, 4, s.ids[4], 5)
+    s.mark_pun[0] = 1
+    for t in range(10, 16):
+        st.norm_account(t, s, w.fs, w.isp)
+    st._attach_mark(s, 0, 16, -1, -1, 5)                   # 만료 스텝에 재표시(잡음): 새 에피소드
+    assert _epis(w, 0) == (1, 1) and s.mark_pun[0] == 0
+    st.norm_account(16, s, w.fs, w.isp)
+    assert _epis(w, 0) == (1, 1) and _epis(w, 1) == (0, 0)  # 두 번 안 센다
+    for t in range(17, 30):
+        st.norm_account(t, s, w.fs, w.isp)
+    assert _epis(w, 1) == (1, 0)
+    # 같은 스텝에 두 번 붙어도(잡음 뒤 가로채기) 앞 에피소드는 한 번만
+    w2 = hand_world("norm", norm_mark_tau=5)
+    s2 = w2.s
+    st._attach_mark(s2, 0, 10, 4, s2.ids[4], 5)
+    st._attach_mark(s2, 0, 16, -1, -1, 5)
+    st._attach_mark(s2, 0, 16, 4, s2.ids[4], 5)
+    assert _epis(w2, 0) == (1, 0) and s2.mark_vid[0] == s2.ids[4]
+    # 이미 만료돼 닫힌 뒤(경과 > τ + 1)에 붙으면 앞 것을 또 세지 않는다
+    w3 = hand_world("norm", norm_mark_tau=5)
+    s3 = w3.s
+    st._attach_mark(s3, 0, 10, 4, s3.ids[4], 5)
+    for t in range(10, 20):
+        st.norm_account(t, s3, w3.fs, w3.isp)
+    st._attach_mark(s3, 0, 20, 4, s3.ids[4], 5)
+    assert _epis(w3, 0) == (1, 0)
+
+
+def test_episode_closed_at_death_no_double_count():
+    w = hand_world("norm", norm_mark_tau=5)
+    s, fp, ip = w.s, w.fp, w.ip
+    t = 40
+    s.mark_t[0], s.mark_vid[0], s.mark_pun[0] = 38, s.ids[4], 1     # 표시된 채 맞아 죽음
+    s.energy[0], s.touch[0] = 0.0, k.TOUCH_HIT
+    s.mark_t[1], s.mark_vid[1] = t - 6, -1                           # 이 스텝 만료이고 굶어 죽음
+    s.energy[1] = 0.0
+    s.mark_t[2], s.mark_vid[2] = t - 1, -2                           # 표시된 채 노쇠
+    s.age[2] = w.cfg.max_age
+    s.energy[3] = 0.0                                                # 표시 없이 굶음
+    s.eaten[:4] = (1.5, 2.0, 3.0, 0.25)
+    st.norm_account(t, s, w.fs, w.isp)
+    assert _epis(w, 1) == (1, 0)
+    nd = k.process_deaths(t, s, fp, ip)
+    assert nd == 4 and not s.alive[:4].any()
+    assert _epis(w, 0) == (1, 1) and _epis(w, 1) == (1, 0) and _epis(w, 2) == (1, 0)
+    assert nt(w, 0, k.NT_LIVES_DONE) == 4 and nt(w, 0, k.NT_EATEN_DEAD) == pytest.approx(6.75)
+
+
+def test_death_hook_records_eaten_for_net_income():
+    w = hand_world("norm")
+    s = w.s
+    s.tag[0], s.tag[1] = 2, 7                     # 태그 행(7은 행 4에 접힌다)
+    s.energy[0] = s.energy[1] = 0.0
+    s.eaten[0], s.eaten[1] = 4.0, 1.0
+    k.process_deaths(5, s, w.fp, w.ip)
+    assert nt(w, 2, k.NT_EATEN_DEAD) == 4.0 and nt(w, 2, k.NT_LIVES_DONE) == 1
+    assert nt(w, 4, k.NT_EATEN_DEAD) == 1.0 and nt(w, 4, k.NT_LIVES_DONE) == 1
+
+
+def test_account_off_not_called(monkeypatch):
+    calls = []
+    for mod, name in ((st, "attack"), (st, "norm_account"), (k, "process_deaths")):
+        orig = getattr(mod, name)
+
+        def wrap(*a, _o=orig, _n=name):
+            calls.append(_n)
+            return _o(*a)
+        monkeypatch.setattr(mod, name, wrap)
+    World(small("stage4", "conflict", "norm")).run(3)
+    assert calls == ["attack", "norm_account", "process_deaths"] * 3
+    calls.clear()
+    for kw in (dict(), dict(norm_measure=True)):
+        World(small("stage4", "conflict", "norm_size", **kw)).run(3)
+    assert "norm_account" not in calls
+    # process_deaths 훅(njit)은 감쌀 수 없다 → 측정만 켠 세계에서 죽어도 훅의 계수가 0인지로 본다
+    wm = hand_world("norm_size", norm_measure=True)
+    wm.s.energy[:3] = 0.0
+    wm.s.mark_t[0] = 0
+    assert k.process_deaths(1, wm.s, wm.fp, wm.ip) == 3
+    assert not wm.s.norm_tab.any()
+
+
+def test_summary_prevalence():
+    w = World(small("stage4", "conflict", "norm", norm_impulse=0.02))
+    w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+    w.run(300)
+    out = w.summary()
+    tot = w.s.norm_tab.sum(axis=0)
+    epis = sum(tot[k.NT_MARK_EPIS0 + q] for q in range(3))
+    epun = sum(tot[k.NT_MARK_EPIS_PUN0 + q] for q in range(3))
+    assert tot[k.NT_MARKED_STEPS] > 0 and epis > 0
+    assert out["norm_mark_prevalence"] == pytest.approx(tot[k.NT_MARKED_STEPS] / tot[k.NT_ALIVE_STEPS])
+    assert out["norm_punished_per_episode"] == pytest.approx(epun / epis)
+    wm = World(small("stage4", "conflict", "norm_size", norm_measure=True))
+    wm.run(20)
+    assert "norm_mark_prevalence" not in wm.summary() and "norm_punished_per_episode" not in wm.summary()

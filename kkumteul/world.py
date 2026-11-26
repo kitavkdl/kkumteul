@@ -271,6 +271,8 @@ class World:
             st.give(s, fs, isp)
         if cfg.conflict_enabled:
             st.attack(t, s, fs, isp)
+        if isp[st.I_NORM_ON]:
+            st.norm_account(t, s, fs, isp)          # 규범: 유병률·만료 에피소드(process_deaths 앞)
         if cfg.prey_enabled:
             an.attack_animals(t, s, self.fa, self.ia)
         nd = k.process_deaths(t, s, fp, ip)
@@ -556,6 +558,12 @@ class World:
                     out["norm_pun_rate_2nd"] = float(tot[k.NT_PUN_2ND] / tot[k.NT_OPP_SELF])
                 if tot[k.NT_OPP_OTHER] > 0:
                     out["norm_pun_rate_3rd"] = float((tot[k.NT_PUN_3_KIN] + tot[k.NT_PUN_3_STR]) / tot[k.NT_OPP_OTHER])
+                if alive_steps > 0:
+                    out["norm_mark_prevalence"] = float(tot[k.NT_MARKED_STEPS]) / alive_steps
+                epis = float(tot[k.NT_MARK_EPIS0:k.NT_MARK_EPIS2 + 1].sum())
+                if epis > 0:
+                    # 표시당 집행 확률(만료·죽음으로 닫힌 에피소드 가운데 벌 받은 몫)
+                    out["norm_punished_per_episode"] = float(tot[k.NT_MARK_EPIS_PUN0:k.NT_MARK_EPIS_PUN2 + 1].sum()) / epis
         if self.cfg.huddle_enabled:
             out["huddle_cut_mean"] = float(s.huddle_cut[a].mean()) if n else 0.0
         if self.cfg.prey_enabled:
