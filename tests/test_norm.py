@@ -617,3 +617,149 @@ def test_impulse_world_needs_conflict_only_and_changes_hash():
     w1 = World(small("stage1", "conflict", norm_impulse=0.015))     # 마음·사회 없이도 돈다
     w1.run(100)
     assert w1.s.counters[k.C_ATTACKS] > 0
+
+
+# ======================= 과제 5: 표시(mark_t)와 원천 =======================
+def test_mark_visibility_window_and_brightness():
+    t0 = 10
+    for tau in (1, 5, 49, 50):
+        for e in range(0, tau + 3):
+            marked = st._is_marked(t0 + e, t0, tau)
+            assert marked == (e <= tau), (tau, e)
+            b = st._bright(t0 + e, t0, tau)
+            if e <= tau:
+                assert b == pytest.approx(1.0 - max(0, e - 1) / tau)
+            else:
+                assert b == 0.0          # 경과 τ + 1에 정확히 없음(정수 시각이라 float 잔여가 없다)
+        assert st._bright(t0, t0, tau) == 1.0 and st._bright(t0 + 1, t0, tau) == 1.0
+        assert st._bright(t0 + tau, t0, tau) == pytest.approx(1.0 / tau)
+    assert not st._is_marked(5, -1, 50) and st._bright(5, -1, 50) == 0.0
+
+
+def _pair(*presets, **kw):
+    w = hand_world(*presets, **kw)
+    put(w, 0, 100.0, 100.0)
+    put(w, 4, 101.5, 100.0)
+    regrid(w)
+    return w
+
+
+def test_take_marks_only_the_taker():
+    w = _pair("norm")
+    s = w.s
+    s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    st.attack(3, s, w.fs, w.isp)
+    assert s.mark_t[0] == 3 and s.mark_vslot[0] == 4 and s.mark_vid[0] == s.ids[4] and s.mark_pun[0] == 0
+    assert s.mark_t[4] == -1 and s.mark_vslot[4] == -2
+    # 빗나간 공격(닿는 이웃 없음)은 표시가 안 붙는다
+    s.mark_t[:] = -1
+    put(w, 4, 150.0, 150.0)
+    regrid(w)
+    st.attack(4, s, w.fs, w.isp)
+    assert (s.mark_t == -1).all()
+    # 측정만 켠 세계·원천 none 세계는 가로채도 표시가 없다
+    for kw in (dict(), ):
+        wm = _pair("norm_size", norm_measure=True, **kw)
+        wm.s.act[0, cfgmod.ACT_ATTACK] = 1.0
+        st.attack(3, wm.s, wm.fs, wm.isp)
+        assert wm.s.energy[4] < 1.0 and (wm.s.mark_t == -1).all()
+    wn = _pair("norm", norm_mark_src="none")
+    wn.s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    st.attack(3, wn.s, wn.fs, wn.isp)
+    assert wn.s.energy[4] < 1.0 and (wn.s.mark_t == -1).all()
+
+
+def test_remark_extends_same_episode():
+    w = hand_world("norm", norm_mark_tau=5)
+    s = w.s
+    st._attach_mark(s, 0, 10, 4, 99, 5)                 # 표시가 없던 개체: 새 에피소드
+    assert s.mark_t[0] == 10 and s.mark_pun[0] == 0 and s.mark_vid[0] == 99
+    s.mark_pun[0] = 1                                    # 이 에피소드 안에 벌 받음
+    st._attach_mark(s, 0, 15, 5, 77, 5)                 # 아직 표시된 동안(경과 5 ≤ τ): 같은 에피소드의 연장
+    assert s.mark_t[0] == 15 and s.mark_pun[0] == 1 and s.mark_vslot[0] == 5 and s.mark_vid[0] == 77
+    st._attach_mark(s, 0, 21, -1, -1, 5)                # 만료 뒤(경과 6 > τ): 새 에피소드
+    assert s.mark_t[0] == 21 and s.mark_pun[0] == 0 and s.mark_vslot[0] == -1
+
+
+def _sig_world(**kw):
+    w = hand_world("norm", norm_mark_src="sig", **kw)
+    w.s.act[:] = 0
+    return w
+
+
+def test_mark_source_sig():
+    w = _sig_world()
+    s = w.s
+    s.act[0, cfgmod.ACT_SIG1] = 0.51           # 출력은 이미 tanh를 지난 값: tanh를 또 씌우면(0.47) 문턱을 못 넘는다
+    s.act[1, cfgmod.ACT_SIG1] = 0.49
+    s.act[2, cfgmod.ACT_SIG1] = 0.9
+    s.asleep[2] = 1.0                          # 자는 개체는 안 붙는다
+    s.act[3, cfgmod.ACT_SIG0] = 0.9            # 신호 1번은 원천이 아니다
+    st.norm_mark_events(7, s, w.fs, w.isp)
+    assert s.mark_t[0] == 7 and s.mark_vslot[0] == -1 and s.mark_vid[0] == -1
+    assert s.mark_t[1] == -1 and s.mark_t[2] == -1 and s.mark_t[3] == -1
+    # full 모드는 트리거 값에 위축을 곱한다: 0.6 × (1 − 0.8 × 1) = 0.12 < 0.5
+    s.mark_t[:] = -1
+    s.act[0, cfgmod.ACT_SIG1] = 0.6
+    s.mem[0] = 1.0
+    st.norm_mark_events(8, s, w.fs, w.isp)
+    assert s.mark_t[0] == -1
+    wi = _sig_world(norm_mode="inert")         # inert는 곱이 없다
+    wi.s.act[0, cfgmod.ACT_SIG1] = 0.6
+    wi.s.mem[0] = 1.0
+    st.norm_mark_events(8, wi.s, wi.fs, wi.isp)
+    assert wi.s.mark_t[0] == 8
+    # take 원천에서는 신호가 표시를 안 붙인다
+    wt = hand_world("norm")
+    wt.s.act[0, cfgmod.ACT_SIG1] = 0.9
+    st.norm_mark_events(8, wt.s, wt.fs, wt.isp)
+    assert (wt.s.mark_t == -1).all()
+
+
+def test_mark_noise_stateless():
+    q = 0.3
+    w = hand_world("norm", norm_mark_src="none", norm_mark_noise=q)
+    s = w.s
+    seed = w.cfg.seed
+    hits = 0
+    for t in range(20):
+        st.norm_mark_events(t, s, w.fs, w.isp)
+        for i in range(8):
+            want = rngmod.u01(seed, rngmod.S_NORM_NOISE, t, s.ids[i]) < q
+            assert (s.mark_t[i] == t) == want
+            if want:
+                assert s.mark_vslot[i] == -1 and s.mark_vid[i] == -1
+            hits += want
+    assert 20 < hits < 80
+    # 같은 시나리오 두 번이 같다
+    w2 = hand_world("norm", norm_mark_src="none", norm_mark_noise=q)
+    for t in range(20):
+        st.norm_mark_events(t, w2.s, w2.fs, w2.isp)
+    assert (w2.s.mark_t == s.mark_t).all()
+
+
+def test_mark_events_run_after_think_before_attack(monkeypatch):
+    calls = []
+    for name in ("after_think", "norm_mark_events", "attack"):
+        orig = getattr(st, name)
+
+        def wrap(*a, _o=orig, _n=name):
+            calls.append(_n)
+            return _o(*a)
+        monkeypatch.setattr(st, name, wrap)
+    w = World(small("stage4", "conflict", "norm"))
+    w.run(3)
+    assert calls == ["after_think", "norm_mark_events", "attack"] * 3
+    calls.clear()
+    for kw in (dict(), dict(norm_measure=True)):
+        w0 = World(small("stage4", "conflict", "norm_size", **kw))
+        w0.run(3)
+    assert "norm_mark_events" not in calls
+
+
+def test_marks_not_set_by_measure_only():
+    w = World(small("stage4", "conflict", "norm_size", norm_measure=True))
+    w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+    w.run(200)
+    assert w.s.norm_tab[:, k.NT_TAKE].sum() > 0
+    assert (w.s.mark_t == -1).all() and (w.s.pun_t == -1).all()

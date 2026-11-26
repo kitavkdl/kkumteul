@@ -12,15 +12,16 @@ import math
 import numpy as np
 from numba import njit, prange
 
-from .config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT_SLEEP, ACT_THRUST, ACT_TURN,
-                     IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL, N_INTERNAL, N_NORM_IN, N_TASTE_IN, N_TASTE_VIS,
-                     NORM_AIMS, NORM_MODES, NORM_OBS_MODES, NORM_SRCS, NORM_VIS, TASTE_VIS)
+from .config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT_SIG1, ACT_SLEEP, ACT_THRUST,
+                     ACT_TURN, AIM_MARKED, IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL, N_INTERNAL, N_NORM_IN,
+                     N_TASTE_IN, N_TASTE_VIS, NORM_AIMS, NORM_FULL, NORM_MODES, NORM_OBS_MODES, NORM_SRCS, NORM_VIS,
+                     SRC_SIG, SRC_TAKE, TASTE_VIS)
 from .kernels import (C_ATTACKS, C_FERTILE, C_GIFTS, C_NFIELD, C_NFOOD, KIND_A, L_BASAL, L_BRAIN, L_DISCARD, L_LOST,
                       L_MOVE, L_SPAWN, NT_ALIVE_STEPS, NT_ATK_COST, NT_ATK_VOL_MARKED, NT_ATK_VOL_PLAIN, NT_EXPO,
                       NT_OPP_MARKED, NT_OPP_PLAIN, NT_TAKE, NT_TAKE_DMG_RECV, NT_TAKE_GAIN, NT_TAKE_IMP, NT_TAKE_KILL,
                       NT_TAKE_KIN, NT_TAKE_LINE, NT_TAKE_SIM0, NT_VIOL_DMG_RECV, TAG_ROWS_NORM,
                       TOUCH_HIT, _kin_class, _place_food, _wdiff, _wrap, make_room, pick_kind)
-from .rng import S_ATTACK_ORDER, S_FERTILE, S_NORM_IMPULSE, S_PERTURB, normal, u01
+from .rng import S_ATTACK_ORDER, S_FERTILE, S_NORM_IMPULSE, S_NORM_NOISE, S_PERTURB, normal, u01
 
 # 거름 먹이의 종류를 뽑는 난수 번호의 밑. S_KIND 흐름에서 보통 먹이는 (일련번호, 0), 어느 쪽이 독인지는
 # (구간, 1)을 쓴다. 거름 먹이는 (스텝, 이 값 + 그 스텝의 몇 번째인지)를 써서 둘과 겹치지 않게 한다.
@@ -654,6 +655,56 @@ def _is_marked(t, mt, tau):
 
 
 @njit(cache=True, inline="always")
+def _bright(t, mt, tau):
+    """표시의 밝기: 경과 0·1이면 1, 경과 τ이면 1/τ, 표시가 없으면 0(1 − max(0, 경과 − 1) ÷ τ)."""
+    if not _is_marked(t, mt, tau):
+        return 0.0
+    e = t - mt
+    if e <= 1:
+        return 1.0
+    return 1.0 - (e - 1) / tau
+
+
+@njit(cache=True)
+def _attach_mark(s, i, step, vslot, vid, tau):
+    """i에게 표시를 붙인다. 표시가 없던 개체면 새 에피소드(이 에피소드의 벌 여부 mark_pun을 0으로), 아직 표시된 동안
+    또 붙으면 같은 에피소드의 연장이다(시각·피해자만 새로; 에피소드는 마지막으로 붙은 때부터 만료까지 한 번 센다).
+    피해자 칸·id: 가로채기면 맞은 이, sig·잡음이면 −1(없음)."""
+    if not _is_marked(step, s.mark_t[i], tau):
+        s.mark_pun[i] = 0
+    s.mark_t[i] = step
+    s.mark_vslot[i] = vslot
+    s.mark_vid[i] = vid
+
+
+@njit(cache=True)
+def norm_mark_events(step, s, fs, isp):
+    """뇌 출력이 정해진 뒤(after_think 뒤) 한 번: sig 원천의 표시와, 어떤 원천이든 엉뚱한 표시 잡음.
+    sig: 신호 2번 출력(이미 tanh를 지난 값을 그대로)이 norm_sig_theta 위인 깬 개체. full 모드는 그 트리거 값에만
+    (1 − norm_inhibit × mem)을 곱한다(실제 신호 출력·비용·이웃이 듣는 신호는 그대로 — 모형 단순화).
+    잡음: 산 개체마다 확률 norm_mark_noise(상태 없는 난수 S_NORM_NOISE)."""
+    n = s.x.shape[0]
+    tau = int(fs[F_NORM_TAU])
+    sig_src = isp[I_NORM_SRC] == SRC_SIG
+    full = isp[I_NORM_MODE] == NORM_FULL
+    theta = fs[F_NORM_SIG_THETA]
+    inh = fs[F_NORM_INHIBIT]
+    q = fs[F_NORM_NOISE]
+    seed = isp[I_SEED]
+    for i in range(n):
+        if not s.alive[i]:
+            continue
+        if sig_src and s.asleep[i] <= 0.0:
+            v = float(s.act[i, ACT_SIG1])
+            if full:
+                v *= 1.0 - inh * s.mem[i]
+            if v > theta:
+                _attach_mark(s, i, step, -1, -1, tau)
+        if q > 0.0 and u01(seed, S_NORM_NOISE, step, s.ids[i]) < q:
+            _attach_mark(s, i, step, -1, -1, tau)
+
+
+@njit(cache=True, inline="always")
 def _impulse_on(seed, step, aid, L, p):
     """떨리는 손: 개체 aid가 스텝 step에 충동 구간 안인가. 구간은 step // L마다 새로 정하는 상태 없는 난수라 저장할 것이 없고,
     한 구간은 정확히 L스텝 간다. L은 계산의 입력이 아니라 "상습 위반자" 모형의 가정이다(설계 2절·약점 10:
@@ -724,6 +775,9 @@ def attack(step, s, fs, isp):
     seed = isp[I_SEED]
     imp_p = fs[F_NORM_IMPULSE]
     imp_len = isp[I_NORM_IMP_LEN]
+    on = isp[I_NORM_ON] != 0
+    tau = int(fs[F_NORM_TAU])
+    mark_take = on and isp[I_NORM_SRC] == SRC_TAKE
     for q in range(n):
         i = start + q
         if i >= n:
@@ -779,6 +833,8 @@ def attack(step, s, fs, isp):
         s.ledger[L_LOST] += dmg - got
         s.touch[best] = TOUCH_HIT
         s.counters[C_ATTACKS] += 1
+        if mark_take:
+            _attach_mark(s, i, step, best, s.ids[best], tau)     # 가로채기가 맞으면 친 쪽에만 표시
         if count:
             rb = _norm_row(s.tag[best])
             tab[ri, NT_TAKE] += 1.0

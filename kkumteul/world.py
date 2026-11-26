@@ -240,6 +240,8 @@ class World:
             k.think(s)
         if mind or social:
             st.after_think(s, fs, isp)
+        if isp[st.I_NORM_ON]:
+            st.norm_mark_events(t, s, fs, isp)     # 규범: sig 원천 표시와 잡음(출력이 정해진 뒤, 공격 앞)
         if cfg.huddle_enabled:
             k.huddle(s, fp, ip, self.in_winter(t))
         k.move(s, fp, ip, basal)
