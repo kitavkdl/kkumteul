@@ -1,5 +1,5 @@
 # 꿈틀 인수인계
-마지막 갱신: 2026-11-26 22:10 ET · 밤 — 가르침 끼니 비용 반복 18 "가를 수 없음"으로 가르침 접음, 규범 매-비둘기 판을 `fight_rule=hawk`로 다시 설계·검토·구현(hawk 판 DRY 통과, 아직 안 띄움), gate-hand 미판정 바로잡기
+마지막 갱신: 2026-11-26 22:2x ET · 밤 — 규범 두 판 체인 띄움(유닛 `norm-two`, 지금 구조 → 매-비둘기 차례로), 두 판 견주기 도구 `norm_twin_compare.py`. 그 앞: 가르침 접음, hawk 규칙 구현
 요약: 세계 시뮬레이션 꿈틀 — 아무도 가르치지 않았는데 생물이 스스로 행동·전략·신호를 만드는지 본다(공개 레포, 목적·규칙은 CLAUDE.md). 11/26 새벽 실험 재개. **작업 가지 `night/2026-11-26-kkumteul`, 작업 폴더 `.claude/worktrees/night-2026-11-26`(main에 안 합침, 원격에 push함).** 사용자 16:26 "싹다 진행해 쭉" — 묻지 말고 끝까지, 서버 메모리·CPU 안 터지게.
 
 ## 다음 세션이 이어서 할 것
@@ -12,7 +12,7 @@
 - (11/26 20:41) "[선택지 답] 디스크 정리 세션이 kkumteul 디스크를 줄여 달라고 합니다(서버 93%, 남은 38G). 조사해 보니  → ['시험 임시 폴더 10.5G']" → 처리됨(`runs/_pytest_tmp` 두 곳만 지움, 67G→57G. 끝난 갈래 중간 체크포인트 ~19G는 안 지움)
 1. **사회 학습 — 끝.** 판정 나 다섯 갈래 모두 지지(`results.md`, status).
 2. **가르침 — 끝(접음).** 끼니 비용 판 반복 18도 가를 수 없음(`0071eae`, `results.md` "끼니 비용 판 반복 18 결과"): 가르침 없는 `costonly`도 같은 양 `N`(+0.011/+0.020)이라 "양 쪽"은 마당 틀의 몫. F2·F3 안 함. 직접 지표(독 끼니 줄임)는 작동 — "작동하나 이 세계에서 값을 하는지는 가를 수 없음".
-3. **규범의 씨앗 — 두 판 체인 띄우기가 다음 첫 일.** 끝난 것: gate-hand 미판정 바로잡기(`e6038cb`), "매를 침" 계수(`b9ba57d`, 출발점 매 0.03%), `fight_rule=hawk`(`34e53b3`: 맞은 쪽 뇌 공격 출력 > 0이면 친 쪽·맞은 쪽 모두 `fight_extra × min(출력,1)`, 제안 0.08), 독립 검토 반영·예측(`results.md` "매-비둘기 판 다시 설계" 절 — 예측은 "가를 수 없음"이 가장 그럴듯), 체인 `FIGHT_RULE`(꼬리표 `-hawk`, DRY 80개 명령 전부 hawk 확인), 전체 시험 776 통과. **다음 한 걸음**: ① 코드 사본 `runs/code-<해시>` 만들기(교훈 '오래 도는 실험') ② 사용자에게 시간·디스크 한 줄 보고(한 판 약 150시간·체크포인트 약 16GB, 두 판; 디스크 남은 약 179G) ③ 지금 구조 판 DRY(안 돌려 봄)를 돌린 뒤 그 체인(`FIGHT_EXTRA` 없음) 띄우기 → 매-비둘기 판(`FIGHT_EXTRA=0.08 FIGHT_RULE=hawk`). 동시에 돌릴지·차례로 돌릴지는 메모리(판당 상한 1500M)와 "시뮬레이션 한 번에 하나" 규칙을 보고 정해 보고에 적는다. ④ 두 판 비교 명령(끝 무리 `j-obs-*.json`의 `norm_tab.hit_hawk ÷ hit`, 자발 공격률)은 체인이 끝나기 전에 만든다. 남은 걱정: 매-비둘기 판의 판정 0은 집행자 싸움 비용을 포함해 지금 구조 판과 같은 잣대로 안 견줌, 손 집행자가 표시 없는 이웃도 침, 관문 −2b에서 기울기 시작판이 켜질 가능성 큼.
+3. **규범의 씨앗 — 두 판 체인 도는 중(11/26 22:10 ET~).** 유닛 `norm-two`(`runs/norm-two.sh`, 코드 사본 `runs/code-81e6fa4`, 상한 1500M·2스레드): 지금 구조 판 → 매-비둘기 판(`FIGHT_EXTRA=0.08 FIGHT_RULE=hawk`) **차례로**(한 번에 하나 규칙, 합 약 12.5일). 진행 `runs/norm-exp-t50-i0.015/progress.txt`·`runs/norm-exp-t50-i0.015-fx0.08-hawk/progress.txt`, 전체 로그 `runs/norm-two.log`. 관문 −2b: 문턱 위 0.0007 → 기울기 시작판 켜짐. 두 판 견주기 `wayfinder/stage2-4/norm_twin_compare.py <지금> <매비>`(시험 있음). **할 일**: 관문(−1·α~δ) 결과가 나오면 `results.md`·status에 판정 적기. 끊긴 갈래는 note에 "끊긴 흔적" — 그때 폴더 지우고 다시 부르기. 남은 걱정: 매-비둘기 판의 판정 0은 집행자 싸움 비용을 포함해 지금 구조 판과 같은 잣대로 안 견줌, 손 집행자가 표시 없는 이웃도 침, 관문 −2b에서 기울기 시작판이 켜질 가능성 큼.
 4. **develop 창의성 실측**(`sessions/develop/kkumteul-communication.md` "2바퀴"): 2 `saweat` 막기 끝, 3 방언 지도 끝(`9071ab2`). 다음 4(쌍둥이·심은 효과 눈금자, `measure.py` TDD — 체인을 띄운 뒤), 5단계 시험판 검토는 아직.
 4b. **시험 돌리는 법**: `NUMBA_NUM_THREADS=2 <메모리 상한 도구> --max 2G -E NUMBA_NUM_THREADS -- env -C <작업 폴더> nice <레포>/.venv/bin/python -m pytest -q tests/`(전체 약 6분). `--bg` 유닛에는 변수를 `env -C <사본> R=… C=… bash …`로 명령 안에 넣는다.
 5b. 주의: 코드 사본 `runs/code-faf9852`의 `soc_chain.sh`는 옛 판이라 같은 기록 폴더로 DRY 돌리면 갈래 로그를 자른다(레포 판은 `5dda27e`로 고침).
@@ -36,7 +36,7 @@
 ## 시작 때 확인
 - `git -C <레포>/.claude/worktrees/night-2026-11-26 log --oneline -5` — 이 파일 뒤 새 커밋
 - `free -m | sed -n 2p; df -h ~ | tail -1` — 메모리·디스크(체인 띄우기 전)
-- `systemctl --user list-units --type=service --state=running | grep -i norm` — 체인이 이미 떠 있는지
+- `systemctl --user status norm-two` · `tail -5 runs/norm-exp-t50-i0.015*/progress.txt` — 두 판 체인 상태(실패는 같은 폴더 `failed.txt`)
 - 끝난 것: 가르침 접음 `0071eae` · hawk 규칙·체인 `34e53b3` · gate-hand 미판정 `e6038cb`
 - 끝난 것(이전): 가르침 셋째 판 판정 0 `8d98e99` · 규범 과제 13~18·검토 반영·fight_extra `02dc8a7`…`a915ea9` · 방언 지도 `9071ab2`
 
