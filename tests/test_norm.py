@@ -330,7 +330,9 @@ def test_norm_stage_params_packed():
     new_f = (st.F_NORM_PUN_RET, st.F_NORM_INHIBIT, st.F_NORM_MEM_RATE, st.F_NORM_MEM_OBS, st.F_NORM_MEM_TAU,
              st.F_NORM_IMPULSE, st.F_NORM_NOISE, st.F_NORM_SIG_THETA, st.F_NORM_TAU, st.F_NORM_MIX_FRAC,
              st.F_NORM_RADIUS, st.F_NORM_VRANGE, st.F_NORM_FOV)
-    assert new_f == tuple(range(47, 60)) and st.N_FS == 60 == len(fs0)
+    assert new_f == tuple(range(47, 60))
+    assert st.F_FIGHT_EXTRA == 60 and st.N_FS == 61 == len(fs0)     # 맞공격 추가 손실은 그 뒤에 덧붙였다
+    assert fs0[st.F_FIGHT_EXTRA] == 0.0
     new_i = (st.I_NORM_MEASURE, st.I_NORM_ON, st.I_NORM_MODE, st.I_NORM_SRC, st.I_NORM_AIM, st.I_NORM_OBS_MODE,
              st.I_NORM_IMP_LEN, st.I_NORM_BLOCK, st.I_NORM_BLOCK3, st.I_NORM_MIX_PERIOD, st.I_NORM_IN0,
              st.I_NORM_VIS0)
@@ -2490,3 +2492,99 @@ def test_mix_incompatible_with_carry_and_teach():
     with pytest.raises(ValueError, match="teach"):
         small("stage2", "kinds", "taste", soc_taste_enabled=True, juv_enabled=True, teach_enabled=True,
               conflict_enabled=True, norm_mix_period=200)
+
+
+# ======================= 추가: fight_extra(맞공격 추가 손실, 매-비둘기 판) =======================
+def _duel(**kw):
+    """닿아 있는 두 개체(먹이 없음). 두 개체의 에너지·장부를 돌려준다."""
+    cfg = small("stage3", "conflict", init_agents=2, min_agents=0, food_inflow=0.0, **kw)
+    w = World(cfg)
+    s = w.s
+    i, j = np.flatnonzero(s.alive)[:2]
+    s.x[i], s.y[i] = 100.0, 100.0
+    s.x[j], s.y[j] = 101.5, 100.0
+    s.energy[i] = s.energy[j] = 3.0
+    k.build_grid(s.x, s.y, s.alive, 1.0 / cfg.cell, cfg.grid_w, cfg.grid_h, s.a_start, s.a_items, s.cursor)
+    s.act[:] = 0
+    return w, cfg, int(i), int(j)
+
+
+def _total(w):
+    s = w.s
+    return float(s.energy[s.alive].sum() + s.ledger[k.L_LOST] + s.ledger[k.L_MOVE])
+
+
+def test_fight_extra_only_when_both_hit_each_other():
+    fx = 0.16
+    # 양성 확인: 둘이 서로 치면(같은 스텝) 평소 맞공격 값에 더해 둘 다 fx를 더 잃는다
+    w, cfg, i, j = _duel(fight_extra=fx)
+    s = w.s
+    s.act[i, cfgmod.ACT_ATTACK] = s.act[j, cfgmod.ACT_ATTACK] = 1.0
+    tot0, lost0 = _total(w), float(s.ledger[k.L_LOST])
+    st.attack(0, s, w.fs, w.isp)
+    one = -cfg.attack_cost - cfg.attack_damage + cfg.attack_damage * cfg.attack_gain      # 맞공격 −0.12
+    assert s.energy[i] == pytest.approx(3.0 + one - fx) and s.energy[j] == pytest.approx(3.0 + one - fx)
+    assert s.ledger[k.L_LOST] == pytest.approx(lost0 + 2 * cfg.attack_damage * (1 - cfg.attack_gain) + 2 * fx)
+    assert _total(w) == pytest.approx(tot0)                     # 에너지가 생기거나 새지 않는다
+    # 한쪽만 치면 추가 손실 없음(친 쪽 +0.08, 맞은 쪽 −0.2 그대로)
+    w, cfg, i, j = _duel(fight_extra=fx)
+    s = w.s
+    s.act[i, cfgmod.ACT_ATTACK] = 1.0
+    st.attack(0, s, w.fs, w.isp)
+    assert s.energy[i] == pytest.approx(3.0 - cfg.attack_cost + cfg.attack_damage * cfg.attack_gain)
+    assert s.energy[j] == pytest.approx(3.0 - cfg.attack_damage)
+    # 앞 스텝에 맞고 이번 스텝에 되치는 것은 같은 스텝의 맞공격이 아니다(창 = 한 스텝)
+    st.attack(1, s, w.fs, w.isp)          # i가 또 친다(j는 안 침)
+    s.act[i, cfgmod.ACT_ATTACK] = 0.0
+    s.act[j, cfgmod.ACT_ATTACK] = 1.0
+    e_j = float(s.energy[j])
+    st.attack(2, s, w.fs, w.isp)
+    assert s.energy[j] == pytest.approx(e_j - cfg.attack_cost + cfg.attack_damage * cfg.attack_gain)
+    # 꺼짐(0): 서로 쳐도 옛 값 그대로
+    w, cfg, i, j = _duel()
+    s = w.s
+    s.act[i, cfgmod.ACT_ATTACK] = s.act[j, cfgmod.ACT_ATTACK] = 1.0
+    st.attack(0, s, w.fs, w.isp)
+    assert s.energy[i] == pytest.approx(3.0 + one) and s.energy[j] == pytest.approx(3.0 + one)
+
+
+def test_fight_extra_capped_by_energy():
+    # 가진 것보다 더 잃지 않는다(에너지는 0 아래로 안 간다, 장부는 실제로 잃은 만큼)
+    w, cfg, i, j = _duel(fight_extra=5.0)
+    s = w.s
+    s.act[i, cfgmod.ACT_ATTACK] = s.act[j, cfgmod.ACT_ATTACK] = 1.0
+    tot0 = _total(w)
+    st.attack(0, s, w.fs, w.isp)
+    assert s.energy[i] == pytest.approx(0.0) and s.energy[j] == pytest.approx(0.0)
+    assert _total(w) == pytest.approx(tot0)
+
+
+def test_fight_extra_world_conserves_energy_and_default_hash():
+    cfg = small("stage3", "conflict", fight_extra=0.16)
+    a = World(cfg)
+    a.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+    a.run(800)
+    a.check_sane()
+    assert a.summary()["attacks"] > 0
+    assert rel_residual(a) < 1e-9
+    # 꺼짐(0)은 옛 세계와 같은 해시: 0을 손으로 준 설정 = 기본
+    h = []
+    for kw in (dict(), dict(fight_extra=0.0)):
+        w = World(small("stage3", "conflict", **kw))
+        w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+        w.run(300)
+        h.append(w.state_hash())
+    assert h[0] == h[1]
+    w = World(small("stage3", "conflict", fight_extra=0.16))
+    w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+    w.run(300)
+    assert w.state_hash() != h[0]           # 켜면 실제로 바뀐다(위 비교가 장치를 지나는 세계)
+
+
+def test_fight_extra_config_checks():
+    assert Config().fight_extra == 0.0
+    with pytest.raises(ValueError):
+        Config().with_overrides(["fight_extra=-0.1"])
+    with pytest.raises(ValueError):
+        Config().with_overrides(["fight_extra=0.16"])           # 공격이 꺼진 세계에서는 쓸 수 없다
+    assert small("stage3", "conflict", fight_extra=0.16).fight_extra == 0.16

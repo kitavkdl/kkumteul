@@ -44,7 +44,8 @@ KIND_RNG_FERTILE = 1000003
  F_PERTURB,
  # 규범의 씨앗(뒤에만 덧붙인다)
  F_NORM_PUN_RET, F_NORM_INHIBIT, F_NORM_MEM_RATE, F_NORM_MEM_OBS, F_NORM_MEM_TAU, F_NORM_IMPULSE, F_NORM_NOISE,
- F_NORM_SIG_THETA, F_NORM_TAU, F_NORM_MIX_FRAC, F_NORM_RADIUS, F_NORM_VRANGE, F_NORM_FOV, N_FS) = range(61)
+ F_NORM_SIG_THETA, F_NORM_TAU, F_NORM_MIX_FRAC, F_NORM_RADIUS, F_NORM_VRANGE, F_NORM_FOV,
+ F_FIGHT_EXTRA, N_FS) = range(62)      # F_FIGHT_EXTRA: 맞공격 추가 손실(뒤에 덧붙임)
 # ---- 정수 설정 칸 ----
 (I_SEED, I_GW, I_GH, I_SECTORS, I_H_MAX, I_MIND, I_SOCIAL, I_NICHE, I_FOOD_CAP, I_STAGE_IN, I_KINDS,
  I_CAP_REPLACE, I_FIELD_CAP, I_TASTE_VIS0,
@@ -92,6 +93,7 @@ def pack_stage_params(cfg):
     fs[F_NORM_IMPULSE], fs[F_NORM_NOISE] = cfg.norm_impulse, cfg.norm_mark_noise
     fs[F_NORM_SIG_THETA], fs[F_NORM_TAU], fs[F_NORM_MIX_FRAC] = cfg.norm_sig_theta, cfg.norm_mark_tau, cfg.norm_mix_frac
     fs[F_NORM_RADIUS], fs[F_NORM_VRANGE], fs[F_NORM_FOV] = cfg.soc_radius, cfg.vision_range, cfg.vision_fov
+    fs[F_FIGHT_EXTRA] = cfg.fight_extra
     norm_on = cfg.norm_enabled and cfg.n_in >= cfg.norm_in0 + N_NORM_IN
     isp[I_NORM_MEASURE], isp[I_NORM_ON] = int(cfg.norm_measure), int(norm_on)
     isp[I_NORM_MODE], isp[I_NORM_SRC] = NORM_MODES[cfg.norm_mode], NORM_SRCS[cfg.norm_mark_src]
@@ -1132,6 +1134,11 @@ def attack(step, s, fs, isp):
     full = isp[I_NORM_MODE] == NORM_FULL
     blk = isp[I_NORM_BLOCK]
     blk3 = isp[I_NORM_BLOCK3]
+    # 맞공격 추가 손실(fight_extra): 이 스텝에 각 개체가 친 대상의 칸을 적어 두고, 내가 친 대상이 이미 이 스텝에 나를
+    # 쳤으면(서로 친 쌍) 둘 다 fx를 더 잃는다. 개체마다 차례가 한 번이라 한 쌍은 한 스텝에 한 번만. 난수 없음.
+    # 꺼져 있으면(0) 길이 1짜리 빈 배열만 만들고 아무것도 안 한다(옛 동작·해시 그대로)
+    fx = fs[F_FIGHT_EXTRA]
+    hit_tgt = np.full(n if fx > 0.0 else 1, -1, dtype=np.int64)
     for q in range(n):
         i = start + q
         if i >= n:
@@ -1270,6 +1277,19 @@ def attack(step, s, fs, isp):
             if not marked_t:
                 # 위반 피해율의 분자: 때린 순간 표시가 없던 대상이 받은 피해(모드와 무관한 정의)
                 tab[rb, NT_VIOL_DMG_RECV] += dmg
+        # 5. 맞공격 추가 손실(fight_extra, 계수 뒤: 이 차례의 피해·죽음 계수는 맞은 순간의 값 그대로).
+        #    best가 이 스텝 앞 차례에 나를 쳤으면 서로 친 쌍 → 둘 다 fx를 더 잃는다(가진 것까지, L_LOST로)
+        if fx > 0.0:
+            hit_tgt[i] = best
+            if hit_tgt[best] == i:
+                x = fx if fx < s.energy[i] else s.energy[i]
+                if x > 0.0:
+                    s.energy[i] -= x
+                    s.ledger[L_LOST] += x
+                x = fx if fx < s.energy[best] else s.energy[best]
+                if x > 0.0:
+                    s.energy[best] -= x
+                    s.ledger[L_LOST] += x
 
 
 # =========================== 4단계: 땅 ===========================

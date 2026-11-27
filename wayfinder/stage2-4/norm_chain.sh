@@ -6,13 +6,15 @@
 #       → 관문(α·β·γ·δ·−2) → 나머지 칸 → 진화 갈래 → 판정 나·다·라·단서.
 #
 #   ROOT=<레포 원래 폴더> CODE=<커밋한 코드 사본 폴더> [BASE=<바탕 체크포인트>] [WAIT_FOR=<pgrep -f 패턴>] [DRY=1] [OUT=<기록 폴더>] \
-#     [TAU=50] [IMP=0.015] <메모리 상한 도구> --max 1500M --bg norm-chain --log "$ROOT/runs/norm-chain.log" -- bash wayfinder/stage2-4/norm_chain.sh
+#     [TAU=50] [IMP=0.015] [FIGHT_EXTRA=0.16] <메모리 상한 도구> --max 1500M --bg norm-chain --log "$ROOT/runs/norm-chain.log" -- bash wayfinder/stage2-4/norm_chain.sh
 # 상한은 묶음 전체에 걸린다. 같은 기록 폴더에서 두 번 띄우면 flock이 막는다.
 # 다시 불러도 이어 가는 범위(정직하게): 칸·판정은 json이 있으면 건너뛰고 없는 것만 돈다. 갈래(세계 점검·진화)는 done 표시가 있으면 건너뛴다.
 #   done은 **종료 코드 0이고 끝 체크포인트가 있을 때만** 만든다. 도는 중에 끊겨 run.json만 남은 갈래는 자동으로 이어 돌리지 않는다 —
 #   note에 "끊긴 흔적"을 남기고 건너뛴다(폴더를 지우고 다시 부르거나, python -m kkumteul.run resume으로 이어 간 뒤 done을 손으로 만든다).
 # 관문 −1에서 τ·norm_impulse를 조정해 다시 돌릴 때는 TAU=25 IMP=...로 부른다(조정은 결과 문서에 먼저 적고 한다).
-#   갈래 폴더(runs/n-w-<꼬리표>-*, runs/n-<꼬리표>-*)와 기본 기록 폴더(runs/norm-exp-<꼬리표>)에 꼬리표 RT = t<TAU>-i<IMP>가
+# 매-비둘기 판: FIGHT_EXTRA=<값>(> 0)이면 모든 갈래·마당에 fight_extra=<값>(맞공격 추가 손실)을 넣고 꼬리표에 -fx<값>을 붙인다.
+#   지금 구조 판(FIGHT_EXTRA 없음, 죄수의 딜레마)과 같은 바탕 체크포인트에서 갈라 두 판을 견준다(폴더는 꼬리표로 갈린다).
+#   갈래 폴더(runs/n-w-<꼬리표>-*, runs/n-<꼬리표>-*)와 기본 기록 폴더(runs/norm-exp-<꼬리표>)에 꼬리표 RT = t<TAU>-i<IMP>[-fx<값>]가
 #   붙어 판이 다르면 폴더를 공유하지 않는다(옛 τ의 done·체크포인트를 새 판 결과처럼 읽지 않게). OUT을 손으로 주어도 갈래는 RT로 갈린다.
 # 실패는 삼키지 않는다: 명령이 0이 아닌 종료 코드로 끝나거나 결과 파일이 없으면 progress.txt와 failed.txt에 "실패"로 적고,
 #   관문 −2b·유병률 맞춤이 실패하면 그 자리에서 멈추며, 세계 점검·판정 0 핵심 칸에 실패가 있으면 그 관문을 미판정으로 적고 멈춘다.
@@ -28,7 +30,9 @@ R=${ROOT:?ROOT=레포 원래 폴더}
 C=${CODE:?CODE=코드 사본 폴더}
 TAU=${TAU:-50}
 IMP=${IMP:-0.015}
+FX=${FIGHT_EXTRA:-0}
 RT="t$TAU-i$IMP"                 # 판 꼬리표: 갈래 폴더·기본 기록 폴더 이름에 붙는다
+if awk "BEGIN{exit !($FX > 0)}" 2>/dev/null; then RT="$RT-fx$FX"; else FX=0; fi    # 매-비둘기 판
 if [ -n "${DRY:-}" ]; then
   E=${OUT:-$(mktemp -d)}
   exec 3>&1                      # DRY 줄은 명령별 리다이렉트(> 로그)와 상관없이 화면(표준출력)으로
@@ -65,7 +69,7 @@ if [ -z "${DRY:-}" ]; then
   exec 9>"$E/.lock"
   flock -n 9 || { echo "같은 기록 폴더($E)에서 이미 체인이 돈다"; exit 1; }
 fi
-note "판 꼬리표 $RT (TAU=$TAU IMP=$IMP), 기록 폴더 $E"
+note "판 꼬리표 $RT (TAU=$TAU IMP=$IMP FIGHT_EXTRA=$FX), 기록 폴더 $E"
 WAIT_FOR=${WAIT_FOR-'soc_chain.sh|teach_chain.sh'}    # 기본: 앞의 두 체인. (kkumteul.run을 기다리면 상시 도는 세계에 영영 걸린다)
 if [ -n "$WAIT_FOR" ] && [ -z "${DRY:-}" ]; then
   while pgrep -f "$WAIT_FOR" >/dev/null; do sleep 30; done
@@ -94,6 +98,10 @@ PYEOF
 # 모든 갈래·점검에 같은 설정을 박는다(soc_*·taste_*는 갈래마다 섞지 않는다: 격자 재구성이 attack 이웃을 바꾼다)
 G="preset=conflict preset=norm_size norm_impulse=$IMP norm_mark_tau=$TAU"
 NS=(--set "norm_impulse=$IMP" --set "norm_mark_tau=$TAU")   # 마당 명령(hand-dose·arena-check·calibrate)에도 같은 값
+if [ "$FX" != 0 ]; then   # 매-비둘기 판: 갈래 설정(체크포인트에 남아 끝 무리 판정 명령도 이어 받는다)과 마당 명령 모두에
+  G="$G fight_extra=$FX"
+  NS+=(--set "fight_extra=$FX")
+fi
 
 # ---- 관문 −2b(진화 시작점의 공격 문턱): 시뮬레이션 없이 저장된 h로 문턱 위 개체 비율을 잰다
 if [ ! -s "$E/threshold.json" ]; then

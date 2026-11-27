@@ -144,6 +144,12 @@ class Config:
     attack_damage: float = 0.2    # 공격 출력 1일 때 스텝당 상대가 잃는 에너지
     attack_gain: float = 0.5      # 깎은 에너지 중 공격한 쪽이 얻는 비율(나머지는 사라진다)
     attack_cost: float = 0.02     # 공격 출력 1일 때 스텝당 드는 비용(빗나가도 든다)
+    fight_extra: float = 0.0      # 맞공격 추가 손실(매-비둘기 판). 같은 스텝에 서로를 친 두 개체가 각자 이만큼 더 잃는다
+                                  # (가진 것까지, L_LOST로 — 에너지는 안 생긴다). 0이면 꺼짐(옛 세계와 같은 해시).
+                                  # 임시 결정. 지금 값(출력 1)에서 친 쪽 순이득 = 0.2 × 0.5 − 0.02 = 0.08, 맞은 쪽 −0.2,
+                                  # 맞공격 각자 −0.12라 치기가 늘 이긴다(죄수의 딜레마). fight_extra > 0.08(친 쪽 이득)이면
+                                  # 맞공격(−0.12 − x)이 맞고 물러서기(−0.2)보다 나빠져 매-비둘기가 되고, 매 비율 평형은
+                                  # 0.08 ÷ x. 켤 값 제안 0.16(평형 매 비율 0.5) — 손셈은 결과 문서 "규범의 씨앗" 절
 
     # --- 혹독한 세계 장치 (기본은 꺼짐. 켜려면 확장 크기: preset=ext) ---
     season_enabled: bool = False  # 겨울: 해마다 해의 끝 winter_len 스텝 동안 풀이 줄고 기초 대사가 는다.
@@ -566,6 +572,10 @@ class Config:
             raise ValueError("norm_mem_inherit > 0은 아직 구현 전이다(규범 계획 과제 19)")
         if self.norm_measure and not self.conflict_enabled:
             raise ValueError("norm_measure는 공격(conflict_enabled)이 켜져 있어야 쓸 수 있다")
+        if self.fight_extra < 0.0:
+            raise ValueError("fight_extra는 0 이상이어야 한다(음수면 맞공격에서 에너지가 생긴다)")
+        if self.fight_extra > 0.0 and not self.conflict_enabled:
+            raise ValueError("fight_extra는 공격(conflict_enabled)이 켜져 있어야 쓸 수 있다")
         if self.norm_impulse > 0.0 and not self.conflict_enabled:
             raise ValueError("norm_impulse는 공격(conflict_enabled)이 켜져 있어야 쓸 수 있다")
         if self.norm_enabled:
