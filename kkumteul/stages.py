@@ -1106,6 +1106,8 @@ def attack(step, s, fs, isp):
     mark_take = on and isp[I_NORM_SRC] == SRC_TAKE
     aim_marked = isp[I_NORM_AIM] == AIM_MARKED
     full = isp[I_NORM_MODE] == NORM_FULL
+    blk = isp[I_NORM_BLOCK]
+    blk3 = isp[I_NORM_BLOCK3]
     for q in range(n):
         i = start + q
         if i >= n:
@@ -1153,6 +1155,17 @@ def attack(step, s, fs, isp):
                 best = nm
         else:
             best = _nearest_touching(s, fs, isp, i, True)
+        # 맞은 순간 대상이 표시돼 있는가(비용 앞에서 정한다: 아래 취소 점검이 쓴다. 이 차례 안에서는 안 바뀐다)
+        marked_t = on and best >= 0 and _is_marked(step, s.mark_t[best], tau)
+        # 2b. 벌주기 막기(겨루기 쌍둥이): 자발 공격이 표시된 대상을 겨누면 취소한다(비용·계수 없음, 대체 대상으로도 안 넘어간다).
+        #     norm_block_tag 태그는 모두, norm_block3_tag 태그는 피해자가 내가 아닌 것(피해자 없음·미지 포함)만. 충동은 표시를
+        #     모르므로(위반 공급) 막지 않는다
+        if marked_t and not imp:
+            tg = s.tag[i]
+            if blk >= 0 and tg == blk:
+                continue
+            if blk3 >= 0 and tg == blk3 and s.mark_vid[best] != s.ids[i]:
+                continue
         # 3. 비용: 위축 전 출력 a로 낸다(빗나가도 든다)
         cost = fs[F_ATK_COST] * a
         s.energy[i] -= cost
@@ -1168,7 +1181,6 @@ def attack(step, s, fs, isp):
         if best < 0:
             continue
         # 4. 분기: 충동은 늘 가로채기. 자발은 full 모드에서 맞은 순간 표시돼 있는 대상이면 벌. inert는 모두 가로채기
-        marked_t = on and _is_marked(step, s.mark_t[best], tau)
         pun = marked_t and full and not imp
         a_hit = a
         if on and full and not pun:

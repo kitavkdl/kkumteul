@@ -1912,3 +1912,102 @@ def test_punish_keeps_unknown_episode_flag():
     st.attack(10, s, w.fs, w.isp)
     assert s.pun_t[1] == 10 and s.mark_pun[1] == 2
 
+
+# ======================= 과제 13: 벌주기 막기(norm_block_tag·norm_block3_tag) =======================
+def _block_scene(**kw):
+    """0번(공격자)이 닿는 1번(표시됨, 피해자 4번)과 조금 더 먼 2번(표시 없음)을 둔 장면. 0번은 자발 공격 1."""
+    w = hand_world("norm", **kw)
+    s = w.s
+    put(w, 0, 100.0, 100.0)
+    put(w, 1, 101.0, 100.0)
+    put(w, 2, 98.6, 100.0)
+    st._attach_mark(s, 1, 9, 4, s.ids[4], w.cfg.norm_mark_tau)
+    s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    regrid(w)
+    return w
+
+
+def _snap(w):
+    s = w.s
+    return (s.energy.copy(), s.ledger.copy(), s.counters.copy(), s.pun_t.copy(), s.mark_t.copy(), s.mem.copy())
+
+
+def test_block_tag_cannot_punish_marked_and_pays_nothing():
+    # 양성 확인: 막기 없는 태그(0)는 표시된 1번을 벌한다
+    w = _block_scene(norm_block_tag=2)
+    st.attack(10, w.s, w.fs, w.isp)
+    assert w.s.pun_t[1] == 10 and nt(w, 0, k.NT_PUN) == 1
+    # 태그 2는 취소: 에너지·비용·장부·계수(공격 쪽) 모두 그대로, 대체 대상(2번)으로 넘어가지도 않는다
+    w = _block_scene(norm_block_tag=2)
+    s = w.s
+    s.tag[0] = 2
+    before = _snap(w)
+    st.attack(10, s, w.fs, w.isp)
+    for a, b in zip(before, _snap(w)):
+        assert (a == b).all()
+    for col in (k.NT_PUN, k.NT_TAKE, k.NT_ATK_COST, k.NT_ATK_VOL_MARKED, k.NT_ATK_VOL_PLAIN, k.NT_PUN_COST):
+        assert nt(w, 2, col) == 0, k.NT_NAMES[col]
+    assert s.touch[1] == 0 and s.touch[2] == 0
+    # 표시 없는 이웃은 평소대로 친다(가로채기)
+    s.mark_t[1] = -1
+    st.attack(11, s, w.fs, w.isp)
+    assert nt(w, 2, k.NT_TAKE) == 1 and s.mark_t[0] == 11
+
+
+def test_block3_allows_self_defense_only():
+    for vid_of, want_pun in (("me", True), ("other", False), ("none", False), ("unknown", False)):
+        w = _block_scene(norm_block3_tag=3)
+        s = w.s
+        s.tag[0] = 3
+        if vid_of == "me":
+            s.mark_vslot[1], s.mark_vid[1] = 0, s.ids[0]
+        elif vid_of == "none":
+            s.mark_vslot[1], s.mark_vid[1] = -1, -1
+        elif vid_of == "unknown":
+            s.mark_vslot[1], s.mark_vid[1] = -2, -2
+        e0 = s.energy[0]
+        st.attack(10, s, w.fs, w.isp)
+        if want_pun:
+            assert s.pun_t[1] == 10 and nt(w, 3, k.NT_PUN_2ND) == 1, vid_of
+        else:
+            assert s.pun_t[1] == -1 and s.energy[0] == e0 and nt(w, 3, k.NT_ATK_COST) == 0, vid_of
+            assert s.touch[2] == 0, vid_of
+
+
+def test_block_minus_one_has_no_effect():
+    hashes = []
+    for kw in (dict(), dict(norm_block_tag=3, norm_block3_tag=2)):    # 아무도 태그 2·3이 아니다
+        w = World(norm_cfg(norm_impulse=0.03, **kw))
+        w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+        w.run(150)
+        assert w.s.norm_tab[:, k.NT_PUN].sum() > 0
+        hashes.append(w.state_hash())
+    assert hashes[0] == hashes[1]
+
+
+def test_block_does_not_cancel_impulse():
+    # 충동(떨리는 손)은 표시를 모른다: 막힌 태그라도 가장 가까운 이웃(여기서는 표시된 1번)을 가로챈다
+    w = _block_scene(norm_block_tag=2, norm_block3_tag=3, norm_impulse=1.0)
+    s = w.s
+    s.tag[0] = 2
+    s.act[0, cfgmod.ACT_ATTACK] = 0.0
+    st.attack(10, s, w.fs, w.isp)
+    assert nt(w, 2, k.NT_TAKE_IMP) == 1 and nt(w, 2, k.NT_TAKE_ON_MARKED) == 1 and s.pun_t[1] == -1
+    assert s.touch[1] == k.TOUCH_HIT
+
+
+def test_blocked_opportunity_still_counted():
+    w = _block_scene(norm_block_tag=2)
+    s = w.s
+    s.tag[0] = 2
+    st.attack(10, s, w.fs, w.isp)
+    assert nt(w, 2, k.NT_EXPO) == 1 and nt(w, 2, k.NT_OPP_MARKED) == 1     # 기회는 있었다
+    assert nt(w, 2, k.NT_ATK_VOL_MARKED) == 0 and nt(w, 2, k.NT_ATK_VOL_PLAIN) == 0     # 공격은 안 나갔다
+
+
+def test_block_requires_norm_enabled():
+    for kw in (dict(norm_block_tag=2), dict(norm_block3_tag=3)):
+        with pytest.raises(ValueError):
+            small("stage4", "conflict", "norm_size", **kw)
+        assert norm_cfg(**kw).norm_enabled
+
