@@ -13,7 +13,7 @@ import numpy as np
 from numba import njit, prange
 
 from .config import (ACT_ATTACK, ACT_DEPOSIT, ACT_GIVE, ACT_REPRO, ACT_SIG0, ACT_SIG1, ACT_SLEEP, ACT_THRUST,
-                     ACT_TURN, AIM_MARKED, IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL, N_INTERNAL, N_NORM_IN,
+                     ACT_TURN, AIM_MARKED, FIGHT_HAWK, FIGHT_RULES, IN_HEAR, IN_HORM, IN_KIN, IN_SAWEAT, IN_TRAIL, N_INTERNAL, N_NORM_IN,
                      N_NORM_VIS, N_TASTE_IN, N_TASTE_VIS, NORM_AIMS, NORM_FULL, NORM_LOCAL, NORM_MEM, NORM_MODES,
                      NORM_OBS_MODES, NORM_SAWPUN, NORM_SELF, NORM_SRCS, NORM_VIS,
                      OBS_BLIND, OBS_OUTCOME, SRC_SIG, SRC_TAKE, TASTE_VIS)
@@ -52,7 +52,8 @@ KIND_RNG_FERTILE = 1000003
  I_CAP_REPLACE, I_FIELD_CAP, I_TASTE_VIS0,
  # 규범의 씨앗(뒤에만 덧붙인다). I_NORM_ON은 norm_enabled이고 입력 칸이 충분할 때만 1, IN0·VIS0은 꺼지면 −1
  I_NORM_MEASURE, I_NORM_ON, I_NORM_MODE, I_NORM_SRC, I_NORM_AIM, I_NORM_OBS_MODE, I_NORM_IMP_LEN, I_NORM_BLOCK,
- I_NORM_BLOCK3, I_NORM_MIX_PERIOD, I_NORM_IN0, I_NORM_VIS0, N_IS) = range(27)
+ I_NORM_BLOCK3, I_NORM_MIX_PERIOD, I_NORM_IN0, I_NORM_VIS0,
+ I_FIGHT_RULE, N_IS) = range(28)     # I_FIGHT_RULE: fight_extra가 걸리는 때(뒤에 덧붙임)
 
 
 def pack_stage_params(cfg):
@@ -95,6 +96,7 @@ def pack_stage_params(cfg):
     fs[F_NORM_SIG_THETA], fs[F_NORM_TAU], fs[F_NORM_MIX_FRAC] = cfg.norm_sig_theta, cfg.norm_mark_tau, cfg.norm_mix_frac
     fs[F_NORM_RADIUS], fs[F_NORM_VRANGE], fs[F_NORM_FOV] = cfg.soc_radius, cfg.vision_range, cfg.vision_fov
     fs[F_FIGHT_EXTRA] = cfg.fight_extra
+    isp[I_FIGHT_RULE] = FIGHT_RULES[cfg.fight_rule]
     norm_on = cfg.norm_enabled and cfg.n_in >= cfg.norm_in0 + N_NORM_IN
     isp[I_NORM_MEASURE], isp[I_NORM_ON] = int(cfg.norm_measure), int(norm_on)
     isp[I_NORM_MODE], isp[I_NORM_SRC] = NORM_MODES[cfg.norm_mode], NORM_SRCS[cfg.norm_mark_src]
@@ -1139,7 +1141,10 @@ def attack(step, s, fs, isp):
     # 쳤으면(서로 친 쌍) 둘 다 fx를 더 잃는다. 개체마다 차례가 한 번이라 한 쌍은 한 스텝에 한 번만. 난수 없음.
     # 꺼져 있으면(0) 길이 1짜리 빈 배열만 만들고 아무것도 안 한다(옛 동작·해시 그대로). 계수가 켜지면 같은 배열로
     # 맞공격 쌍을 센다(읽기만 해서 동작은 같다)
+    # fight_rule=hawk면 같은 스텝 맞공격 대신 "맞은 쪽의 이번 스텝 뇌 공격 출력 > 0(매)"일 때 친 쪽·맞은 쪽이 각자 fx를
+    # 더 잃는다(아래 5번). 뇌 출력은 think가 모든 개체에 미리 내 둔 값이라 차례 순서와 무관하다(자는 개체는 0)
     fx = fs[F_FIGHT_EXTRA]
+    hawk_rule = isp[I_FIGHT_RULE] == FIGHT_HAWK
     track = fx > 0.0 or count
     hit_tgt = np.full(n if track else 1, -1, dtype=np.int64)
     for q in range(n):
@@ -1281,7 +1286,8 @@ def attack(step, s, fs, isp):
                 # 위반 피해율의 분자: 때린 순간 표시가 없던 대상이 받은 피해(모드와 무관한 정의)
                 tab[rb, NT_VIOL_DMG_RECV] += dmg
         # 5. 맞공격 추가 손실(fight_extra, 계수 뒤: 이 차례의 피해·죽음 계수는 맞은 순간의 값 그대로).
-        #    best가 이 스텝 앞 차례에 나를 쳤으면 서로 친 쌍 → 둘 다 fx를 더 잃는다(가진 것까지, L_LOST로)
+        #    mutual: best가 이 스텝 앞 차례에 나를 쳤으면 서로 친 쌍 → 둘 다 fx를 더 잃는다(가진 것까지, L_LOST로).
+        #    hawk: best의 뇌 공격 출력 > 0이면 둘 다 fx(서로 친 매 쌍은 두 사건이라 각자 2fx)
         if count:
             # 맞공격·되치기 계수(측정만): 되치기 = best가 경과 0~k스텝 안에 나를 마지막으로 친 개체(칸 재사용은 id로 가린다)
             tab[ri, NT_HIT] += 1.0
@@ -1306,12 +1312,21 @@ def attack(step, s, fs, isp):
         if track:
             hit_tgt[i] = best
         if fx > 0.0:
-            if hit_tgt[best] == i:
-                x = fx if fx < s.energy[i] else s.energy[i]
+            fxe = fx
+            if hawk_rule:
+                # 매를 쳤다(벌·가로채기, 충동·자발 모두). 싸움 비용은 맞은 쪽 출력에 비례(min(출력, 1)): 아주 약한 매가
+                # 고정 비용을 내는 절벽을 없앤다. 출력 1이면 손셈 그대로
+                ab = s.act[best, ACT_ATTACK]
+                fight = ab > 0.0
+                fxe = fx * (ab if ab < 1.0 else 1.0)
+            else:
+                fight = hit_tgt[best] == i                 # 같은 스텝에 서로 친 쌍
+            if fight:
+                x = fxe if fxe < s.energy[i] else s.energy[i]
                 if x > 0.0:
                     s.energy[i] -= x
                     s.ledger[L_LOST] += x
-                x = fx if fx < s.energy[best] else s.energy[best]
+                x = fxe if fxe < s.energy[best] else s.energy[best]
                 if x > 0.0:
                     s.energy[best] -= x
                     s.ledger[L_LOST] += x

@@ -198,7 +198,7 @@ def test_norm_scratch_arrays():
              "MARK_EPIS0", "MARK_EPIS1", "MARK_EPIS2", "MARK_EPIS_PUN0", "MARK_EPIS_PUN1", "MARK_EPIS_PUN2",
              "ALIVE_STEPS", "MARKED_STEPS", "SAW_PUN", "TAKE_DMG_RECV", "PUN_DMG_RECV", "VIOL_DMG_RECV",
              "TAKE_GAIN", "PUN_FINE", "PUN_COST", "ATK_COST", "EATEN_DEAD", "LIVES_DONE",
-             "HIT", "MUTUAL", "RET1", "RET5", "RET20")
+             "HIT", "MUTUAL", "RET1", "RET5", "RET20", "HIT_HAWK", "HIT_HAWK5")
     assert k.N_NT == len(order)
     for idx, name in enumerate(order):
         assert getattr(k, "NT_" + name) == idx, name
@@ -338,7 +338,8 @@ def test_norm_stage_params_packed():
     new_i = (st.I_NORM_MEASURE, st.I_NORM_ON, st.I_NORM_MODE, st.I_NORM_SRC, st.I_NORM_AIM, st.I_NORM_OBS_MODE,
              st.I_NORM_IMP_LEN, st.I_NORM_BLOCK, st.I_NORM_BLOCK3, st.I_NORM_MIX_PERIOD, st.I_NORM_IN0,
              st.I_NORM_VIS0)
-    assert new_i == tuple(range(14, 26)) and st.N_IS == 26 == len(isp0)
+    assert new_i == tuple(range(14, 26)) and st.I_FIGHT_RULE == 26 and st.N_IS == 27 == len(isp0)   # 맞공격 규칙은 그 뒤
+    assert isp0[st.I_FIGHT_RULE] == cfgmod.FIGHT_MUTUAL
 
 
 # ======================= 과제 3: 훑기와 norm_measure 계수기 =======================
@@ -2714,3 +2715,93 @@ def test_summary_hit_hawk_keys():
     tab = w.s.norm_tab.sum(axis=0)
     assert out["norm_hit_hawk"] == tab[k.NT_HIT_HAWK] > 0 and out["norm_hit_hawk5"] == tab[k.NT_HIT_HAWK5]
     assert tab[k.NT_HIT_HAWK5] <= tab[k.NT_HIT_HAWK] <= tab[k.NT_HIT]
+
+
+# ======================= 추가: fight_rule=hawk(매-비둘기 판 다시 설계) =======================
+def test_fight_rule_hawk_both_pay_when_target_is_hawk():
+    fx = 0.08
+    one = None
+    # 맞은 쪽이 매(뇌 공격 출력 > 0): 둘이 서로 치면 사건마다 친 쪽·맞은 쪽 둘 다 fx → 각자 2fx(같은 스텝 맞공격 몫은 따로 없음)
+    w, cfg, i, j = _duel(fight_extra=fx, fight_rule="hawk")
+    s = w.s
+    s.act[i, cfgmod.ACT_ATTACK] = s.act[j, cfgmod.ACT_ATTACK] = 1.0
+    tot0, lost0 = _total(w), float(s.ledger[k.L_LOST])
+    st.attack(0, s, w.fs, w.isp)
+    one = -cfg.attack_cost - cfg.attack_damage + cfg.attack_damage * cfg.attack_gain
+    assert s.energy[i] == pytest.approx(3.0 + one - 2 * fx) and s.energy[j] == pytest.approx(3.0 + one - 2 * fx)
+    assert s.ledger[k.L_LOST] == pytest.approx(lost0 + 2 * cfg.attack_damage * (1 - cfg.attack_gain) + 4 * fx)
+    assert _total(w) == pytest.approx(tot0)
+    # 맞은 쪽이 비둘기(출력 0 또는 음수)면 추가 손실 없음
+    for aj in (0.0, -0.7):
+        w, cfg, i, j = _duel(fight_extra=fx, fight_rule="hawk")
+        s = w.s
+        s.act[i, cfgmod.ACT_ATTACK] = 1.0
+        s.act[j, cfgmod.ACT_ATTACK] = aj
+        st.attack(0, s, w.fs, w.isp)
+        assert s.energy[i] == pytest.approx(3.0 - cfg.attack_cost + cfg.attack_damage * cfg.attack_gain)
+        assert s.energy[j] == pytest.approx(3.0 - cfg.attack_damage)
+    # 출력이 아주 작은 매(0.01)도 매지만 싸움 비용은 맞은 쪽 출력에 비례: i가 j(0.01)를 치면 둘 다 0.01fx,
+    # j가 i(1.0)를 치면 둘 다 fx
+    w, cfg, i, j = _duel(fight_extra=fx, fight_rule="hawk")
+    s = w.s
+    s.act[i, cfgmod.ACT_ATTACK] = 1.0
+    s.act[j, cfgmod.ACT_ATTACK] = 0.01
+    tot0 = _total(w)
+    st.attack(0, s, w.fs, w.isp)
+    d, g, c = cfg.attack_damage, cfg.attack_gain, cfg.attack_cost
+    assert s.energy[i] == pytest.approx(3.0 - c + d * g - d * 0.01 - 1.01 * fx)
+    assert s.energy[j] == pytest.approx(3.0 - c * 0.01 + d * 0.01 * g - d - 1.01 * fx)
+    # 출력이 1을 넘어도 비용은 fx까지
+    w, cfg, i, j = _duel(fight_extra=fx, fight_rule="hawk")
+    s = w.s
+    s.act[i, cfgmod.ACT_ATTACK] = 1.0
+    s.act[j, cfgmod.ACT_ATTACK] = 1.5
+    st.attack(0, s, w.fs, w.isp)
+    assert s.energy[i] == pytest.approx(3.0 - c + d * g - d * 1.5 - 2 * fx)
+    assert s.energy[j] == pytest.approx(3.0 - c * 1.5 + d * 1.5 * g - d - 2 * fx)
+    assert _total(w) == pytest.approx(tot0)
+
+
+def test_fight_rule_hawk_capped_and_mutual_default_unchanged():
+    w, cfg, i, j = _duel(fight_extra=5.0, fight_rule="hawk")
+    s = w.s
+    s.act[i, cfgmod.ACT_ATTACK] = s.act[j, cfgmod.ACT_ATTACK] = 1.0
+    tot0 = _total(w)
+    st.attack(0, s, w.fs, w.isp)
+    assert s.energy[i] == pytest.approx(0.0) and s.energy[j] == pytest.approx(0.0)
+    assert _total(w) == pytest.approx(tot0)
+    # 기본(mutual)은 옛 정의 그대로: 서로 치면 각자 fx 한 번
+    w, cfg, i, j = _duel(fight_extra=0.16)
+    assert cfg.fight_rule == "mutual"
+    s = w.s
+    s.act[i, cfgmod.ACT_ATTACK] = s.act[j, cfgmod.ACT_ATTACK] = 1.0
+    st.attack(0, s, w.fs, w.isp)
+    one = -cfg.attack_cost - cfg.attack_damage + cfg.attack_damage * cfg.attack_gain
+    assert s.energy[i] == pytest.approx(3.0 + one - 0.16)
+
+
+def test_fight_rule_hawk_world_ledger_hash_and_checks():
+    a = World(small("stage3", "conflict", fight_extra=0.08, fight_rule="hawk"))
+    a.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+    a.run(800)
+    a.check_sane()
+    assert a.summary()["attacks"] > 0
+    assert rel_residual(a) < 1e-9
+    h = []
+    for kw in (dict(), dict(fight_rule="mutual", fight_extra=0.0)):
+        w = World(small("stage3", "conflict", **kw))
+        w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+        w.run(300)
+        h.append(w.state_hash())
+    assert h[0] == h[1]                     # 기본 = 옛 해시
+    w = World(small("stage3", "conflict", fight_extra=0.08, fight_rule="hawk"))
+    w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+    w.run(300)
+    assert w.state_hash() != h[0]
+    hawk_cfg = small("stage3", "conflict", fight_rule="hawk", fight_extra=0.08)
+    assert st.pack_stage_params(hawk_cfg)[1][st.I_FIGHT_RULE] == cfgmod.FIGHT_HAWK
+    with pytest.raises(ValueError):
+        small("stage3", "conflict", fight_rule="hawk")        # fight_extra 0이면 규칙이 조용히 무동작 → 막는다
+    assert cfgmod.FIGHT_RULES == {"mutual": 0, "hawk": 1} and st.I_FIGHT_RULE == 26 and st.N_IS == 27
+    with pytest.raises(ValueError):
+        small("stage3", "conflict", fight_rule="dove")

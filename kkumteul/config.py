@@ -150,6 +150,10 @@ class Config:
                                   # 맞공격 각자 −0.12라 치기가 늘 이긴다(죄수의 딜레마). fight_extra > 0.08(친 쪽 이득)이면
                                   # 맞공격(−0.12 − x)이 맞고 물러서기(−0.2)보다 나빠져 매-비둘기가 되고, 매 비율 평형은
                                   # 0.08 ÷ x. 켤 값 제안 0.16(평형 매 비율 0.5) — 손셈은 결과 문서 "규범의 씨앗" 절
+    fight_rule: str = "mutual"    # fight_extra가 걸리는 때. "mutual" = 위(같은 스텝에 서로 친 쌍, 공격의 0.5%만 걸림).
+                                  # "hawk" = 맞은 쪽의 이번 스텝 뇌 공격 출력이 0 위(매)면 친 쪽·맞은 쪽이 각자 fight_extra를
+                                  # × min(맞은 쪽 출력, 1) 더 잃는다(매끼리 싸움 비용). 임시 결정(출력 1 기준): 매-매 각자 −0.12 − 2x < 비둘기 −0.2 ⇔ x > 0.04,
+                                  # 평형 매 비율 0.04 ÷ x, 켤 값 제안 0.08(→ 0.5). 결과 문서 "매-비둘기 판 다시 설계" 절
 
     # --- 혹독한 세계 장치 (기본은 꺼짐. 켜려면 확장 크기: preset=ext) ---
     season_enabled: bool = False  # 겨울: 해마다 해의 끝 winter_len 스텝 동안 풀이 줄고 기초 대사가 는다.
@@ -564,7 +568,7 @@ class Config:
         if self.norm_mix_period < 0:
             raise ValueError("norm_mix_period는 0 이상이어야 한다")
         for name, table in (("norm_mode", NORM_MODES), ("norm_mark_src", NORM_SRCS), ("norm_aim", NORM_AIMS),
-                            ("norm_mem_obs_mode", NORM_OBS_MODES)):
+                            ("norm_mem_obs_mode", NORM_OBS_MODES), ("fight_rule", FIGHT_RULES)):
             if getattr(self, name) not in table:
                 raise ValueError(f"{name}은 {sorted(table)} 중 하나여야 한다: {getattr(self, name)!r}")
         if self.norm_mem_inherit > 0.0:
@@ -576,6 +580,8 @@ class Config:
             raise ValueError("fight_extra는 0 이상이어야 한다(음수면 맞공격에서 에너지가 생긴다)")
         if self.fight_extra > 0.0 and not self.conflict_enabled:
             raise ValueError("fight_extra는 공격(conflict_enabled)이 켜져 있어야 쓸 수 있다")
+        if self.fight_rule == "hawk" and self.fight_extra <= 0.0:
+            raise ValueError("fight_rule=hawk는 fight_extra > 0과 함께 써야 한다(0이면 조용히 무동작)")
         if self.norm_impulse > 0.0 and not self.conflict_enabled:
             raise ValueError("norm_impulse는 공격(conflict_enabled)이 켜져 있어야 쓸 수 있다")
         if self.norm_enabled:
@@ -715,6 +721,8 @@ AIM_MARKED, AIM_NEAREST = 0, 1
 NORM_AIMS = {"marked": AIM_MARKED, "nearest": AIM_NEAREST}
 OBS_OUTCOME, OBS_BLIND, OBS_OFF = 0, 1, 2
 NORM_OBS_MODES = {"outcome": OBS_OUTCOME, "blind": OBS_BLIND, "off": OBS_OFF}
+FIGHT_MUTUAL, FIGHT_HAWK = 0, 1      # fight_extra가 걸리는 때(Config.fight_rule)
+FIGHT_RULES = {"mutual": FIGHT_MUTUAL, "hawk": FIGHT_HAWK}
 FIRST_MEALS = 10     # 측정: 개체의 첫 이만큼 끼니에서 독 비율을 센다(n_poison10)
 N_REWARD = 8     # 보상 특징: 먹음, 에너지 변화, 닿음, 호기심, 허기*먹음, 스트레스, 이웃이 먹음, 상수
 
