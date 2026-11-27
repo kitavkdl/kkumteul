@@ -1,6 +1,6 @@
 # 꿈틀 인수인계
-마지막 갱신: 2026-11-26 22:2x ET · 밤 — 규범 두 판 체인 띄움(유닛 `norm-two`, 지금 구조 → 매-비둘기 차례로), 두 판 견주기 도구 `norm_twin_compare.py`. 그 앞: 가르침 접음, hawk 규칙 구현
-요약: 세계 시뮬레이션 꿈틀 — 아무도 가르치지 않았는데 생물이 스스로 행동·전략·신호를 만드는지 본다(공개 레포, 목적·규칙은 CLAUDE.md). 11/26 새벽 실험 재개. **작업 가지 `night/2026-11-26-kkumteul`, 작업 폴더 `.claude/worktrees/night-2026-11-26`(main에 안 합침, 원격에 push함).** 사용자 16:26 "싹다 진행해 쭉" — 묻지 말고 끝까지, 서버 메모리·CPU 안 터지게.
+마지막 갱신: 2026-11-27 00:4x ET · 밤 — 밤샘 가지를 main에 빨리감기로 합침(사용자 00:41 지시, `946b871..e903493`), 쌍둥이·눈금자 측정을 규범 체인과 같이 띄움(`twin-measure`). 그 앞: 규범 두 판 체인 띄움(`norm-two`), 두 판 견주기 도구
+요약: 세계 시뮬레이션 꿈틀 — 아무도 가르치지 않았는데 생물이 스스로 행동·전략·신호를 만드는지 본다(공개 레포, 목적·규칙은 CLAUDE.md). 11/26 새벽 실험 재개. **작업 가지 `night/2026-11-26-kkumteul`, 작업 폴더 `.claude/worktrees/night-2026-11-26`. 11/27 00:4x에 main에 통째로 합침 — 이 가지에 커밋하면 `git push` 뒤 `git push origin HEAD:main`으로 main도 맞춘다(원래 폴더는 main, `git merge --ff-only origin/main`).** 같은 서버에 "한 번에 하나" 예외: 사용자가 규범 체인과 짧은 측정의 동시 실행을 허락(11/27 00:41). 사용자 16:26 "싹다 진행해 쭉" — 묻지 말고 끝까지, 서버 메모리·CPU 안 터지게.
 
 ## 다음 세션이 이어서 할 것
 0. 사용자 최근 말(원문, 자동)
@@ -13,17 +13,15 @@
 1. **사회 학습 — 끝.** 판정 나 다섯 갈래 모두 지지(`results.md`, status).
 2. **가르침 — 끝(접음).** 끼니 비용 판 반복 18도 가를 수 없음(`0071eae`, `results.md` "끼니 비용 판 반복 18 결과"): 가르침 없는 `costonly`도 같은 양 `N`(+0.011/+0.020)이라 "양 쪽"은 마당 틀의 몫. F2·F3 안 함. 직접 지표(독 끼니 줄임)는 작동 — "작동하나 이 세계에서 값을 하는지는 가를 수 없음".
 3. **규범의 씨앗 — 두 판 체인 도는 중(11/26 22:10 ET~).** 유닛 `norm-two`(`runs/norm-two.sh`, 코드 사본 `runs/code-81e6fa4`, 상한 1500M·2스레드): 지금 구조 판 → 매-비둘기 판(`FIGHT_EXTRA=0.08 FIGHT_RULE=hawk`) **차례로**(한 번에 하나 규칙, 합 약 12.5일). 진행 `runs/norm-exp-t50-i0.015/progress.txt`·`runs/norm-exp-t50-i0.015-fx0.08-hawk/progress.txt`, 전체 로그 `runs/norm-two.log`. 관문 −2b: 문턱 위 0.0007 → 기울기 시작판 켜짐. 두 판 견주기 `wayfinder/stage2-4/norm_twin_compare.py <지금> <매비>`(시험 있음). **할 일**: 관문(−1·α~δ) 결과가 나오면 `results.md`·status에 판정 적기. 끊긴 갈래는 note에 "끊긴 흔적" — 그때 폴더 지우고 다시 부르기. 남은 걱정: 매-비둘기 판의 판정 0은 집행자 싸움 비용을 포함해 지금 구조 판과 같은 잣대로 안 견줌, 손 집행자가 표시 없는 이웃도 침, 관문 −2b에서 기울기 시작판이 켜질 가능성 큼.
-4. **develop 창의성 실측**(`sessions/develop/kkumteul-communication.md` "2바퀴"): 2 `saweat` 막기 끝, 3 방언 지도 끝(`9071ab2`), 4 쌍둥이·눈금자 **구현 끝**(`compete(twin, plant)`, `measure ruler`, `knockout split --twin`), 측정(world4 중립 sd 비교·눈금자 5칸, 합 약 3시간)은 한 번에 하나 규칙상 규범 체인 뒤 — 사용자가 동시 실행을 허락하면 앞당김(결정 대기). 5단계 시험판 검토는 아직.
+4. **develop 창의성 실측**(`sessions/develop/kkumteul-communication.md` "2바퀴"): 2 `saweat` 막기 끝, 3 방언 지도 끝(`9071ab2`), 4 쌍둥이·눈금자 **구현 끝**(`compete(twin, plant)`, `measure ruler`, `knockout split --twin`), 측정 **도는 중**(11/27 00:43 ET~, 사용자 00:41 "같이 돌려도 됨" — 규범 체인과 동시, 유닛 `twin-measure`, 스크립트 `runs/twin-measure.py`, 코드 사본 `runs/code-e903493`, 결과 `runs/twin-measure.json`·`.log`, 약 3시간). 끝나면 읽어 develop 문서 "실측 4"에 적기: 쌍둥이 중립 sd가 옛 중립보다 작고 0.05 아래면 막기 겨루기 기본값 후보, 눈금자 기울기(섭취 1%당 r)로 지난 "가를 수 없음" 판정들의 한계를 "섭취의 몇 %"로 옮겨 적기. 5단계 시험판 검토는 아직.
 4b. **시험 돌리는 법**: `NUMBA_NUM_THREADS=2 <메모리 상한 도구> --max 2G -E NUMBA_NUM_THREADS -- env -C <작업 폴더> nice <레포>/.venv/bin/python -m pytest -q tests/`(전체 약 6분). `--bg` 유닛에는 변수를 `env -C <사본> R=… C=… bash …`로 명령 안에 넣는다.
 5b. 주의: 코드 사본 `runs/code-faf9852`의 `soc_chain.sh`는 옛 판이라 같은 기록 폴더로 DRY 돌리면 갈래 로그를 자른다(레포 판은 `5dda27e`로 고침).
 6. 이전 계획(11/09 이전, 위 순서 뒤): 11/06 판 "다음 할 일"(맛 기억 다음·사냥·2부-다·암수) → `grep -n '2026-11-09 대청소' archive/kkumteul-history.md`. 일하는 방식·서버 세계 재개 명령 → `grep -n '^## 일하는 방식\|^## 현재 상태' archive/kkumteul-history.md`.
 7. 11/06 판 "먼저 할 것"(다시 보기 새 파일 올리기 — `runs/replay-two.html` 14MB라 통째 읽기 불가) — 상태 미확인.
 
 ## 결정 대기 (사용자)
-- 밤샘 가지(`night/2026-11-26-kkumteul`, 07b·맛 기억 포함)를 main에 합칠지 — `cd <레포> && bash scripts/merge-into-main.sh night/2026-11-26-kkumteul && echo 저장됨`
 - 상주 세션(announcement·insight·research)을 tmux로 띄울지, 세션 안 예약 작업을 둘지(앱 백그라운드 세션 8시간 자동 정리 — 메모리 `bg-sessions-retire-after-8h`)
 - (알림, 막지 않음) 매-비둘기 판: 같은 스텝 맞공격 정의는 0.5%만 걸려 안 돌리고, "맞은 쪽이 매(뇌 공격 출력 > 0)면 친 쪽·맞은 쪽 모두 손실"로 다시 설계해 두 판 비교를 그대로 진행한다(3번). 다른 뜻이면 말씀 주시면 바꾼다.
-- (서버) 규범 두 판 체인(약 12.5일) 도는 동안 짧은 측정(겨루기 쌍둥이·눈금자, 약 3시간, 2스레드·1.5G)을 같이 돌려도 되는지 — "한 번에 하나" 규칙과 충돌이라 여쭘. 지금 부하 약 3/12코어, 남은 메모리 약 7G.
 - (디스크) 끝난 갈래 33개의 중간 체크포인트 약 19G를 지울지 — 11/26 20:41 이번엔 안 지우기로 하심. 다시 빠듯하면 여쭌다.
 
 ## 막다른 길
