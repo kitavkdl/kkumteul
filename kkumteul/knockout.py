@@ -189,11 +189,16 @@ def knockout(cfg: Config, channel: str, tag: int = 0, mode: str = "zero", seed: 
         k.sense, st.social_sense, st.trail_sense, st.norm_sense = orig
 
 
-def _neutral(side: dict, cfg: Config, n: int, steps: int, reps: int, seed: int) -> dict:
-    """막지 않은 같은 무리를 둘로 나눠 겨룬 값(측정 잡음). 막기 블록 밖에서 돈다."""
+def _neutral(side: dict, cfg: Config, n: int, steps: int, reps: int, seed: int, twin: bool = False) -> dict:
+    """막지 않은 같은 무리를 둘로 나눠 겨룬 값(측정 잡음). 막기 블록 밖에서 돈다.
+    twin이면 나누지 않고 같은 무리 두 벌을 쌍둥이로 겨룬다(빈 막기 대조)."""
     rng = np.random.default_rng(seed + 7919)
     vals = []
     for i in range(reps):
+        if twin:
+            g = side["genomes"]
+            vals.append(measure.compete(cfg, g, g, n, steps, seed + 500 + i, twin=True)["r"] * 1000)
+            continue
         g1, g2 = measure._split(side["genomes"], rng)
         vals.append(measure.compete(cfg, g1, g2, n, steps, seed + 500 + i)["r"] * 1000)
     return measure._stats(vals)
@@ -201,7 +206,7 @@ def _neutral(side: dict, cfg: Config, n: int, steps: int, reps: int, seed: int) 
 
 def split(path: Path, channel: str, n: int = 400, steps: int = 8000, reps: int = 6, seed: int = 4000,
           rules: list[str] | None = None, log=None, base_overrides: list[str] | None = None,
-          mode: str = "zero", frac: float = 1.0) -> dict:
+          mode: str = "zero", frac: float = 1.0, twin: bool = False) -> dict:
     """같은 생물 두 벌, A(tag 0)만 channel을 막고 겨룬다. 체크포인트 규칙과 대조 규칙에서.
     base_overrides를 주면 체크포인트 규칙을 그것으로 덮어쓴 설정을 체크포인트 규칙으로 쓴다(대조 규칙도 그 위에 얹는다).
     mode="shuffle"이면 0으로 지우는 대신 A끼리 그 칸을 바꿔 끼운다(frac은 스텝마다 섞는 A의 몫)."""
@@ -211,6 +216,8 @@ def split(path: Path, channel: str, n: int = 400, steps: int = 8000, reps: int =
            "columns": columns(base, channel), "n_each": n, "steps": steps, "reps": reps}
     if mode != "zero":
         out["frac"] = frac
+    if twin:
+        out["twin"] = True
     if base_overrides:
         out["base_overrides"] = base_overrides
     plan = [("ckpt_rules", base)]
@@ -224,13 +231,13 @@ def split(path: Path, channel: str, n: int = 400, steps: int = 8000, reps: int =
         a = dict(side, cfg=cfg, path=f"{path} ({channel} 막음)")
         b = dict(side, cfg=cfg)
         with knockout(cfg, channel, tag=0, mode=mode, seed=seed + 31, frac=frac) as ko_cols:
-            res = measure.assay_sides(a, b, n, steps, reps, seed, neutral=False)
+            res = measure.assay_sides(a, b, n, steps, reps, seed, neutral=False, twin=twin)
         if mode != "zero":
             st_ = ko_cols.stats
             res["shuffle_stats"] = dict(st_)
             # 섞을 짝이 없으면(A가 줄어 한 마리) 값이 그대로다. 실제로 바뀐 행의 몫
             res["changed_row_frac"] = st_["changed"] / st_["rows"] if st_["rows"] else 0.0
-        res["neutral_r_per_1000"] = _neutral(side, cfg, n, steps, reps, seed)
+        res["neutral_r_per_1000"] = _neutral(side, cfg, n, steps, reps, seed, twin=twin)
         nsd = res["neutral_r_per_1000"].get("sd", float("nan"))
         # 중립 흔들림으로 가를 수 있는 가장 작은 r(어림: t95 × 중립 sd / √반복, 임시)
         res["min_detectable_r_per_1000"] = float(measure.t95(reps - 1) * nsd / np.sqrt(reps)) if reps > 1 else None
@@ -635,6 +642,8 @@ def main(argv=None) -> int:
                    help="체크포인트 규칙 덮어쓰기(여러 번 가능). 예: --set taste_enabled=true")
     p.add_argument("--mode", choices=MODES, default="zero", help="zero: 0으로 지우기, shuffle: A끼리 바꿔 끼우기")
     p.add_argument("--frac", type=float, default=1.0, help="shuffle일 때 스텝마다 섞는 A의 몫(약한 양성 대조: 0.5)")
+    p.add_argument("--twin", action="store_true",
+                   help="쌍둥이 겨루기: 한 자리의 A·B가 같은 개체, 중립은 막지 않은 두 벌(빈 막기 대조)")
     i = sub.add_parser("info")
     i.add_argument("ckpt", type=Path)
     i.add_argument("--steps", type=int, default=2000)
@@ -649,7 +658,7 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     if a.cmd == "split":
         out = split(a.ckpt, a.channel, a.n, a.steps, a.reps, a.seed, a.control, log=sys.stderr,
-                    base_overrides=a.base_set, mode=a.mode, frac=a.frac)
+                    base_overrides=a.base_set, mode=a.mode, frac=a.frac, twin=a.twin)
     elif a.cmd == "info":
         out = info(a.ckpt, a.steps, a.stride, a.seed, a.bins, a.folds, a.n_null)
     else:

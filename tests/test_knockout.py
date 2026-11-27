@@ -177,7 +177,7 @@ def test_split_base_overrides_reach_rules(monkeypatch, tmp_path):
     side = {"path": "x", "step": 0, "genomes": {}, "cfg": cfg, "gen_mean": 0.0}
     seen = []
 
-    def fake_assay(a, b, n, steps, reps, seed, neutral=False):
+    def fake_assay(a, b, n, steps, reps, seed, neutral=False, **kw):
         seen.append(a["cfg"])
         return {"r_per_1000": {}, "final_counts": []}
 

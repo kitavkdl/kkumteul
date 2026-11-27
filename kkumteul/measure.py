@@ -163,9 +163,34 @@ def inject_agent(world: World, genomes: dict, row: int, tag: int, x: float, y: f
     return aid
 
 
+def plant_income(world: World, frac: float, tag: int, prev_id: np.ndarray, prev_eaten: np.ndarray) -> float:
+    """심은 효과 눈금자: 태그 tag의 산 개체에 지난 호출 뒤 먹은 양(eaten 증가분)의 frac만큼 에너지를 더 준다.
+    명시적 주입이라 장부 L_INJECT에 적는다(에너지 장부 규칙). e_max를 넘기지 않는다. 칸의 id가 바뀌었으면(새로 태어남)
+    그 칸의 eaten 전체가 증가분이다. prev_id·prev_eaten을 지금 값으로 덮어써 다음 호출의 기준으로 삼는다."""
+    s = world.s
+    idx = np.flatnonzero(s.alive & (s.tag == tag))
+    added = 0.0
+    if len(idx) and frac > 0.0:
+        same = s.ids[idx] == prev_id[idx]
+        d = np.maximum(s.eaten[idx] - np.where(same, prev_eaten[idx], 0.0), 0.0)
+        room = np.maximum(world.cfg.e_max - s.energy[idx], 0.0)
+        add = np.minimum(frac * d, room).astype(s.energy.dtype)
+        s.energy[idx] += add
+        added = float(add.sum(dtype=np.float64))
+        s.ledger[k.L_INJECT] += added
+    prev_id[:] = s.ids
+    prev_eaten[:] = s.eaten
+    return added
+
+
 def compete(cfg: Config, ga: dict, gb: dict, n_each: int, steps: int, seed: int,
-            sample_every: int = 500) -> dict:
-    """A(tag 0)와 B(tag 1)를 n_each씩 새 세계에 풀고 개체 수 변화를 본다."""
+            sample_every: int = 500, twin: bool = False, plant: float = 0.0, plant_every: int = 50) -> dict:
+    """A(tag 0)와 B(tag 1)를 n_each씩 새 세계에 풀고 개체 수 변화를 본다.
+    twin=True: 한 자리의 A와 B가 같은 줄(rb = ra)이다 — 같은 무리의 두 벌(막기 겨루기)에서 개체 차이 잡음을 지운다.
+      두 유전체 묶음의 개체 수가 같아야 한다. 난수 소비는 twin=False와 같다(rb를 뽑고 버린다 → 자리·나이가 같다).
+    plant > 0: 심은 효과 눈금자 — B가 먹은 양의 plant만큼을 plant_every스텝마다 더 준다(plant_income, L_INJECT)."""
+    if twin and len(ga["n_hidden"]) != len(gb["n_hidden"]):
+        raise ValueError("쌍둥이 겨루기는 두 묶음의 개체 수가 같아야 한다")
     rng = np.random.default_rng(seed)
     acfg = arena_config(cfg, seed, 2 * n_each)
     world = World(acfg, populate=False)
@@ -175,6 +200,8 @@ def compete(cfg: Config, ga: dict, gb: dict, n_each: int, steps: int, seed: int,
         k.spawn_food(0, world.s, world.fp, world.ip)
     ra = rng.choice(len(ga["n_hidden"]), size=n_each, replace=len(ga["n_hidden"]) < n_each)
     rb = rng.choice(len(gb["n_hidden"]), size=n_each, replace=len(gb["n_hidden"]) < n_each)
+    if twin:
+        rb = ra
     px = rng.random(n_each) * acfg.world_w
     py = rng.random(n_each) * acfg.world_h
     ages = rng.integers(0, max(1, acfg.max_age // 2), size=n_each)
@@ -187,8 +214,20 @@ def compete(cfg: Config, ga: dict, gb: dict, n_each: int, steps: int, seed: int,
             inject_agent(world, g, int(row), tag, float(px[i]), float(py[i]),
                          float(rng.random() * 2 * math.pi), int(ages[i]))
     series = []
+    planted = 0.0
+    if plant > 0.0:
+        prev_id, prev_eaten = world.s.ids.copy(), world.s.eaten.copy()
     for t in range(0, steps, sample_every):
-        world.run(min(sample_every, steps - t))
+        n = min(sample_every, steps - t)
+        if plant > 0.0:
+            done = 0
+            while done < n:
+                m = min(plant_every, n - done)
+                world.run(m)
+                done += m
+                planted += plant_income(world, plant, 1, prev_id, prev_eaten)
+        else:
+            world.run(n)
         tags = world.s.tag[world.s.alive]
         series.append([world.step_no, int((tags == 0).sum()), int((tags == 1).sum())])
     world.drain_events()
@@ -208,7 +247,8 @@ def compete(cfg: Config, ga: dict, gb: dict, n_each: int, steps: int, seed: int,
         r = float(y[-1] / keep[-1, 0])
     return {"n_a": int(arr[-1, 1]), "n_b": int(arr[-1, 2]), "r": r, "series": series,
             "extinct": extinct_label(int(arr[-1, 1]), int(arr[-1, 2])), "first10": first10,
-            "grad_by_tag": world.grad_table()}   # {태그 행: {GT_NAMES 이름: 값}}, 0=A·1=B(장치가 꺼진 세계는 전부 0)
+            "grad_by_tag": world.grad_table(),   # {태그 행: {GT_NAMES 이름: 값}}, 0=A·1=B(장치가 꺼진 세계는 전부 0)
+            "plant_injected": planted}
 
 
 # ---- 규범의 씨앗: 겨루기 마당 준비와 다태그 겨루기 ----
@@ -366,10 +406,11 @@ def _stats(vals: list[float]) -> dict:
 
 
 def assay_sides(a: dict, b: dict, n_each: int = 400, steps: int = 8000, reps: int = 6,
-                seed: int = 1000, neutral: bool = True) -> dict:
+                seed: int = 1000, neutral: bool = True, twin: bool = False) -> dict:
+    """twin=True: 쌍둥이 겨루기(compete 참고). 중립은 반으로 가르는 대신 A 묶음 두 벌을 쌍둥이로(빈 막기 대조)."""
     check_same_shape(a, b)
     cfg = b["cfg"]
-    runs = [compete(cfg, a["genomes"], b["genomes"], n_each, steps, seed + i) for i in range(reps)]
+    runs = [compete(cfg, a["genomes"], b["genomes"], n_each, steps, seed + i, twin=twin) for i in range(reps)]
     out = {
         "a": {key: a[key] for key in ("path", "step", "gen_mean")},
         "b": {key: b[key] for key in ("path", "step", "gen_mean")},
@@ -384,16 +425,46 @@ def assay_sides(a: dict, b: dict, n_each: int = 400, steps: int = 8000, reps: in
         "b_extinct_runs": sum(x["extinct"] == "b" for x in runs),
         "both_extinct_runs": sum(x["extinct"] == "both" for x in runs),
     }
+    if twin:
+        out["twin"] = True
     if neutral:
         rng = np.random.default_rng(seed + 7919)
         neu = []
         for i in range(reps):
+            if twin:
+                g = a["genomes"] if i % 2 == 0 else b["genomes"]
+                neu.append(compete(cfg, g, g, n_each, steps, seed + 500 + i, twin=True)["r"] * 1000)
+                continue
             g1, g2 = _split(a["genomes"] if i % 2 == 0 else b["genomes"], rng)
             neu.append(compete(cfg, g1, g2, n_each, steps, seed + 500 + i)["r"] * 1000)
         out["neutral_r_per_1000"] = _stats(neu)
     out["winner"] = winner(out)
     out["verdict"] = verdict(out)
     return out
+
+
+def ruler(side: dict, fracs=(0.0, 0.005, 0.01, 0.02, 0.05), n_each: int = 400, steps: int = 8000, reps: int = 6,
+          seed: int = 1000, twin: bool = True, sample_every: int = 500) -> dict:
+    """심은 효과 눈금자: 같은 무리 두 벌을 겨루며 B에만 먹은 양의 frac을 더 준다. 칸마다 r(1,000스텝당)과
+    원점을 지나지 않는 직선 기울기 r_per_unit_plant(r ÷ frac). 판정에서 "가를 수 없음"을 "섭취의 몇 % 미만"으로
+    옮길 때 plant_equiv로 쓴다. 씨앗은 칸마다 같다(같은 자리·나이에서 frac만 바뀐다)."""
+    cfg, g = side["cfg"], side["genomes"]
+    cells, xs, ys = [], [], []
+    for f in fracs:
+        rs = [compete(cfg, g, g, n_each, steps, seed + i, sample_every=sample_every, twin=twin, plant=float(f))["r"] * 1000
+              for i in range(reps)]
+        cells.append({"plant": float(f), "r_per_1000": _stats(rs), "r_list": rs})
+        xs += [float(f)] * len(rs)
+        ys += rs
+    slope = float(np.polyfit(xs, ys, 1)[0]) if len(set(xs)) > 1 else None
+    return {"path": side.get("path", ""), "n_each": n_each, "steps": steps, "reps": reps, "twin": twin,
+            "cells": cells, "r_per_unit_plant": slope}
+
+
+def plant_equiv(r_per_1000: float, ruler_res: dict) -> float | None:
+    """r(1,000스텝당)을 눈금자 기울기로 나눠 "B가 먹은 양의 몇 배를 더 받은 것과 같은가"(0.01 = 섭취의 1%)."""
+    sl = ruler_res.get("r_per_unit_plant")
+    return r_per_1000 / sl if sl else None
 
 
 def assay(path_a: Path, path_b: Path, n_each: int = 400, steps: int = 8000, reps: int = 6,
@@ -503,13 +574,27 @@ def main(argv=None) -> int:
     la = sub.add_parser("ladder")
     la.add_argument("--run", required=True, type=Path)
     la.add_argument("--count", type=int, default=5)
-    for p in (a, la):
+    ru = sub.add_parser("ruler", help="심은 효과 눈금자: 같은 무리 두 벌, B에만 먹은 양의 frac을 더 준다")
+    ru.add_argument("--ckpt", required=True, type=Path)
+    ru.add_argument("--fracs", type=float, nargs="+", default=[0.0, 0.005, 0.01, 0.02, 0.05])
+    ru.add_argument("--no-twin", action="store_true", help="쌍둥이 대신 따로 뽑은 줄(옛 겨루기 꼴)")
+    for p in (a, la, ru):
         p.add_argument("--n", type=int, default=400, help="한쪽 개체 수(둘을 합쳐 수용력 근처가 되게)")
         p.add_argument("--steps", type=int, default=8000)
         p.add_argument("--reps", type=int, default=6)
         p.add_argument("--seed", type=int, default=1000)
         p.add_argument("--out", type=Path)
     args = ap.parse_args(argv)
+    if args.cmd == "ruler":
+        res = ruler(load_side(args.ckpt), args.fracs, args.n, args.steps, args.reps, args.seed, twin=not args.no_twin)
+        for c in res["cells"]:
+            r = c["r_per_1000"]
+            print(f"섭취의 {c['plant'] * 100:5.2f}% 더: r = {r['mean']:+.4f} ± {r['sd']:.4f}(표준편차, {r['n']}회)")
+        sl = res["r_per_unit_plant"]
+        print(f"기울기: 섭취의 1%당 r {sl / 100:+.4f}" if sl is not None else "기울기: 칸이 하나라 없음")
+        if args.out:
+            args.out.write_text(json.dumps(res, indent=1, ensure_ascii=False))
+        return 0
     if args.cmd == "assay":
         res = assay(args.a, args.b, args.n, args.steps, args.reps, args.seed)
         r = res["r_per_1000"]
