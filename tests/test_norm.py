@@ -4,6 +4,7 @@
 
     python3 -m pytest -q tests/test_norm.py
 """
+import math
 import sys
 from pathlib import Path
 
@@ -2200,3 +2201,131 @@ def test_branch_resizes_to_norm_size(tmp_path):
     r.close()
     assert w.step_no == 450
 
+
+# ======================= 과제 15: 손 집행자와 양성 확인 =======================
+def _norm_hand():
+    import importlib.util
+    p = Path(__file__).resolve().parents[1] / "wayfinder" / "stage2-4" / "norm_hand.py"
+    spec = importlib.util.spec_from_file_location("norm_hand", p)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def _enforcer_scene(rel_ang=0.9, dist=2.3):
+    """0번 = 손 집행자(태그 1, 방향 0), 1번 = 표시된 이웃(움직이지 않음)을 0번 시야 한쪽(rel_ang rad, 중심 거리 dist)에."""
+    nh = _norm_hand()
+    w = hand_world("norm")
+    s, cfg = w.s, w.cfg
+    g = measure.extract_genomes(w)
+    ge, dropped = nh.plant_enforcer(g, cfg, enforcer=True)
+    assert dropped == 0
+    for name in measure.GENOME:
+        getattr(s, name)[0] = ge[name][0]
+    s.tag[0] = 1
+    s.energy[:] = cfg.e_start
+    s.h[:] = 0.0
+    put(w, 0, 100.0, 100.0)
+    s.heading[0] = 0.0
+    put(w, 1, 100.0 + dist * math.cos(rel_ang), 100.0 + dist * math.sin(rel_ang))
+    s.bout[1, :] = 0.0                       # 표적은 가만히 있는다(출력 0)
+    s.Wout[1] = 0.0
+    s.vx[:] = s.vy[:] = 0.0
+    w.step_no = 100
+    s.counters[k.C_STEP] = 100
+    st._attach_mark(s, 1, 100, 5, s.ids[5], cfg.norm_mark_tau)
+    return w
+
+
+def _run_enforcer(w, steps=20):
+    s = w.s
+    angs, atk = [], []
+    for _ in range(steps):
+        w.step()
+        dx = s.x[1] - s.x[0]
+        dy = s.y[1] - s.y[0]
+        a = (math.atan2(dy, dx) - s.heading[0] + math.pi) % (2 * math.pi) - math.pi
+        angs.append(abs(a))
+        atk.append(float(s.act[0, cfgmod.ACT_ATTACK]))
+        if s.pun_t[1] >= 0:
+            break
+    return angs, atk
+
+
+def test_hand_enforcer_turns_to_marked_neighbor_and_hits():
+    for rel in (0.9, -0.9):                  # 양쪽 다(회전 부호 확인). 앞 두 칸에는 안 걸친다
+        w = _enforcer_scene(rel_ang=rel)
+        c0 = w.cfg.norm_in0 + cfgmod.NORM_VIS
+        w.step()                             # 양성 확인 먼저: 표시된 이웃이 표시 시야 한쪽에 보인다
+        vis = w.s.obs[0, c0:c0 + 8]
+        assert vis.max() > 0.5
+        assert (vis[4:].max() > vis[:4].max()) == (rel > 0)
+        angs, atk = _run_enforcer(w)
+        assert min(angs) < 0.2, f"표적 쪽으로 돈다(rel {rel}): {angs[:6]}"
+        assert max(atk) > 0 and w.s.pun_t[1] >= 0, f"앞에 닿으면 친다(rel {rel})"
+        assert w.s.mark_t[0] < 0, "집행자는 표시되지 않는다"
+
+
+def test_hand_enforcer_blind_when_norm_vis_blocked():
+    from kkumteul.knockout import knockout
+    w = _enforcer_scene()
+    with knockout(w.cfg, "norm_vis", tag=1):
+        angs, atk = _run_enforcer(w)
+    assert w.s.pun_t[1] < 0 and max(atk) <= 0
+    # 막기를 나오면 다시 한다(같은 장면)
+    w = _enforcer_scene()
+    _run_enforcer(w)
+    assert w.s.pun_t[1] >= 0
+
+
+def test_hand_tags_share_one_body():
+    nh = _norm_hand()
+    cfg = norm_cfg()
+    g = measure.extract_genomes(World(cfg))
+    groups, dropped, acfg = nh.arena(g, cfg, n_res=100, n_each=20)
+    assert dropped == 0
+    assert [t for _, t, _ in groups] == [0, 1, 2, 3] and [c for _, _, c in groups] == [100, 20, 20, 20]
+    enf = groups[1][0]
+    assert groups[2][0] is enf and groups[3][0] is enf
+    res = groups[0][0]
+    assert (res["n_hidden"] == enf["n_hidden"]).all() and (enf["n_hidden"] == g["n_hidden"] + nh.N_NEW).all()
+    for name in ("Win", "Wrec", "bh"):
+        assert (res[name] == enf[name]).all(), name       # 같은 몸: 입력 쪽 배선까지 같고 출력만 다르다
+    assert acfg.norm_block_tag == 2 and acfg.norm_block3_tag == 3 and acfg.norm_enabled
+
+
+def test_hand_resident_attack_zero():
+    nh = _norm_hand()
+    cfg = norm_cfg(max_agents=400, norm_impulse=0.02)
+    g = measure.extract_genomes(World(cfg))
+    groups, _, acfg = nh.arena(g, cfg, n_res=200, n_each=40)
+    res_g = groups[0][0]
+    A = cfgmod.ACT_ATTACK
+    assert (res_g["bout"][:, A] == -1).all() and not res_g["Wout"][:, A, :].any()
+    out = measure.compete_multi(acfg, groups, 300, seed=4)
+    t0 = out["norm_by_tag"][0]
+    assert t0["pun"] == 0 and t0["take"] == t0["take_imp"]   # 거주민의 공격은 충동뿐
+    assert t0["take_imp"] > 0
+    # 손 집행자의 자발 공격은 손 배선이 정한다: 표시가 없으면 안 친다(충동 0 마당)
+    out0 = measure.compete_multi(nh.arena(g, norm_cfg(max_agents=400), 200, 40)[2], groups, 200, seed=4)
+    assert all(out0["norm_by_tag"][t]["take"] + out0["norm_by_tag"][t]["pun"] == 0 for t in (0, 1, 2, 3))
+
+
+def test_hand_skips_full_hidden_agents_and_reports_count():
+    nh = _norm_hand()
+    cfg = norm_cfg()
+    g = measure.extract_genomes(World(cfg))
+    hm = g["bh"].shape[1]
+    g["n_hidden"][:3] = hm - nh.N_NEW + 1          # 칸이 모자라다
+    g["n_hidden"][3] = hm - nh.N_NEW                # 딱 맞다
+    n0 = len(g["n_hidden"])
+    ge, dropped = nh.plant_enforcer(g, cfg, enforcer=True)
+    assert dropped == 3 and len(ge["n_hidden"]) == n0 - 3 and ge["n_hidden"].max() == hm
+
+
+def test_hand_requires_vision_sectors_8():
+    nh = _norm_hand()
+    cfg = small("stage4", "conflict", "norm_size", vision_sectors=6)
+    g = measure.extract_genomes(World(cfg))
+    with pytest.raises(ValueError):
+        nh.plant_enforcer(g, cfg, enforcer=True)
