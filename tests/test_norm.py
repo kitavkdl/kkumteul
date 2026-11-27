@@ -2689,3 +2689,28 @@ def test_summary_mutual_keys():
     assert out["norm_hits"] == tab[k.NT_HIT] and out["norm_mutual"] == tab[k.NT_MUTUAL]
     for kk, col in zip(k.RET_KS, (k.NT_RET1, k.NT_RET5, k.NT_RET20)):
         assert out[f"norm_ret{kk}"] == tab[col]
+
+
+# ======================= 추가: "매를 침" 계수(측정만, 매-비둘기 정의 후보) =======================
+def test_hit_hawk_counts_target_attack_output():
+    w, cfg, i, j = _duel(norm_measure=True)
+    s = w.s
+    _hit(w, 0, (i,))                 # j 출력 0 = 비둘기
+    assert _cnt(w, k.NT_HIT) == 1 and _cnt(w, k.NT_HIT_HAWK) == 0 and _cnt(w, k.NT_HIT_HAWK5) == 0
+    w, cfg, i, j = _duel(norm_measure=True)
+    s = w.s
+    s.act[:, cfgmod.ACT_ATTACK] = 0.0
+    s.act[i, cfgmod.ACT_ATTACK] = 1.0
+    s.act[j, cfgmod.ACT_ATTACK] = 0.3    # j도 치려 한다(0.5 아래): 서로 쳐서 두 공격 모두 매를 친 것
+    st.attack(0, s, w.fs, w.isp)
+    assert _cnt(w, k.NT_HIT) == 2 and _cnt(w, k.NT_HIT_HAWK) == 2 and _cnt(w, k.NT_HIT_HAWK5) == 1
+
+
+def test_summary_hit_hawk_keys():
+    w = World(small("stage3", "conflict", norm_measure=True))
+    w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+    w.run(100)
+    out = w.summary()
+    tab = w.s.norm_tab.sum(axis=0)
+    assert out["norm_hit_hawk"] == tab[k.NT_HIT_HAWK] > 0 and out["norm_hit_hawk5"] == tab[k.NT_HIT_HAWK5]
+    assert tab[k.NT_HIT_HAWK5] <= tab[k.NT_HIT_HAWK] <= tab[k.NT_HIT]

@@ -199,12 +199,13 @@ TAG_ROWS_NORM = 5
  NT_MARK_EPIS0, NT_MARK_EPIS1, NT_MARK_EPIS2, NT_MARK_EPIS_PUN0, NT_MARK_EPIS_PUN1, NT_MARK_EPIS_PUN2,
  NT_ALIVE_STEPS, NT_MARKED_STEPS, NT_SAW_PUN, NT_TAKE_DMG_RECV, NT_PUN_DMG_RECV, NT_VIOL_DMG_RECV,
  NT_TAKE_GAIN, NT_PUN_FINE, NT_PUN_COST, NT_ATK_COST, NT_EATEN_DEAD, NT_LIVES_DONE,
- NT_HIT, NT_MUTUAL, NT_RET1, NT_RET5, NT_RET20, N_NT) = range(59)
+ NT_HIT, NT_MUTUAL, NT_RET1, NT_RET5, NT_RET20, NT_HIT_HAWK, NT_HIT_HAWK5, N_NT) = range(61)
 # 칸 뜻: TAKE = 벌이 아닌 공격이 맞음(KIN 친족 = 계보만, SIM 닮음 구간, LINE 계보 = 부모·자식·형제 — KIN과 같은 값),
 # ATK_COST = 모든 공격 비용(빗나감 포함), PUN_COST = 그 가운데 벌의 몫,
 # VIOL_DMG_RECV = 때린 순간 표시가 없던 대상이 받은 피해(위반 피해율의 분자; 표시가 없는 측정 세계는 모든 피해)
 # HIT = 맞은 공격(벌·가로채기 모두), MUTUAL = 같은 스텝에 서로 친 쌍(뒤 차례 쪽 행에 한 번),
-# RET<k> = 친 대상이 경과 0~k스텝 안에 나를 마지막으로 친 개체였던 공격(되치기; 같은 스텝 맞공격의 뒤 차례도 든다)
+# RET<k> = 친 대상이 경과 0~k스텝 안에 나를 마지막으로 친 개체였던 공격(되치기; 같은 스텝 맞공격의 뒤 차례도 든다),
+# HIT_HAWK = 맞은 대상의 이번 스텝 뇌 공격 출력이 0 위였던 공격("매"를 침, 자는 개체는 출력이 0), HIT_HAWK5 = 0.5 위
 RET_KS = (1, 5, 20)
 NT_NAMES = ("take", "take_kin", "take_sim0", "take_sim1", "take_sim2", "take_sim3", "take_line", "take_imp",
             "take_on_marked", "pun", "take_kill", "pun_kill", "pun_2nd", "pun_3_kin", "pun_3_str",
@@ -214,7 +215,7 @@ NT_NAMES = ("take", "take_kin", "take_sim0", "take_sim1", "take_sim2", "take_sim
             "mark_epis0", "mark_epis1", "mark_epis2", "mark_epis_pun0", "mark_epis_pun1", "mark_epis_pun2",
             "alive_steps", "marked_steps", "saw_pun", "take_dmg_recv", "pun_dmg_recv", "viol_dmg_recv",
             "take_gain", "pun_fine", "pun_cost", "atk_cost", "eaten_dead", "lives_done",
-            "hit", "mutual", "ret1", "ret5", "ret20")
+            "hit", "mutual", "ret1", "ret5", "ret20", "hit_hawk", "hit_hawk5")
 # 집행 역할별 표(norm_tab_role[3][N_RT]): 행 = 2자·3자 친족·3자 남. 지킨 피해의 추정은 판정 도구가 norm_hist로 낸다
 (RT_PUN_FINE, RT_PUN_COST, RT_N_PUN, N_RT) = range(4)
 RT_ROLES = ("self", "kin", "stranger")

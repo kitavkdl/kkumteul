@@ -25,7 +25,7 @@ from .kernels import (C_ATTACKS, C_FERTILE, C_GIFTS, C_NFIELD, C_NFOOD, KIND_A, 
                       RT_N_PUN, RT_PUN_COST, RT_PUN_FINE,
                       NT_TAKE, NT_TAKE_DMG_RECV, NT_TAKE_GAIN, NT_TAKE_IMP, NT_TAKE_KILL, NT_TAKE_KIN, NT_TAKE_LINE,
                       NT_MARKED_STEPS, NT_SAW_PUN, NT_TAKE_ON_MARKED, NT_TAKE_SIM0, NT_VIOL_DMG_RECV,
-                      NT_HIT, NT_MUTUAL, NT_RET1, NT_RET5, NT_RET20,
+                      NT_HIT, NT_MUTUAL, NT_RET1, NT_RET5, NT_RET20, NT_HIT_HAWK, NT_HIT_HAWK5,
                       TOUCH_HIT, _kin_class, _norm_close_episode, _norm_row, _place_food, _wdiff, _wrap, make_room, pick_kind)
 from .rng import (S_ATTACK_ORDER, S_FERTILE, S_NORM_BLIND, S_NORM_IMPULSE, S_NORM_MIX, S_NORM_NOISE, S_PERTURB,
                   normal, u01)
@@ -1287,6 +1287,11 @@ def attack(step, s, fs, isp):
             tab[ri, NT_HIT] += 1.0
             if hit_tgt[best] == i:
                 tab[ri, NT_MUTUAL] += 1.0
+            ab = s.act[best, ACT_ATTACK]       # 맞은 쪽의 이번 스텝 뇌 공격 출력(차례 순서와 무관, 자면 0)
+            if ab > 0.0:
+                tab[ri, NT_HIT_HAWK] += 1.0
+                if ab > 0.5:
+                    tab[ri, NT_HIT_HAWK5] += 1.0
             if s.hitby_own[i] == s.ids[i] and s.hitby_id[i] == s.ids[best]:
                 dt = step - s.hitby_t[i]
                 if dt <= 1:

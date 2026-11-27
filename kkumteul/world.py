@@ -580,6 +580,8 @@ class World:
             out["norm_mutual"] = float(tot[k.NT_MUTUAL])
             for kk, col in zip(k.RET_KS, (k.NT_RET1, k.NT_RET5, k.NT_RET20)):
                 out[f"norm_ret{kk}"] = float(tot[col])
+            out["norm_hit_hawk"] = float(tot[k.NT_HIT_HAWK])      # 맞은 대상의 뇌 공격 출력 > 0(매-비둘기 정의 후보)
+            out["norm_hit_hawk5"] = float(tot[k.NT_HIT_HAWK5])    # > 0.5
             if self.cfg.norm_enabled:
                 # p2 = 2자 벌 ÷ 내가 피해자인 표시된 이웃이 닿은 기회, p3 = 3자 벌 ÷ 산 남이 피해자인 기회(분모가 없으면 안 낸다)
                 if tot[k.NT_OPP_SELF] > 0:
