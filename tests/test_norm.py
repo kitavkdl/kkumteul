@@ -2011,3 +2011,192 @@ def test_block_requires_norm_enabled():
             small("stage4", "conflict", "norm_size", **kw)
         assert norm_cfg(**kw).norm_enabled
 
+
+# ======================= 과제 14: 겨루기 마당 준비·다태그 겨루기·공격 행 다시 뽑기 =======================
+def _old_ckpt(tmp_path, *presets, steps=30):
+    """norm_size 없이 자란 작은 세계(옛 크기)의 체크포인트."""
+    from kkumteul import checkpoint as ckpt
+    w = World(small("stage4", *presets))
+    w.run(steps)
+    return ckpt.save(w, tmp_path / "ck")
+
+
+def test_arena_side_resized_to_norm_size(tmp_path):
+    path = _old_ckpt(tmp_path)
+    ref = measure.side_from_world(World(norm_cfg()))
+    side = measure.norm_arena_side(path)
+    assert side["cfg"].n_in == ref["cfg"].n_in > small("stage4").n_in
+    measure.check_same_shape(ref, side)
+    measure.check_same_shape(side, ref)
+    c0 = side["cfg"].norm_in0
+    assert not side["genomes"]["Win"][:, c0:, :].any()       # 늘어난 입력 열의 가중치는 0
+    # 같은 체크포인트를 cfg 없이 읽으면 크기가 달라 못 겨룬다(첫째 판의 가장 큰 구멍)
+    with pytest.raises(ValueError):
+        measure.check_same_shape(measure.load_side(path), ref)
+    # 덧붙일 설정도 받는다
+    assert measure.norm_arena_side(path, ["conflict_enabled=true"])["cfg"].conflict_enabled
+
+
+def _arena_cfg(**kw):
+    return norm_cfg(max_agents=400, **kw)
+
+
+def test_resident_attack_row_fixed_and_arena_has_no_violence():
+    side = measure.side_from_world(World(norm_cfg()))
+    g = side["genomes"]
+    A = cfgmod.ACT_ATTACK
+    # 일부러 틀린 거주민: 공격 편향 +7, 출력 행이 큼
+    gen = np.random.default_rng(3)
+    g["bout"][:, A] = 7.0
+    g["Wout"][:, A, :] = (3.0 * gen.standard_normal(g["Wout"][:, A, :].shape)).astype(g["Wout"].dtype)
+    fixed = measure.fix_resident_attack(g)
+    assert (fixed["bout"][:, A] == -1).all() and not fixed["Wout"][:, A, :].any()
+    assert (g["bout"][:, A] == 7.0).all(), "사본을 고친다"
+    other = [o for o in range(g["bout"].shape[1]) if o != A]
+    assert (fixed["bout"][:, other] == g["bout"][:, other]).all() and (fixed["Wout"][:, other] == g["Wout"][:, other]).all()
+    cfg = _arena_cfg()
+    # 편향만 고치면(calm_attack 꼴) Wout·h로 가로채기가 남는다
+    bias_only = {kk: v.copy() for kk, v in g.items()}
+    bias_only["bout"][:, A] = -1.0
+    res = measure.compete_multi(cfg, [(bias_only, 0, 300)], 300, seed=11)
+    assert res["norm_by_tag"][0]["take"] > 0
+    # 출력 행까지 0이면 마당(충동 0)에 폭력이 없다(관문 −1e)
+    res = measure.compete_multi(cfg, [(fixed, 0, 300)], 300, seed=11)
+    assert res["norm_by_tag"][0]["take"] == 0 and res["norm_by_tag"][0]["pun"] == 0
+    assert res["norm_by_tag"][0]["alive_steps"] > 0
+
+
+def test_compete_multi_groups_and_same_seed_pairs():
+    side = measure.side_from_world(World(norm_cfg()))
+    g = measure.fix_resident_attack(side["genomes"])
+    cfg = _arena_cfg(norm_impulse=0.02)
+    with pytest.raises(ValueError):
+        measure.compete_multi(cfg, [(g, 0, 300), (g, 1, 101)], 10, seed=1)
+    groups = [(g, 0, 60), (g, 1, 60), (g, 2, 30)]
+    r1, w1 = measure.compete_multi(cfg, groups, 60, seed=5, return_world=True)
+    r2, w2 = measure.compete_multi(cfg, groups, 60, seed=5, return_world=True)
+    assert w1.state_hash() == w2.state_hash() and r1["alive_by_tag"] == r2["alive_by_tag"]
+    assert not w1.cfg.mutation_enabled
+    # 같은 씨앗이면 태그 구성이 달라도 칸(넣는 순서)마다 같은 자리·방향·나이로 시작한다
+    _, a = measure.compete_multi(cfg, groups, 0, seed=5, return_world=True)
+    _, b = measure.compete_multi(cfg, [(g, 3, 150)], 0, seed=5, return_world=True)
+    for name in ("x", "y", "heading", "age"):
+        assert (getattr(a.s, name)[:150] == getattr(b.s, name)[:150]).all(), name
+    tags = a.s.tag[:150]
+    assert [(tags == t).sum() for t in (0, 1, 2)] == [60, 60, 30]
+    # 넣는 순서를 섞어 낮은 칸이 한 태그에 몰리지 않는다
+    assert len(set(tags[:40].tolist())) == 3 and not (np.diff(tags) >= 0).all()
+    # 기존 compete는 그대로 돈다
+    assert "r" in measure.compete(cfg, g, g, 20, 20, seed=1)
+
+
+def test_compete_multi_reports_norm_tables():
+    side = measure.side_from_world(World(norm_cfg()))
+    g = measure.fix_resident_attack(side["genomes"])
+    ge = {kk: v.copy() for kk, v in g.items()}
+    ge["bout"][:, cfgmod.ACT_ATTACK] = 0.5                  # 공격하는 쪽(태그 1)
+    res = measure.compete_multi(_arena_cfg(norm_impulse=0.02), [(g, 0, 150), (ge, 1, 150)], 200, seed=2)
+    for key in ("norm_by_tag", "role_table", "alive_by_tag", "eaten_by_tag", "mark_prevalence",
+                "mark_prevalence_by_tag", "net_income_by_tag", "series"):
+        assert key in res, key
+    assert set(res["norm_by_tag"][1]) == set(k.NT_NAMES)
+    assert set(res["role_table"]) == set(k.RT_ROLES)
+    assert res["norm_by_tag"][1]["take"] + res["norm_by_tag"][1]["pun"] > 0
+    assert sum(res["alive_by_tag"].values()) > 0 and res["eaten_by_tag"][0] > 0
+    assert 0.0 <= res["mark_prevalence"] <= 1.0
+
+
+def test_net_income_per_step_by_tag_hand_values():
+    w = hand_world("norm")
+    s = w.s
+    s.tag[:4] = 1
+    s.eaten[:] = 0.0
+    s.eaten[0], s.eaten[5] = 2.0, 3.0
+    tab = s.norm_tab
+    vals = {k.NT_EATEN_DEAD: 10.0, k.NT_TAKE_GAIN: 1.5, k.NT_PUN_FINE: 0.5, k.NT_TAKE_DMG_RECV: 2.0,
+            k.NT_PUN_DMG_RECV: 1.0, k.NT_ATK_COST: 0.4, k.NT_ALIVE_STEPS: 100.0, k.NT_LIVES_DONE: 4.0}
+    for col, v in vals.items():
+        tab[1, col] = v
+    tab[0, k.NT_ALIVE_STEPS] = 50.0
+    out = measure.net_income_by_tag(w)
+    assert out[1]["net_per_step"] == pytest.approx((10.0 + 2.0 + 1.5 + 0.5 - 2.0 - 1.0 - 0.4) / 100.0)
+    assert out[1]["eaten_per_life_done"] == pytest.approx(10.0 / 4.0)
+    assert out[1]["life_mean"] == pytest.approx(100.0 / (4.0 + 4))        # 끝난 생 4 + 산 개체 4
+    assert out[0]["net_per_step"] == pytest.approx(3.0 / 50.0)
+    assert out[0]["eaten_per_life_done"] is None                           # 끝난 생이 없다
+    assert out[2]["net_per_step"] is None                                  # 개체 스텝이 없다
+
+
+def test_reseed_attack_row_matches_new_agent_distribution():
+    A = cfgmod.ACT_ATTACK
+    w = World(norm_cfg(init_agents=500, max_agents=600))
+    s = w.s
+    a = s.alive
+    s.bout[a, A] = 3.0                                       # 떠돈 공격 행
+    s.Wout[a, A, :] = 9.0
+    before = {name: getattr(s, name).copy() for name in ("Win", "Wrec", "bh", "Wout", "bout", "n_hidden")}
+    edits = w.reseed_attack_row(b0=-1.0, seed=5)
+    assert edits == ["reseed_attack_row(b0=-1.0)"]
+    assert (s.bout[a, A] == -1.0).all()
+    row = s.Wout[a, A, :].astype(np.float64)
+    sd = w.cfg.init_w_out
+    assert abs(row.mean()) < 0.05 * sd and row.std() == pytest.approx(sd, rel=0.05)
+    # n_hidden 밖 열도 새 개체와 같은 분포(random_genome이 h_max 전체를 채운다)
+    hmax_used = int(s.n_hidden[a].max())
+    assert hmax_used < w.cfg.h_max
+    assert s.Wout[a, A, hmax_used:].std() == pytest.approx(sd, rel=0.1)
+    # 다른 배열·다른 출력 행·죽은 칸은 그대로
+    other = [o for o in range(s.bout.shape[1]) if o != A]
+    assert (s.bout[:, other] == before["bout"][:, other]).all() and (s.Wout[:, other] == before["Wout"][:, other]).all()
+    assert (s.bout[~a] == before["bout"][~a]).all() and (s.Wout[~a] == before["Wout"][~a]).all()
+    for name in ("Win", "Wrec", "bh", "n_hidden"):
+        assert (getattr(s, name) == before[name]).all(), name
+    # 같은 씨앗이면 같고, 기울기 시작판 b0 = −0.3도 받는다
+    w2 = World(norm_cfg(init_agents=500, max_agents=600))
+    w2.reseed_attack_row(b0=-0.3, seed=5)
+    assert (w2.s.bout[a, A] == np.float32(-0.3)).all() and (w2.s.Wout[a, A, :] == s.Wout[a, A, :]).all()
+
+
+def test_branch_reseed_option_recorded_and_applies_to_all(tmp_path):
+    import json
+    from kkumteul.run import Runner, main as run_main
+    cfg = small("stage4", "norm_size")
+    m = Runner.new(tmp_path / "main", cfg)
+    m.loop(400, quiet=True)
+    m.close()
+    on = ["conflict_enabled=true", "norm_enabled=true"]
+    A = cfgmod.ACT_ATTACK
+    r = Runner.branch(tmp_path / "main", tmp_path / "re", 400, on, False, False, reseed_attack=True, attack_b0=-0.3)
+    a = r.world.s.alive
+    assert (r.world.s.bout[a, A] == np.float32(-0.3)).all()
+    r.close()
+    edits = json.loads((tmp_path / "re" / "run.json").read_text())["genome_edits"]
+    assert edits == ["bout[ACT_ATTACK]=-1", "reseed_attack_row(b0=-0.3)"]     # calm_attack 뒤에 겹쳐 건다
+    plain = Runner.branch(tmp_path / "main", tmp_path / "plain", 400, on, False, False)
+    plain.close()
+    assert json.loads((tmp_path / "plain" / "run.json").read_text())["genome_edits"] == ["bout[ACT_ATTACK]=-1"]
+    # CLI
+    run_main(["branch", "--from", str(tmp_path / "main"), "--run", str(tmp_path / "cli"), "--at", "400",
+              "--steps", "1", "--quiet", "--set", on[0], "--set", on[1], "--reseed-attack-row", "--attack-b0", "-0.3"])
+    assert json.loads((tmp_path / "cli" / "run.json").read_text())["genome_edits"][-1] == "reseed_attack_row(b0=-0.3)"
+    run_main(["branch", "--from", str(tmp_path / "main"), "--run", str(tmp_path / "cli2"), "--at", "400",
+              "--steps", "1", "--quiet", "--reseed-attack-row"])
+    assert json.loads((tmp_path / "cli2" / "run.json").read_text())["genome_edits"] == ["reseed_attack_row(b0=-1.0)"]
+    with pytest.raises(SystemExit):
+        run_main(["branch", "--from", str(tmp_path / "main"), "--run", str(tmp_path / "cli3"), "--at", "400",
+                  "--steps", "1", "--quiet", "--attack-b0", "-0.3"])
+
+
+def test_branch_resizes_to_norm_size(tmp_path):
+    from kkumteul.run import Runner
+    m = Runner.new(tmp_path / "main", small("stage4", "conflict"))
+    m.loop(400, quiet=True)
+    m.close()
+    r = Runner.branch(tmp_path / "main", tmp_path / "n", 400, ["preset=norm_size", "norm_enabled=true"], False, False)
+    w = r.world
+    assert w.cfg.n_in == norm_cfg().n_in and w.cfg.norm_enabled
+    assert not w.s.Win[w.s.alive, w.cfg.norm_in0:, :].any()
+    r.loop(50, quiet=True)
+    r.close()
+    assert w.step_no == 450
+

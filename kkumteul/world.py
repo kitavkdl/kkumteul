@@ -139,6 +139,18 @@ class World:
         self.s.bout[self.s.alive, ACT_ATTACK] = -1.0
         return ["bout[ACT_ATTACK]=-1"]
 
+    def reseed_attack_row(self, b0: float = -1.0, seed: int | None = None) -> list[str]:
+        """산 개체의 공격 출력 행을 새 개체의 초기 분포로 다시 뽑는다: 편향 = b0(새 개체는 −1, 기울기 시작판은 −0.3),
+        Wout[:, ACT_ATTACK, :] = init_w_out × 표준정규. 열은 n_hidden까지가 아니라 h_max 전체(random_genome과 같다:
+        나중에 은닉이 늘어 새로 쓰이는 열도 새 개체와 같은 분포). 다른 출력 행·배열은 그대로.
+        난수는 numpy 생성기(seed가 없으면 cfg.seed에서 파생)라 rng.py 용도 번호를 안 쓴다. 손댄 것을 돌려준다."""
+        s = self.s
+        a = np.flatnonzero(s.alive)
+        gen = np.random.default_rng(self.cfg.seed + 7741 if seed is None else seed)
+        s.bout[a, ACT_ATTACK] = b0
+        s.Wout[a, ACT_ATTACK, :] = (self.cfg.init_w_out * gen.standard_normal((len(a), s.Wout.shape[2]))).astype(s.Wout.dtype)
+        return [f"reseed_attack_row(b0={float(b0)})"]
+
     # ---- 사건 버퍼 ----
     def _take_births(self, nb: int) -> None:
         if nb:

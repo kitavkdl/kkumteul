@@ -29,7 +29,7 @@ import numpy as np
 
 from . import checkpoint as ckpt
 from . import kernels as k
-from .config import FIRST_MEALS, Config
+from .config import ACT_ATTACK, FIRST_MEALS, Config
 from .world import World
 
 GENOME = ("Win", "Wrec", "bh", "Wout", "bout", "n_hidden", "sigma", "color", "rw", "eta", "alpha", "taste_g", "soc_g",
@@ -209,6 +209,126 @@ def compete(cfg: Config, ga: dict, gb: dict, n_each: int, steps: int, seed: int,
     return {"n_a": int(arr[-1, 1]), "n_b": int(arr[-1, 2]), "r": r, "series": series,
             "extinct": extinct_label(int(arr[-1, 1]), int(arr[-1, 2])), "first10": first10,
             "grad_by_tag": world.grad_table()}   # {태그 행: {GT_NAMES 이름: 값}}, 0=A·1=B(장치가 꺼진 세계는 전부 0)
+
+
+# ---- 규범의 씨앗: 겨루기 마당 준비와 다태그 겨루기 ----
+def norm_arena_side(path: Path, sets=()) -> dict:
+    """체크포인트를 규범 블록 크기(preset=norm_size)로 올려 읽어 겨루기 한쪽을 만든다(늘어난 입력 열의 가중치는 0).
+    cfg 없이 load_side로 읽으면 옛 크기 그대로라 norm 크기 세계와 check_same_shape를 못 통과한다.
+    sets = 덧붙일 설정("key=value" 목록, 예: conflict_enabled=true)."""
+    path = Path(path)
+    cfg = ckpt.read_config(path).with_overrides(["preset=norm_size", *sets])
+    world, _ = ckpt.load(path, cfg)
+    return side_from_world(world, str(path))
+
+
+def fix_resident_attack(genomes: dict) -> dict:
+    """거주민 유전체의 사본: 공격 편향 −1, 공격 출력 행 0(편향만 고치면 Wout·h가 자라 양수가 되는 길이 남는다).
+    충동이 없는 마당에서 거주민의 공격(가로채기·벌)이 0이 된다(관문 −1e의 전제)."""
+    g = {key: v.copy() for key, v in genomes.items()}
+    g["bout"][:, ACT_ATTACK] = -1.0
+    g["Wout"][:, ACT_ATTACK, :] = 0.0
+    return g
+
+
+def _norm_rows_of(tags: np.ndarray) -> np.ndarray:
+    """태그를 규범 계수표 행으로(0~3은 그 행, 그 밖은 마지막 행에 접는다 — 커널의 _norm_row와 같다)."""
+    last = k.TAG_ROWS_NORM - 1
+    return np.where((tags >= 0) & (tags < last), tags, last)
+
+
+def net_income_by_tag(world: World) -> dict:
+    """규범 계수표 행(태그)마다 개체 스텝당 순수입과 그 짝.
+    net_per_step = (EATEN_DEAD + 산 개체 eaten 합 + TAKE_GAIN + PUN_FINE − TAKE_DMG_RECV − PUN_DMG_RECV − ATK_COST)
+    ÷ ALIVE_STEPS. 같은 몸 쌍둥이끼리 수명 차이를 스텝으로 정규화한 값이고, 한 생 값은 × 평균 수명으로 환산한다.
+    알려진 편향: 맞아 죽어 수명이 줄어드는 몫은 안 들어간다(죽으면 개체 스텝이 멈출 뿐) — 그래서
+    eaten_per_life_done(끝난 생의 평균 먹은 양)과 life_mean(ALIVE_STEPS ÷ (끝난 생 + 산 개체))을 같이 낸다.
+    산 개체 eaten은 그 생 전체의 값이라 계수표를 생 중간에 지운 세계(겨루기 마당이 아닌 곳)에서는 앞부분이 섞인다.
+    분모가 0이면 None."""
+    s = world.s
+    tab = s.norm_tab
+    rows = _norm_rows_of(s.tag[s.alive])
+    eaten = s.eaten[s.alive]
+    out = {}
+    for r in range(tab.shape[0]):
+        m = rows == r
+        live_eaten = float(eaten[m].sum())
+        n_alive = int(m.sum())
+        steps = float(tab[r, k.NT_ALIVE_STEPS])
+        lives = float(tab[r, k.NT_LIVES_DONE])
+        net = (float(tab[r, k.NT_EATEN_DEAD]) + live_eaten + float(tab[r, k.NT_TAKE_GAIN]) + float(tab[r, k.NT_PUN_FINE])
+               - float(tab[r, k.NT_TAKE_DMG_RECV]) - float(tab[r, k.NT_PUN_DMG_RECV]) - float(tab[r, k.NT_ATK_COST]))
+        out[r] = {
+            "net_per_step": net / steps if steps > 0 else None,
+            "eaten_per_life_done": float(tab[r, k.NT_EATEN_DEAD]) / lives if lives > 0 else None,
+            "life_mean": steps / (lives + n_alive) if lives + n_alive > 0 else None,
+            "alive_steps": steps, "lives_done": lives, "alive_now": n_alive,
+        }
+    return out
+
+
+def compete_multi(cfg: Config, groups, steps: int, seed: int, sample_every: int = 500,
+                  return_world: bool = False):
+    """여러 태그를 한 마당에: groups = [(유전체, 태그, 개체 수), ...]. 변이는 끈다(arena_config).
+    같은 seed면 칸(넣는 차례)마다 같은 자리·방향·나이로 시작한다(태그 구성이 다른 마당끼리 같은 씨앗 짝으로 견준다).
+    태그를 칸에 무작위로 섞어 넣어 칸 번호(처리 순서)가 한 태그에 유리하지 않게 한다.
+    결과: 태그별 규범 계수표(norm_by_tag, NT_NAMES 사전)·역할표(role_table, 마당 전체 — 역할표는 태그로 안 나뉜다)·
+    산 개체 수·끝 시점 eaten 합·표시 유병률·개체 스텝당 순수입(net_income_by_tag)·개체 수 표본(series)."""
+    groups = list(groups)
+    n_total = sum(int(c) for _, _, c in groups)
+    rng = np.random.default_rng(seed)
+    acfg = arena_config(cfg, seed, n_total)
+    world = World(acfg, populate=False)
+    world.reset_grad_table()
+    world.reset_norm_tables()
+    for _ in range(int(0.5 * acfg.food_cap * acfg.food_energy / max(acfg.food_inflow, 1e-9))):
+        k.spawn_food(0, world.s, world.fp, world.ip)
+    # 칸 배치(자리·방향·나이)를 먼저 뽑는다: 태그 구성과 무관하게 씨앗만으로 정해진다
+    px = rng.random(n_total) * acfg.world_w
+    py = rng.random(n_total) * acfg.world_h
+    hd = rng.random(n_total) * 2 * math.pi
+    ages = rng.integers(0, max(1, acfg.max_age // 2), size=n_total)
+    entries = []
+    for g, tag, count in groups:
+        n_g = len(g["n_hidden"])
+        rows = rng.choice(n_g, size=int(count), replace=n_g < int(count))
+        entries += [(g, int(row), int(tag)) for row in rows]
+    order = rng.permutation(n_total)
+    for slot in range(n_total):
+        g, row, tag = entries[order[slot]]
+        inject_agent(world, g, row, tag, float(px[slot]), float(py[slot]), float(hd[slot]), int(ages[slot]))
+    tag_list = sorted({int(tag) for _, tag, _ in groups})
+
+    def counts() -> dict:
+        tags = world.s.tag[world.s.alive]
+        return {tag: int((tags == tag).sum()) for tag in tag_list}
+    series = [[world.step_no, counts()]]
+    t = 0
+    while t < steps:
+        n = min(sample_every, steps - t)
+        world.run(n)
+        t += n
+        series.append([world.step_no, counts()])
+    world.drain_events()
+    s = world.s
+    live = s.alive
+    tab = s.norm_tab
+    tot = tab.sum(axis=0)
+    norm = world.norm_table()
+    rows_of = {tag: int(_norm_rows_of(np.array([tag]))[0]) for tag in tag_list}
+    res = {
+        "n_total": n_total, "steps": steps, "seed": seed,
+        "alive_by_tag": counts(),
+        "eaten_by_tag": {tag: float(s.eaten[live & (s.tag == tag)].sum()) for tag in tag_list},
+        "norm_by_tag": {tag: norm[rows_of[tag]] for tag in tag_list},
+        "role_table": world.norm_role_table(),
+        "mark_prevalence": float(tot[k.NT_MARKED_STEPS] / tot[k.NT_ALIVE_STEPS]) if tot[k.NT_ALIVE_STEPS] > 0 else 0.0,
+        "mark_prevalence_by_tag": {tag: (float(tab[r, k.NT_MARKED_STEPS] / tab[r, k.NT_ALIVE_STEPS])
+                                         if tab[r, k.NT_ALIVE_STEPS] > 0 else None) for tag, r in rows_of.items()},
+        "net_income_by_tag": {tag: net_income_by_tag(world)[r] for tag, r in rows_of.items()},
+        "series": series,
+    }
+    return (res, world) if return_world else res
 
 
 def _first10(world: World) -> dict:

@@ -218,12 +218,16 @@ class Runner:
 
     @classmethod
     def branch(cls, src: Path, run_dir: Path, at: int | None, overrides: list[str],
-               new_stream: bool, passive: bool, scenario=None, calm_attack: bool = False) -> "Runner":
+               new_stream: bool, passive: bool, scenario=None, calm_attack: bool = False,
+               reseed_attack: bool = False, attack_b0: float = -1.0) -> "Runner":
         """scenario(각본 파일 경로나 Scenario)를 주면 갈라낸 스텝부터 그 각본을 적용한다.
 
         calm_attack이거나 이 갈래에서 공격(conflict_enabled)이나 동물 장치(사냥감)가 새로 켜지면(attack_newly_on),
         살아 있는 개체의 공격 출력 편향을 새로 만든 개체와 같은 -1로 맞춘다. 공격이 꺼진 세계에서는 그 출력이
         쓰이지 않아 변이로 떠돌았기 때문에, 그대로 켜면 처음부터 공격자가 섞인 채 시작한다. 견줄 대조 갈래에는 --calm-attack을 준다.
+
+        reseed_attack이면 그 뒤에(편향 −1이 이미 걸렸어도) 산 개체의 공격 출력 행을 새 개체의 초기 분포로 다시 뽑는다
+        (편향 attack_b0, World.reseed_attack_row). 편향만 맞추면 떠돈 출력 가중치가 남는다(규범 갈래).
         """
         if (run_dir / "run.json").exists():
             raise FileExistsError(f"이미 있는 실행이다: {run_dir}")
@@ -262,6 +266,8 @@ class Runner:
             edits.append("lifetime_reset: " + ", ".join(cmeta["lifetime_reset"]))
         if calm_attack or attack_newly_on(old, cfg):
             edits += world.calm_attack()
+        if reseed_attack:
+            edits += world.reseed_attack_row(attack_b0)
         diff = {key: [getattr(old, key), val] for key, val in d.items() if getattr(old, key) != val}
         scn = read_scenario(scenario, cfg)
         lock = acquire_lock(run_dir)
@@ -471,7 +477,13 @@ def main(argv=None) -> int:
             p.add_argument("--passive", action="store_true", help="선택 없는 대조 실행으로 만든다")
             p.add_argument("--calm-attack", action="store_true",
                            help="공격 출력 편향을 -1로 맞춘다(공격이나 사냥감을 켠 갈래와 견줄 대조 갈래에 준다)")
+            p.add_argument("--reseed-attack-row", action="store_true",
+                           help="공격 출력 행(편향과 가중치)을 새 개체의 초기 분포로 다시 뽑는다(규범 갈래)")
+            p.add_argument("--attack-b0", type=float, default=None,
+                           help="--reseed-attack-row의 공격 편향(기본 -1, 기울기 시작판은 -0.3)")
     args = ap.parse_args(argv)
+    if args.cmd == "branch" and args.attack_b0 is not None and not args.reseed_attack_row:
+        ap.error("--attack-b0는 --reseed-attack-row와 같이 쓴다")
 
     if args.cmd == "new":
         base = Config.load(args.config) if args.config else Config()
@@ -480,7 +492,8 @@ def main(argv=None) -> int:
         runner = Runner.resume(args.run)
     else:
         runner = Runner.branch(args.src, args.run, args.at, args.set, args.new_stream, args.passive,
-                               args.scenario, args.calm_attack)
+                               args.scenario, args.calm_attack, args.reseed_attack_row,
+                               -1.0 if args.attack_b0 is None else args.attack_b0)
 
     cfg = runner.world.cfg
     if cfg.threads > 0:
