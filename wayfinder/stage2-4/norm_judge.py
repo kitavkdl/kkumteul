@@ -76,11 +76,7 @@ CELLS = {
     "grp-2": _cell("all2", 1.0, ON),
     "grp-3": _cell("all3", 1.0, ON),
 }
-CORE = ("base", "hand-phi0.1", "hand-phi0.3", "hand-phi1.0", "grp-1", "grp-2", "grp-3", "hand3-phi0.3",
-        "hand-phi0.3-inert", "hand-phi0.3-ret0", "hand-phi0.3-ret0.5", "hand-phi0.3-L1", "off", "noimp")
-DELTA = ("hand-phi0.3-sig-ret0", "hand-phi0.3-sig-ret0.1", "hand-phi0.3-none-q-ret0", "hand-phi0.3-none-q-ret0.1")
-REST = ("hand-phi0.3-nearest", "hand-phi0.3-inh0", "hand-phi0.3-inh0.4", "hand-phi0.3-L10", "hand-phi0.3-tau1",
-        "hand-phi0.3-noise0.0005", "hand-phi0.3-noise0.002")
+CORE, DELTA, REST = ng.CORE, ng.DELTA, ng.REST     # 묶음은 norm_gate에 한 번만 적는다(gate-hand가 CORE·DELTA를 요구)
 
 
 def _dump(obj, path: Path | None) -> None:
@@ -532,8 +528,8 @@ W_NAMES = ("meas", "inert", "full", "noimp", "sig", "none")
 
 def gate_world_dir(directory: Path, tags) -> dict:
     obs = {name: [o for o in (_load_json(directory / f"w-{name}-{t}.json") for t in tags) if o] for name in W_NAMES}
-    out = ng.gate_world(obs, _load_json(directory / "arena-check.json"))
-    out["missing"] = [f"w-{n}-{t}" for n in W_NAMES for t in tags if not (directory / f"w-{n}-{t}.json").exists()]
+    out = ng.gate_world(obs, _load_json(directory / "arena-check.json"), need=len(tags))
+    out["missing_files"] = [f"w-{n}-{t}" for n in W_NAMES for t in tags if not (directory / f"w-{n}-{t}.json").exists()]
     return out
 
 
@@ -547,10 +543,10 @@ def read_cells(directory: Path, arena: str = "std") -> dict:
 
 
 def gate_hand_dir(directory: Path) -> dict:
+    """관문 α·β·γ·δ·−2. δ의 50% 규칙은 같은 폴더의 gate-world.json(관문 −1 결과)에서 읽는다(없으면 δ 미판정)."""
     cells, mix = read_cells(directory, "std"), read_cells(directory, "mix")
-    out = ng.gate_hand(cells, mix)
-    out["missing"] = [c for c in (*CORE, *DELTA) if c not in cells]
-    return out
+    world = _load_json(directory / "gate-world.json")
+    return ng.gate_hand(cells, mix, world=world)
 
 
 def final_dir(directory: Path, tags) -> dict:

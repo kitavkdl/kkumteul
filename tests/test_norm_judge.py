@@ -33,14 +33,16 @@ def row(**kw):
     return r
 
 
-def run(dr=0.01, net=None, alive=None, epp=None, prev=0.05, energy=None, steps=10000.0):
-    """합성 한 판: 태그별 계수표·순수입·산 개체 수. net = {태그: 개체 스텝당 순수입}."""
+def run(dr=0.01, net=None, alive=None, epp=None, prev=0.05, energy=None, steps=10000.0, dr_all=None):
+    """합성 한 판: 태그별 계수표·순수입·산 개체 수. net = {태그: 개체 스텝당 순수입}.
+    dr_all = 가로채기 피해율(TAKE_DMG_RECV ÷ 개체 스텝, 없으면 dr과 같게)."""
     net = net or {0: 0.006}
     alive = alive or {t: 100 for t in net}
     nbt, nibt = {}, {}
     for t, v in net.items():
         ep = 100.0
-        nbt[t] = row(viol_dmg_recv=dr * steps, alive_steps=steps, mark_epis0=ep,
+        nbt[t] = row(viol_dmg_recv=dr * steps, take_dmg_recv=(dr if dr_all is None else dr_all) * steps,
+                     alive_steps=steps, mark_epis0=ep,
                      mark_epis_pun0=(epp if epp is not None else 0.3) * ep)
         nibt[t] = {"net_per_step": v, "eaten_per_life_done": 9.0 + t, "life_mean": 1500.0 + t}
     return {"norm_by_tag": nbt, "net_income_by_tag": nibt, "alive_by_tag": alive, "mark_prevalence": prev,
@@ -133,6 +135,25 @@ def test_damage_rate_definition_mode_independent():
     assert s["dr"] == [pytest.approx(0.004), pytest.approx(0.006)]
 
 
+def test_alpha_off_control_uses_take_damage_rate():
+    """off(표시 없음)의 위반 피해율은 표시된 대상을 친 충동 피해까지 세어 base보다 높게 나온다(정의가 다름).
+    α의 off 대조는 두 칸에서 정의가 같은 가로채기 피해율(TAKE_DMG_RECV ÷ 개체 스텝)로 견준다."""
+    off = row(viol_dmg_recv=10.0, take_dmg_recv=10.0, alive_steps=1000.0)          # 표시가 없어 모든 피해가 위반
+    base = row(viol_dmg_recv=9.2, take_dmg_recv=10.0, take_on_marked=4.0, alive_steps=1000.0)
+    assert ng.damage_rate(off) > ng.damage_rate(base)
+    assert ng.damage_rate_all(off) == ng.damage_rate_all(base) == pytest.approx(0.01)
+    c = cells_working()
+    # off의 위반 피해율만 8% 높고(표시된 대상 몫) 가로채기 피해율은 base와 같다 → 대조 통과
+    c["off"] = ng.cell_summary({"runs": [run(dr=0.0108 - j, dr_all=0.0100 - j) for j in JIT]})
+    a = ng.gate_alpha(c)
+    assert a["verdict"] == "작동" and a["controls"]["off"]["rate"] == "dr_all"
+    assert ng.welch(c["off"]["dr"], c["base"]["dr"])["sign"] == 1      # 옛 정의였다면 도구 깨짐
+    # 가로채기 피해율이 정말 다르면 깨짐
+    c["off"] = ng.cell_summary({"runs": [run(dr=0.0100 - j, dr_all=0.0110 - j) for j in JIT]})
+    assert ng.gate_alpha(c)["verdict"] == "도구 깨짐"
+    assert "오조준" in ng.LABEL_MISAIM
+
+
 def test_net_income_levels_hand_values():
     nets = [0.0010, 0.0012, 0.0008, 0.0011, 0.0009, 0.0010]
     runs = [run(net={0: 0.006, 1: 0.006 + d, 2: 0.006}) for d in nets]
@@ -199,8 +220,10 @@ def test_gate_alpha_beta_gamma_delta():
     assert "상습 위반자" in ng.gate_gamma(cl)["L1"]
     cl = dict(c, **{"hand-phi0.3-L1": cell([0.0088 - j for j in JIT])})
     assert "억지가 아닌 곳" in ng.gate_gamma(cl)["L1"]
-    # δ
-    assert ng.gate_delta(c)["verdict"] == "δ 미판정"
+    # δ (관문 −1의 50% 규칙을 world에서 읽는다)
+    wok = {"-1c": {"delta_readable": True, "src_match": True}}
+    wbad = {"-1c": {"delta_readable": False, "src_match": False}}
+    assert ng.gate_delta(c, wok)["verdict"] == "δ 미판정"
     take = cell(JIT, epp=0.40, net={1: 0.0070, 2: 0.006})
     take["epp"] = [0.40 + j * 10 for j in JIT]
     sig = cell(JIT, epp=0.20, net={1: 0.0062, 2: 0.006})
@@ -208,28 +231,51 @@ def test_gate_alpha_beta_gamma_delta():
     nonq = cell(JIT, epp=0.20, net={1: 0.0062, 2: 0.006})
     nonq["epp"] = [0.21 + j * 10 for j in JIT]
     cd = dict(c, **{"hand-phi0.3-ret0": take, "hand-phi0.3-sig-ret0": sig, "hand-phi0.3-none-q-ret0": nonq})
-    assert ng.gate_delta(cd)["verdict"] == "기능에서 값을 얻는다"
+    assert ng.gate_delta(cd, wok)["verdict"] == "기능에서 값을 얻는다"
+    assert ng.gate_delta(cd)["verdict"] == "δ 미판정"                         # 세계 점검 결과 없음
+    assert ng.gate_delta(cd, wbad)["verdict"] == "유병률 맞춤 밖이라 δ를 읽지 않음"   # 세 원천 50% 밖
     same = cell(JIT, epp=0.40, net={1: 0.0070, 2: 0.006})
     same["epp"] = [0.40 - j * 10 for j in JIT]
     cs = dict(cd, **{"hand-phi0.3-sig-ret0": same, "hand-phi0.3-none-q-ret0": same})
-    assert ng.gate_delta(cs)["verdict"] == "표시 자체가 약탈 대상"
+    assert ng.gate_delta(cs, wok)["verdict"] == "표시 자체가 약탈 대상"
     far = cell(JIT, prev=0.2)
-    assert ng.gate_delta(dict(cd, **{"hand-phi0.3-sig-ret0": far}))["verdict"] == "유병률이 달라 가를 수 없음"
+    assert ng.gate_delta(dict(cd, **{"hand-phi0.3-sig-ret0": far}), wok)["verdict"] == "유병률이 달라 가를 수 없음"
     # 합친 네 경우: 작동 + 이득 / 작동 + 가를 수 없음 / 작동 아님 / 도구 깨짐
     neutral = [0.00001, -0.00001, 0.00002, -0.00002, 0.0, 0.00001]
     full = dict(cd)
     full["base"] = dict(full["base"], neutral=neutral)
     gain = [run(dr=0.0088 + j, net={0: 0.006, 1: 0.0062 + j, 2: 0.006}) for j in JIT]
     full["hand-phi0.3"] = ng.cell_summary({"runs": gain})
-    assert ng.gate_hand(full)["case"] == "작동 + 이득" and ng.gate_hand(full)["code"] == 0
+    # 나머지 필요한 칸(CORE·DELTA): N_ind3·N_grp3가 읽는 태그 자료까지
+    flat_net = {0: 0.006, 1: 0.006, 3: 0.006}
+    full["hand3-phi0.3"] = ng.cell_summary({"runs": [run(dr=0.0088 + j, net={0: 0.006, 1: 0.006 + j, 3: 0.006})
+                                                     for j in JIT]})
+    for name, tg in (("grp-1", 1), ("grp-2", 2), ("grp-3", 3)):
+        full[name] = ng.cell_summary({"runs": [run(dr=0.008 + j, net={tg: 0.006 + j}) for j in JIT]})
+    for name in ng.HAND_REQUIRED:
+        full.setdefault(name, cell([0.0090 + j for j in JIT], net=flat_net))
+    gh = ng.gate_hand(full, world=wok)
+    assert gh["case"] == "작동 + 이득" and gh["code"] == 0 and gh["missing"] == []
     flat = dict(full)
     flat["hand-phi0.3"] = ng.cell_summary({"runs": [run(dr=0.0088 + j, net={0: 0.006, 1: 0.006 + j, 2: 0.006})
                                                     for j in JIT]})
-    assert ng.gate_hand(flat)["code"] == 3 and ng.gate_hand(flat)["case"] == "작동 + 이득을 가를 수 없음"
-    assert ng.gate_hand(dict(full, **{"hand-phi0.3": c3["hand-phi0.3"]}))["case"] == "작동 아님"
-    assert ng.gate_hand(dict(full, **{"hand-phi0.3-inert": c2["hand-phi0.3-inert"]}))["code"] == 4
+    assert ng.gate_hand(flat, world=wok)["code"] == 3
+    assert ng.gate_hand(flat, world=wok)["case"] == "작동 + 이득을 가를 수 없음"
+    assert ng.gate_hand(dict(full, **{"hand-phi0.3": c3["hand-phi0.3"]}), world=wok)["case"] == "작동 아님"
+    assert ng.gate_hand(dict(full, **{"hand-phi0.3-inert": c2["hand-phi0.3-inert"]}), world=wok)["code"] == 4
     nodelta = {key: v for key, v in full.items() if key != "hand-phi0.3-sig-ret0"}
-    assert ng.gate_hand(nodelta)["code"] == 5      # δ 칸이 없으면 0으로 두지 않는다
+    assert ng.gate_hand(nodelta, world=wok)["code"] == 5      # δ 칸이 없으면 0으로 두지 않는다
+    assert ng.gate_hand(full)["code"] == 5                    # 관문 −1 결과(δ의 50% 규칙)가 없으면 미판정
+    # α 칸 밖의 필요한 칸(grp-*·hand3·noimp·ret0.5 …)이 하나라도 빠지면 미판정 — 이득이 있어 보여도 0이 아니다
+    for gone in ("grp-3", "hand3-phi0.3", "noimp", "hand-phi0.3-ret0.5", "hand-phi0.3-none-q-ret0.1"):
+        g5 = ng.gate_hand({key: v for key, v in full.items() if key != gone}, world=wok)
+        assert g5["code"] == 5 and gone in g5["missing"], gone
+    # 칸은 있는데 N_ind3가 읽는 태그(1·3) 자료가 없으면 미판정
+    g5 = ng.gate_hand(dict(full, **{"hand3-phi0.3": cell(JIT, net={0: 0.006})}), world=wok)
+    assert g5["code"] == 5 and "N_ind3" in g5["missing"]
+    # base의 중립 반복(관문 −2)이 없으면 미판정
+    nb = dict(full, base=cells_working()["base"])
+    assert ng.gate_hand(nb, world=wok)["code"] == 5
 
 
 def test_detectability_minus2_and_threshold():
@@ -272,9 +318,17 @@ def test_gate_world_minus1():
     assert g["code"] == 3 and "25" in g["-1c"]["advice"]                                    # −1c 상한
     g = ng.gate_world(obs(sig=[_wobs(prev=0.09)] * 2), ac)
     assert g["-1c"]["ok"] and not g["-1c"]["src_match"] and not g["-1c"]["delta_readable"]  # 원천 50% 밖
+    g = ng.gate_world(obs(sig=[_wobs(prev=0.07)] * 2), ac)
+    assert g["-1c"]["delta_readable"]                                                       # 1.4배는 50% 안
     assert ng.gate_world(obs(full=[_wobs(nz=0.1, pr=0.3)] * 2), ac)["code"] == 3          # −1d
     assert ng.gate_world(obs(), {"take": 3, "pun": 0})["code"] == 3                         # −1e
-    assert ng.gate_world(obs(), None)["code"] == 3
+    assert ng.gate_world(obs(), None)["code"] == 5                                          # arena-check 없음
+    # 한 씨앗뿐인 세계나 빠진 원천은 통과시키지 않는다(need = 씨앗 수)
+    assert ng.gate_world(obs(), ac, need=2)["code"] == 0
+    g = ng.gate_world(obs(full=[_wobs()]), ac, need=2)
+    assert g["code"] == 5 and g["missing"] == ["full"]
+    g = ng.gate_world({key: v for key, v in obs().items() if key != "none"}, ac, need=2)
+    assert g["code"] == 5 and "none" in g["missing"]
 
 
 def test_bottom_judgment():
@@ -298,7 +352,7 @@ def test_bottom_judgment():
     assert ng.bottom([{"norm_by_tag": {1: odd}}] * 2, runs_m[:2])["kin_infl_usable"] is False
 
 
-def _bsum(n_ind=(0.0001, 0.0002, 0.0003), n_ind3=(0.0001, 0.0002, 0.0003), sel=(1.1, 1.3, 1.5), grp3=None):
+def _bsum(n_ind=(0.00015, 0.0002, 0.00025), n_ind3=(0.00015, 0.0002, 0.00025), sel=(1.1, 1.3, 1.5), grp3=None):
     def lvl(t):
         return {"lo": t[0], "mean": t[1], "hi": t[2]}
     return {"n_ind": lvl(n_ind), "n_ind3": lvl(n_ind3), "selectivity": lvl(sel),
@@ -306,13 +360,14 @@ def _bsum(n_ind=(0.0001, 0.0002, 0.0003), n_ind3=(0.0001, 0.0002, 0.0003), sel=(
 
 
 def test_main_judgment_sentence_and_codes():
-    null = _bsum((-0.0002, 0.0, 0.0002), (-0.0002, 0.0, 0.0002), (0.8, 1.0, 1.2))
+    null = _bsum((-0.0001, 0.0, 0.0001), (-0.0001, 0.0, 0.0001), (0.8, 1.0, 1.2))
     noimp = _bsum((-0.0001, 0.0, 0.0001))
-    knock = {"on": -2.0, "inert": 0.0, "limit": 0.5}
+    # knockout r = ln(원래 ÷ 막은 쪽)의 기울기: 양이면 막기가 해롭다 → 켠 무리가 inert보다 커야 "가를 수 있는 방향"
+    knock = {"on": 2.0, "inert": 0.0, "limit": 0.5}
     m = ng.main_judgment(_bsum(), {"inert": null, "off": null}, noimp, knock, _bsum())
     assert m["code"] == 0 and m["verdict"] == "그 수준(3자 집행)의 벌주기 씨앗이 개인에게 이득"
     assert "크거나 같다" in m["note_win"]
-    m = ng.main_judgment(_bsum(n_ind3=(-0.0001, 0.0, 0.0001)), {"inert": null}, noimp, knock,
+    m = ng.main_judgment(_bsum(n_ind3=(-0.0001, 0.0, 0.0001)), {"inert": null, "off": null}, noimp, knock,
                          _bsum(n_ind3=(-0.0001, 0.0, 0.0001)))
     assert m["code"] == 0 and "2자 맞대응" in m["verdict"]
     # 선택성 아래끝이 1 아래 → 가를 수 없음
@@ -325,9 +380,28 @@ def test_main_judgment_sentence_and_codes():
     assert ng.main_judgment(_bsum(), {"inert": null}, bad, knock, _bsum())["code"] == 4
     # 2차 딜레마 문장은 따로(OR 아님)
     dil = _bsum(n_ind=(-0.0001, 0.0, 0.0001), n_ind3=(-0.0001, 0.0, 0.0001), grp3=(0.0001, 0.0003, 0.0005))
-    m = ng.main_judgment(dil, {"inert": null}, noimp, knock, None)
+    m = ng.main_judgment(dil, {"inert": null}, noimp, knock, dil)
     assert m["code"] == 3 and "2차 딜레마" in m["dilemma"]
     assert ng.main_judgment({}, {}, None)["code"] == 5
+    # 감각 막기 방향: 켠 무리의 r가 inert보다 작으면(막기가 덜 해로우면) 크기가 커도 통과가 아니다
+    rev = {"on": -2.0, "inert": 0.0, "limit": 0.5}
+    m = ng.main_judgment(_bsum(), {"inert": null}, noimp, rev, _bsum())
+    assert m["code"] == 3 and m["conditions"]["knock_vs_inert"] is False
+    # null과 구간이 겹치면(null이 0 위가 아니어도) 구분 안 됨
+    wide = _bsum((-0.0001, 0.00012, 0.0003), (-0.0001, 0.00012, 0.0003))
+    m = ng.main_judgment(_bsum(), {"inert": wide}, noimp, knock, _bsum())
+    assert m["code"] == 3 and m["conditions"]["null_distinct"] is False
+    # sd·n이 있으면 Welch로
+    lv_on = {"lo": 0.0001, "mean": 0.0002, "hi": 0.0003, "sd": 0.0001, "n": 6}
+    lv_null = {"lo": -0.0001, "mean": 0.0, "hi": 0.0001, "sd": 0.0001, "n": 6}
+    assert ng._distinct_above(lv_on, lv_null) is True       # 구간은 겹치지만(0.0001 = 0.0001) Welch로는 가른다
+    assert ng._distinct_above(lv_null, lv_on) is False
+    # 원자료가 없으면 3이 아니라 미판정(5): 다른 씨앗·noimp·막기·null
+    assert ng.main_judgment(_bsum(), {"inert": null}, noimp, knock, None)["code"] == 5
+    assert ng.main_judgment(_bsum(), {"inert": null}, None, knock, _bsum())["code"] == 5
+    assert ng.main_judgment(_bsum(), {"inert": null}, noimp, None, _bsum())["code"] == 5
+    assert ng.main_judgment(_bsum(), {"inert": null, "off": None}, noimp, knock, _bsum())["code"] == 5
+    assert ng.main_judgment(_bsum(), {}, noimp, knock, _bsum())["code"] == 5
 
 
 def test_calibrate_prevalence_bisect():

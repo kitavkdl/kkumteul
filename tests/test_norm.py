@@ -1976,14 +1976,27 @@ def test_block3_allows_self_defense_only():
 
 
 def test_block_minus_one_has_no_effect():
+    # 태그 2·3인 개체가 실제로 있는 세계에서: 막기 −1(기본)과 −1을 손으로 준 설정이 같고, 태그 2·3도 벌을 준다
+    # (태그가 없는 세계에서 견주면 막기 가드가 빠져도 통과하므로 태그를 붙인다)
     hashes = []
-    for kw in (dict(), dict(norm_block_tag=3, norm_block3_tag=2)):    # 아무도 태그 2·3이 아니다
+    for kw in (dict(), dict(norm_block_tag=-1, norm_block3_tag=-1)):
         w = World(norm_cfg(norm_impulse=0.03, **kw))
         w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+        idx = np.flatnonzero(w.s.alive)
+        w.s.tag[idx[0::3]] = 2
+        w.s.tag[idx[1::3]] = 3
         w.run(150)
-        assert w.s.norm_tab[:, k.NT_PUN].sum() > 0
+        assert w.s.norm_tab[2, k.NT_PUN] > 0 and w.s.norm_tab[3, k.NT_PUN] > 0     # 태그 2·3이 막히지 않았다
         hashes.append(w.state_hash())
     assert hashes[0] == hashes[1]
+    # 양성 확인: 같은 세계에서 막기를 켜면 태그 2의 벌이 0이 된다(위 비교가 막기를 실제로 지나는 세계라는 것)
+    w = World(norm_cfg(norm_impulse=0.03, norm_block_tag=2))
+    w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+    idx = np.flatnonzero(w.s.alive)
+    w.s.tag[idx[0::3]] = 2
+    w.s.tag[idx[1::3]] = 3
+    w.run(150)
+    assert w.s.norm_tab[2, k.NT_PUN] == 0 and w.state_hash() != hashes[0]
 
 
 def test_block_does_not_cancel_impulse():

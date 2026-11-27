@@ -6,13 +6,16 @@
 #       → 관문(α·β·γ·δ·−2) → 나머지 칸 → 진화 갈래 → 판정 나·다·라·단서.
 #
 #   ROOT=<레포 원래 폴더> CODE=<커밋한 코드 사본 폴더> [BASE=<바탕 체크포인트>] [WAIT_FOR=<pgrep -f 패턴>] [DRY=1] [OUT=<기록 폴더>] \
-#     [TAU=50] [IMP=0.015] <메모리 상한 도구> --max 1500M --bg norm-chain --log "$ROOT/runs/norm-exp/chain.log" -- bash wayfinder/stage2-4/norm_chain.sh
+#     [TAU=50] [IMP=0.015] <메모리 상한 도구> --max 1500M --bg norm-chain --log "$ROOT/runs/norm-chain.log" -- bash wayfinder/stage2-4/norm_chain.sh
 # 상한은 묶음 전체에 걸린다. 같은 기록 폴더에서 두 번 띄우면 flock이 막는다.
 # 다시 불러도 이어 가는 범위(정직하게): 칸·판정은 json이 있으면 건너뛰고 없는 것만 돈다. 갈래(세계 점검·진화)는 done 표시가 있으면 건너뛴다.
 #   done은 **종료 코드 0이고 끝 체크포인트가 있을 때만** 만든다. 도는 중에 끊겨 run.json만 남은 갈래는 자동으로 이어 돌리지 않는다 —
 #   note에 "끊긴 흔적"을 남기고 건너뛴다(폴더를 지우고 다시 부르거나, python -m kkumteul.run resume으로 이어 간 뒤 done을 손으로 만든다).
-# 관문 −1에서 τ·norm_impulse를 조정해 다시 돌릴 때는 TAU=25 IMP=...로 **OUT을 다른 폴더**로 불러 같은 폴더의 done·json과 안 섞는다
-#   (조정은 결과 문서에 먼저 적고 한다).
+# 관문 −1에서 τ·norm_impulse를 조정해 다시 돌릴 때는 TAU=25 IMP=...로 부른다(조정은 결과 문서에 먼저 적고 한다).
+#   갈래 폴더(runs/n-w-<꼬리표>-*, runs/n-<꼬리표>-*)와 기본 기록 폴더(runs/norm-exp-<꼬리표>)에 꼬리표 RT = t<TAU>-i<IMP>가
+#   붙어 판이 다르면 폴더를 공유하지 않는다(옛 τ의 done·체크포인트를 새 판 결과처럼 읽지 않게). OUT을 손으로 주어도 갈래는 RT로 갈린다.
+# 실패는 삼키지 않는다: 명령이 0이 아닌 종료 코드로 끝나거나 결과 파일이 없으면 progress.txt와 failed.txt에 "실패"로 적고,
+#   관문 −2b·유병률 맞춤이 실패하면 그 자리에서 멈추며, 세계 점검·판정 0 핵심 칸에 실패가 있으면 그 관문을 미판정으로 적고 멈춘다.
 # DRY=1이면 명령만 찍고(표준출력) 아무것도 돌리지 않는다. 이때 기록 폴더는 임시 폴더(OUT으로 바꿀 수 있다)이고 갈래 로그도 거기에 쓴다.
 # 시간 어림(2026-11-26 짧게 잼, 2스레드·nice 15, 다른 실행과 함께 돈 서버라 흔들린다): 바탕에서 가른 갈래(약 1,300마리)
 #   3,000스텝 187초(스텝당 약 0.06초, 300스텝만은 약 0.01초) → 세계 점검 갈래(3만) 약 30분, 진화 갈래(30만) 약 5시간.
@@ -23,17 +26,18 @@
 set -u
 R=${ROOT:?ROOT=레포 원래 폴더}
 C=${CODE:?CODE=코드 사본 폴더}
+TAU=${TAU:-50}
+IMP=${IMP:-0.015}
+RT="t$TAU-i$IMP"                 # 판 꼬리표: 갈래 폴더·기본 기록 폴더 이름에 붙는다
 if [ -n "${DRY:-}" ]; then
   E=${OUT:-$(mktemp -d)}
   exec 3>&1                      # DRY 줄은 명령별 리다이렉트(> 로그)와 상관없이 화면(표준출력)으로
 else
-  E=${OUT:-$R/runs/norm-exp}
+  E=${OUT:-$R/runs/norm-exp-$RT}
 fi
 PY=$R/.venv/bin/python
 J=wayfinder/stage2-4/norm_judge.py
 BASE=${BASE:-$R/runs/world4/checkpoints/ckpt_000089611957.npz}   # 바탕 B1(마음·사회·판, 공격 선택압 없음)
-TAU=${TAU:-50}
-IMP=${IMP:-0.015}
 bn=$(basename "$BASE" .npz); S0=$((10#${bn#ckpt_}))
 W_END=$(printf 'ckpt_%012d.npz' $((S0 + 30000)))     # 세계 점검 갈래(3만 스텝) 끝
 END=$(printf 'ckpt_%012d.npz' $((S0 + 300000)))      # 진화 갈래(30만 스텝) 끝
@@ -47,11 +51,21 @@ runit() {  # DRY=1이면 명령만 찍는다
 logf() {   # 갈래 로그 경로. DRY에서는 진짜 로그를 자르지 않게 임시 기록 폴더로 돌린다
   if [ -n "${DRY:-}" ]; then echo "$E/dry-$(basename "$1")"; else echo "$1"; fi
 }
+FAILS=0
+fail() {   # 실패를 삼키지 않는다: 세고, progress.txt와 failed.txt에 남긴다
+  FAILS=$((FAILS + 1))
+  note "실패: $*"
+  echo "$(TZ=America/New_York date '+%m-%d %H:%M ET') $*" >> "$E/failed.txt"
+}
+bad() {    # 종료 코드 rc와 결과 파일 f로 실패인지(DRY에서는 늘 아님)
+  [ -z "${DRY:-}" ] && { [ "$1" != 0 ] || [ ! -s "$2" ]; }
+}
 
 if [ -z "${DRY:-}" ]; then
   exec 9>"$E/.lock"
   flock -n 9 || { echo "같은 기록 폴더($E)에서 이미 체인이 돈다"; exit 1; }
 fi
+note "판 꼬리표 $RT (TAU=$TAU IMP=$IMP), 기록 폴더 $E"
 WAIT_FOR=${WAIT_FOR-'soc_chain.sh|teach_chain.sh'}    # 기본: 앞의 두 체인. (kkumteul.run을 기다리면 상시 도는 세계에 영영 걸린다)
 if [ -n "$WAIT_FOR" ] && [ -z "${DRY:-}" ]; then
   while pgrep -f "$WAIT_FOR" >/dev/null; do sleep 30; done
@@ -84,21 +98,33 @@ NS=(--set "norm_impulse=$IMP" --set "norm_mark_tau=$TAU")   # 마당 명령(hand
 # ---- 관문 −2b(진화 시작점의 공격 문턱): 시뮬레이션 없이 저장된 h로 문턱 위 개체 비율을 잰다
 if [ ! -s "$E/threshold.json" ]; then
   runit "$PY" $J threshold "$BASE" --json "$E/threshold.json" > "$E/threshold.log" 2>&1
+  rc=$?
+  if bad $rc "$E/threshold.json"; then
+    fail "관문 −2b(threshold) 종료 코드 $rc 또는 threshold.json 없음 — 체인 중단(기울기 시작판을 정할 수 없다)"
+    exit 1
+  fi
   note "관문 −2b: $(tail -1 "$E/threshold.log" 2>/dev/null | cut -c1-160)"
 fi
 # 문턱 위가 1% 아래면(threshold.json의 slope_start) 진화 갈래에 기울기 시작판(공격 편향 b0 = −0.3) 넷을 더한다(아래 3번)
-SLOPE=${SLOPE:-$("$PY" -c "import json; print(int(json.load(open('$E/threshold.json')).get('slope_start', 0)))" 2>/dev/null || echo 0)}
+if [ -z "${SLOPE:-}" ]; then
+  if [ -n "${DRY:-}" ]; then
+    SLOPE=0; echo "DRY: SLOPE는 threshold.json에서 읽는다(여기서는 0)" >&3
+  elif ! SLOPE=$("$PY" -c "import json; print(int(json.load(open('$E/threshold.json'))['slope_start']))"); then
+    fail "threshold.json에서 slope_start를 못 읽음 — 체인 중단"
+    exit 1
+  fi
+fi
 
 # ---- 세계 점검(판정 −1): 같은 체크포인트에서 갈라 3만 스텝, 끝에서 5,000스텝 창을 읽는다(씨앗 a·b)
 wbranch() {  # 씨앗 이름 설정...   (이름: meas=끔+계수만, inert, full=take 원천, noimp=위반 공급 끔, sig·none=유병률 맞춘 임의 표지)
   local seed=$1 name=$2; shift 2
-  local dir=$R/runs/n-w-$name-$seed ck out=$E/w-$name-$seed rc
+  local dir=$R/runs/n-w-$RT-$name-$seed ck out=$E/w-$name-$seed rc
   local extra=(); [ "$seed" = b ] && extra=(--new-stream)
   local kv sets=(); for kv in "$@"; do sets+=(--set "$kv"); done   # 반복 변수를 local로(호출자의 s를 덮어쓰지 않게)
   ck=$dir/checkpoints/$W_END
   if [ ! -f "$dir/done" ]; then
     if [ -f "$dir/run.json" ]; then
-      note "세계 $name-$seed: 끊긴 흔적(run.json 있고 done 없음) — 건너뜀. 폴더를 지우고 다시 부르거나 resume으로 이어 간 뒤 done을 만든다"
+      fail "세계 $name-$seed: 끊긴 흔적(run.json 있고 done 없음) — 건너뜀. 폴더를 지우고 다시 부르거나 resume으로 이어 간 뒤 done을 만든다"
       return 0
     fi
     note "세계 $name-$seed 시작 ($*)"
@@ -106,14 +132,16 @@ wbranch() {  # 씨앗 이름 설정...   (이름: meas=끔+계수만, inert, ful
       --reseed-attack-row "${extra[@]}" "${sets[@]}" > "$(logf "$dir.log")" 2>&1
     rc=$?
     if [ -z "${DRY:-}" ] && { [ "$rc" != 0 ] || [ ! -f "$ck" ]; }; then
-      note "세계 $name-$seed 실패(종료 코드 $rc 또는 끝 체크포인트 없음) — done을 안 만든다"
+      fail "세계 $name-$seed(종료 코드 $rc 또는 끝 체크포인트 없음) — done을 안 만든다"
       return 0
     fi
     runit touch "$dir/done"
   fi
   [ -s "$out.json" ] && return 0
-  [ -f "$ck" ] || { note "세계 $name-$seed: 체크포인트 없음 $ck"; return 0; }
+  [ -f "$ck" ] || [ -n "${DRY:-}" ] || { fail "세계 $name-$seed: 체크포인트 없음 $ck"; return 0; }
   runit nice -n 15 "$PY" $J observe "$ck" --steps 5000 --json "$out.json" > "$out.log" 2>&1
+  rc=$?
+  if bad $rc "$out.json"; then fail "세계 $name-$seed 읽기(observe) 종료 코드 $rc 또는 json 없음"; return 0; fi
   note "세계 $name-$seed 읽음: $(tail -1 "$out.log" 2>/dev/null | cut -c1-160)"
 }
 
@@ -130,6 +158,7 @@ dose() {  # 칸 마당(std|mix)
   runit nice -n 15 "$PY" $J hand-dose "$BASE" --cell "$cell" --arena "$arena" --n 800 --steps 8000 --reps 6 \
     --calib "$E/calib.json" "${NS[@]}" --json "$out.json" > "$out.log" 2>&1
   local rc=$?
+  if bad $rc "$out.json"; then fail "용량 반응 $cell-$arena 종료 코드 $rc 또는 json 없음"; return 0; fi
   note "용량 반응 $cell-$arena 끝 ($rc): $(tail -1 "$out.log" 2>/dev/null | cut -c1-160)"
 }
 dose_list() {  # 칸 이름들
@@ -139,9 +168,9 @@ dose_list() {  # 칸 이름들
 
 run_branch() {  # 이름 씨앗(a=같은 흐름, b=--new-stream) 설정...   (환경변수 ATTACK_B0가 있으면 공격 편향 b0를 그 값으로 다시 뽑는다)
   local name=$1 seed=$2; shift 2
-  local dir=$R/runs/n-$name-$seed rc
+  local dir=$R/runs/n-$RT-$name-$seed rc
   [ -f "$dir/done" ] && { note "$name-$seed 이미 끝남, 건너뜀"; return 0; }
-  [ -f "$dir/run.json" ] && { note "$name-$seed 끊긴 흔적(run.json 있고 done 없음) — 건너뜀. 폴더를 지우고 다시 부르거나 resume으로 이어 간 뒤 done을 만든다"; return 0; }
+  [ -f "$dir/run.json" ] && { fail "$name-$seed 끊긴 흔적(run.json 있고 done 없음) — 건너뜀. 폴더를 지우고 다시 부르거나 resume으로 이어 간 뒤 done을 만든다"; return 0; }
   local extra=(); [ "$seed" = b ] && extra=(--new-stream)
   local b0=(); [ -n "${ATTACK_B0:-}" ] && b0=(--attack-b0 "$ATTACK_B0")
   local kv sets=(); for kv in "$@"; do sets+=(--set "$kv"); done
@@ -150,7 +179,7 @@ run_branch() {  # 이름 씨앗(a=같은 흐름, b=--new-stream) 설정...   (�
     --reseed-attack-row "${b0[@]}" "${extra[@]}" "${sets[@]}" > "$(logf "$dir.log")" 2>&1
   rc=$?
   if [ -z "${DRY:-}" ] && { [ "$rc" != 0 ] || [ ! -f "$dir/checkpoints/$END" ]; }; then
-    note "$name-$seed 실패(종료 코드 $rc 또는 끝 체크포인트 없음) — done을 안 만든다"
+    fail "$name-$seed(종료 코드 $rc 또는 끝 체크포인트 없음) — done을 안 만든다"
     return 0
   fi
   runit touch "$dir/done"
@@ -159,9 +188,9 @@ run_branch() {  # 이름 씨앗(a=같은 흐름, b=--new-stream) 설정...   (�
 
 judge() {  # 갈래-씨앗 무엇(block|bottom|obs|knock-norm|knock-vis)
   local tag=$1 what=$2
-  local ck=$R/runs/n-$tag/checkpoints/$END out=$E/j-$what-$tag
+  local ck=$R/runs/n-$RT-$tag/checkpoints/$END out=$E/j-$what-$tag
   [ -s "$out.json" ] && { note "판정 $what-$tag 이미 있음"; return 0; }
-  [ -f "$ck" ] || { note "판정 $what-$tag: 체크포인트 없음 $ck"; return 0; }
+  [ -f "$ck" ] || [ -n "${DRY:-}" ] || { fail "판정 $what-$tag: 체크포인트 없음 $ck"; return 0; }
   note "판정 $what-$tag 시작"
   case $what in
     block)      runit nice -n 15 "$PY" $J block-compete "$ck" --json "$out.json" > "$out.log" 2>&1 ;;
@@ -171,6 +200,7 @@ judge() {  # 갈래-씨앗 무엇(block|bottom|obs|knock-norm|knock-vis)
     knock-vis)  runit nice -n 15 "$PY" -m kkumteul.knockout split "$ck" --channel vision > "$out.json" 2> "$out.log" ;;
   esac
   local rc=$?
+  if bad $rc "$out.json"; then fail "판정 $what-$tag 종료 코드 $rc 또는 json 없음(최종 판정에서 미판정)"; return 0; fi
   note "판정 $what-$tag 끝 ($rc): $(tail -1 "$out.log" 2>/dev/null | cut -c1-160)"
 }
 
@@ -186,28 +216,47 @@ done
 # 1b. 표지 원천 유병률 맞추기(설계 7절): take(full) 세계의 유병률을 목표로 sig 임계와 none의 잡음 확률을 정하고, 그 값으로 두 세계를 점검한다
 if [ ! -s "$E/calib.json" ]; then
   runit nice -n 15 "$PY" $J calibrate --base "$BASE" --from "$E/w-full-a.json" --out "$E/calib.json" "${NS[@]}" > "$E/calib.log" 2>&1
+  rc=$?
+  if bad $rc "$E/calib.json"; then
+    fail "유병률 맞춤(calibrate) 종료 코드 $rc 또는 calib.json 없음 — 체인 중단(기본값으로 sig·none을 돌리지 않는다)"
+    exit 1
+  fi
   note "유병률 맞춤(calib.json): $(tr -d '\n ' 2>/dev/null < "$E/calib.json" | cut -c1-200)"
 fi
-SIG_THETA=$("$PY" -c "import json; print(json.load(open('$E/calib.json'))['sig_theta'])" 2>/dev/null || echo 0.5)
-NOISE_Q=$("$PY" -c "import json; print(json.load(open('$E/calib.json'))['noise_q'])" 2>/dev/null || echo 0.0016)
+if [ -n "${DRY:-}" ]; then
+  SIG_THETA='<calib.sig_theta>'; NOISE_Q='<calib.noise_q>'
+elif ! SIG_THETA=$("$PY" -c "import json; print(json.load(open('$E/calib.json'))['sig_theta'])") \
+    || ! NOISE_Q=$("$PY" -c "import json; print(json.load(open('$E/calib.json'))['noise_q'])"); then
+  fail "calib.json에서 sig_theta·noise_q를 못 읽음 — 체인 중단"
+  exit 1
+fi
 for t in a b; do
   wbranch $t sig  $G norm_enabled=true norm_mark_src=sig norm_sig_theta=$SIG_THETA norm_pun_return=0
   wbranch $t none $G norm_enabled=true norm_mark_src=none norm_mark_noise=$NOISE_Q norm_pun_return=0
 done
 runit nice -n 15 "$PY" $J arena-check "$BASE" "${NS[@]}" > "$E/arena-check.json" 2> "$E/arena-check.log"
+rc=$?    # 0 통과, 3 거주민 공격 있음(둘 다 json을 남긴다). 그 밖은 실패
+if [ -z "${DRY:-}" ] && { { [ "$rc" != 0 ] && [ "$rc" != 3 ]; } || [ ! -s "$E/arena-check.json" ]; }; then
+  fail "관문 −1e(arena-check) 종료 코드 $rc 또는 json 없음"
+  rm -f "$E/arena-check.json"      # 반쯤 쓴 파일을 관문이 읽지 않게(gate-world가 미판정으로 적는다)
+fi
+if [ "$FAILS" != 0 ]; then
+  note "세계 점검까지 실패 $FAILS건 — 관문 −1을 미판정으로 적고 멈춘다(failed.txt)"
+fi
 runit "$PY" $J gate-world --dir "$E" --tags a b > "$E/gate-world.json" 2> "$E/gate-world.log"
 rc=$?
-note "관문 −1 종료 코드 $rc (0 통과, 3 세계 못 섬, 4 딜레마 크기 밖): $(tr -d '\n ' 2>/dev/null < "$E/gate-world.json" | cut -c1-200)"
-if [ "$rc" != 0 ] && [ -z "${DRY:-}" ]; then
-  note "관문 −1 못 넘음 — 판정 0을 돌리지 않고 닫는다(τ·IMP 조정은 결과 문서를 고쳐 쓰고 TAU·IMP를 바꿔 OUT을 새 폴더로 다시 부른다)"
+note "관문 −1 종료 코드 $rc (0 통과, 3 세계 못 섬, 4 딜레마 크기 밖, 5 미판정, 그 밖 도구 오류): $(tr -d '\n ' 2>/dev/null < "$E/gate-world.json" | cut -c1-200)"
+if [ -z "${DRY:-}" ] && { [ "$rc" != 0 ] || [ "$FAILS" != 0 ]; }; then
+  note "관문 −1 못 넘음(또는 미판정) — 판정 0을 돌리지 않고 닫는다(τ·IMP 조정은 결과 문서를 고쳐 쓰고 TAU·IMP를 바꿔 다시 부른다 — 꼬리표가 바뀌어 새 폴더에 쌓인다)"
   exit 0
 fi
 
 # 2. 판정 0: 핵심 칸과 δ 칸을 먼저(관문이 읽는 전부), 관문 판정 뒤에 나머지 칸
 dose_list "${CORE[@]}" "${DELTA[@]}"
+[ "$FAILS" != 0 ] && note "판정 0 핵심·δ 칸 실패 $FAILS건 — gate-hand는 빠진 칸을 미판정(5)으로 적는다(failed.txt)"
 runit "$PY" $J gate-hand --dir "$E" > "$E/gate.json" 2> "$E/gate.log"
 rc=$?
-note "관문(α·β·γ·δ·−2) 종료 코드 $rc (0 통과, 3 가를 수 없음, 4 도구 깨짐, 5 미판정): $(tr -d '\n ' 2>/dev/null < "$E/gate.json" | cut -c1-200)"
+note "관문(α·β·γ·δ·−2) 종료 코드 $rc (0 통과, 3 가를 수 없음, 4 도구 깨짐, 5 미판정, 그 밖 도구 오류): $(tr -d '\n ' 2>/dev/null < "$E/gate.json" | cut -c1-200)"
 dose_list "${REST[@]}"
 if [ "$rc" != 0 ] && [ -z "${DRY:-}" ]; then
   note "관문 못 넘음 — 진화 갈래를 돌리지 않고 닫는다(가를 수 없음·도구 깨짐·미판정은 결과 문서에 그대로 적는다)"
@@ -250,5 +299,5 @@ for s in a b; do
   fi
 done
 runit "$PY" $J final --dir "$E" --tags a b > "$E/final.json" 2> "$E/final.log"
-note "최종 판정 종료 코드 $?: $(tr -d '\n ' 2>/dev/null < "$E/final.json" | cut -c1-200)"
-note "체인 끝"
+note "최종 판정 종료 코드 $? (0 통과, 3 가를 수 없음, 4 깨짐, 5 미판정): $(tr -d '\n ' 2>/dev/null < "$E/final.json" | cut -c1-200)"
+note "체인 끝 (실패 $FAILS건$([ "$FAILS" != 0 ] && echo ' — failed.txt, 빠진 항목은 최종 판정에서 미판정'))"

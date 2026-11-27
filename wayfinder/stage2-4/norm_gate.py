@@ -57,6 +57,16 @@ RESULTS_HEAD = ("①②와 벌의 물리·위축은 부여, ⑤⑥과 벌주기 
                 "위반은 엔진이 주는 떨리는 손(뇌가 못 말림)이고 표시는 정직·즉시·전원 공개의 엔진 방송이다. "
                 "이 판에서는 '규범'이라는 말을 쓰지 않는다(쓰는 말: 벌주기 씨앗, 집행, 맞대응 방어).")
 LABEL_CLUE = "서로 다른 두 진화 갈래의 계수기 차는 단서다(판정 문장에 못 쓴다)"
+LABEL_MISAIM = ("손 집행자의 오조준(닿는 표시된 이웃이 없을 때 가장 가까운 표시 없는 이웃을 친 것)은 가로채기로 세여 "
+                "full·inert 칸 모두 위반 피해율 분자에 든다(두 칸이 같은 규칙이라 α에는 보수 쪽으로 치우친다)")
+
+# ---- 판정 0의 칸 묶음(norm_judge.CELLS의 이름). gate-hand는 CORE·DELTA가 모두 있어야 판정한다 ----
+CORE = ("base", "hand-phi0.1", "hand-phi0.3", "hand-phi1.0", "grp-1", "grp-2", "grp-3", "hand3-phi0.3",
+        "hand-phi0.3-inert", "hand-phi0.3-ret0", "hand-phi0.3-ret0.5", "hand-phi0.3-L1", "off", "noimp")
+DELTA = ("hand-phi0.3-sig-ret0", "hand-phi0.3-sig-ret0.1", "hand-phi0.3-none-q-ret0", "hand-phi0.3-none-q-ret0.1")
+REST = ("hand-phi0.3-nearest", "hand-phi0.3-inh0", "hand-phi0.3-inh0.4", "hand-phi0.3-L10", "hand-phi0.3-tau1",
+        "hand-phi0.3-noise0.0005", "hand-phi0.3-noise0.002")
+HAND_REQUIRED = CORE + DELTA
 
 
 # ======================= 작은 도구 =======================
@@ -109,6 +119,17 @@ def damage_rate(nt) -> float | None:
     (inert에서 표시 있던 대상을 친 피해 TAKE_ON_MARKED는 분자에 안 든다). 표시가 없는 세계(off, 계수기만)는 모든 피해."""
     rows = [nt] if "viol_dmg_recv" in nt else list(nt.values())
     num = sum(float(r.get("viol_dmg_recv", 0.0)) for r in rows)
+    den = sum(float(r.get("alive_steps", 0.0)) for r in rows)
+    return num / den if den > 0 else None
+
+
+def damage_rate_all(nt) -> float | None:
+    """가로채기 피해율 = 가로채기로 받은 피해 전부(TAKE_DMG_RECV, 표시 여부 무관) ÷ 개체 스텝. 관문 α의 `off` 대조 전용:
+    `off`(표시 장치 끔, 계수만)에는 표시가 없어 위반 피해율이 모든 피해를 세고, `base`(장치 켬)는 표시된 대상을 친 피해를
+    빼므로 두 칸의 위반 피해율은 정의가 다르다. 두 칸 모두 집행이 없어(off는 장치 끔, base는 집행자 없음) 모든 피해가
+    가로채기이므로 이 값은 두 칸에서 같은 정의다."""
+    rows = [nt] if "take_dmg_recv" in nt else list(nt.values())
+    num = sum(float(r.get("take_dmg_recv", 0.0)) for r in rows)
     den = sum(float(r.get("alive_steps", 0.0)) for r in rows)
     return num / den if den > 0 else None
 
@@ -190,10 +211,11 @@ def second_order_dilemma(nind3: dict, ngrp3: dict) -> dict:
 def cell_summary(res: dict) -> dict:
     """hand-dose 결과 json(runs 목록) → 반복별 목록. 끝에 전부 죽은 판(산 개체 0)을 both_extinct로 센다."""
     reps = res.get("runs", [])
-    out = {"cell": res.get("cell"), "arena": res.get("arena"), "dr": [], "epp": [], "prev": [], "runs": reps,
-           "both_extinct": 0}
+    out = {"cell": res.get("cell"), "arena": res.get("arena"), "dr": [], "dr_all": [], "epp": [], "prev": [],
+           "runs": reps, "both_extinct": 0}
     for r in reps:
         out["dr"].append(damage_rate(r["norm_by_tag"]))
+        out["dr_all"].append(damage_rate_all(r["norm_by_tag"]))
         out["epp"].append(punished_per_episode(r["norm_by_tag"]))
         out["prev"].append(r.get("mark_prevalence"))
         if sum(int(v) for v in r["alive_by_tag"].values()) == 0:
@@ -245,8 +267,11 @@ def _need(cells: dict, names) -> list[str]:
 def gate_alpha(cells: dict) -> dict:
     """관문 α(작동): hand-phi0.3의 위반 피해율이 base보다 Welch로 낮고 7% 이상 낮으며, φ 단조(반복의 5/6 이상
     0.1 ≥ 0.3 ≥ 1.0), inert·off가 base ± 검출 한계(Welch로 못 가름)이고 양쪽 전멸 2판 이하 → "작동".
-    음성 대조가 깨지면 "도구 깨짐", 그 밖은 "작동 아님", 칸이 없으면 "미판정"."""
+    음성 대조가 깨지면 "도구 깨짐", 그 밖은 "작동 아님", 칸이 없으면 "미판정".
+    off 대 base는 위반 피해율이 아니라 가로채기 피해율(`damage_rate_all`)로 견준다: off에는 표시가 없어 위반 피해율의
+    정의가 base와 다르다(표시된 대상을 친 충동 피해만큼 off가 거짓으로 높게 나와 "도구 깨짐"이 난다)."""
     miss = _need(cells, ("base", "hand-phi0.1", "hand-phi0.3", "hand-phi1.0", "hand-phi0.3-inert", "off"))
+    miss += [f"{n}.dr_all" for n in ("base", "off") if n in cells and not _clean(cells[n].get("dr_all", []))]
     if miss:
         return {"verdict": "미판정", "missing": miss}
     base, h03 = cells["base"]["dr"], cells["hand-phi0.3"]["dr"]
@@ -259,11 +284,11 @@ def gate_alpha(cells: dict) -> dict:
     mono = mono_n >= math.ceil(THRESHOLDS["monotone_frac"] * len(seq) - 1e-9)
     ctrl = {}
     broken = False
-    for name in ("hand-phi0.3-inert", "off"):
-        wc = welch(cells[name]["dr"], base)
+    for name, key in (("hand-phi0.3-inert", "dr"), ("off", "dr_all")):
+        wc = welch(cells[name][key], cells["base"][key])
         ext = cells[name]["both_extinct"]
         ok = wc["ok"] and wc["sign"] == 0 and ext <= THRESHOLDS["control_max_both"]
-        ctrl[name] = {"welch": wc, "both_extinct": ext, "ok": ok}
+        ctrl[name] = {"welch": wc, "rate": key, "both_extinct": ext, "ok": ok}
         broken |= not ok
     if broken:
         verdict = "도구 깨짐"
@@ -326,14 +351,23 @@ def gate_gamma(cells: dict) -> dict:
     return out
 
 
-def gate_delta(cells: dict) -> dict:
+def gate_delta(cells: dict, world: dict | None = None) -> dict:
     """관문 δ(임의 대 기능, ret0에서): sig·none-q의 표시당 집행 확률이 take(hand-phi0.3-ret0)보다 Welch로 낮고 N_ind도
-    작으면 "기능에서 값을 얻는다", 같으면 "표시 자체가 약탈 대상". 세 원천의 끝 유병률이 2배를 넘게 갈리면
-    "유병률이 달라 가를 수 없음". 칸이 없으면 "δ 미판정"(종료 코드를 0으로 두지 않는다)."""
+    작으면 "기능에서 값을 얻는다", 같으면 "표시 자체가 약탈 대상".
+    읽는 조건 둘(결과 문서 "표지 원천 유병률 맞춤"·설계 7절, 서로 별개): ① 관문 −1의 세계 점검에서 세 원천 유병률이
+    서로 50% 이내(`gate_world`의 −1c `delta_readable`) — world가 없으면 "δ 미판정", 50% 밖이면 "유병률 맞춤 밖이라 δ를
+    읽지 않음". ② 칸(마당)의 끝 유병률이 2배를 넘게 갈리면 "유병률이 달라 가를 수 없음".
+    칸이 없으면 "δ 미판정"(종료 코드를 0으로 두지 않는다)."""
     names = {"take": "hand-phi0.3-ret0", "sig": "hand-phi0.3-sig-ret0", "none": "hand-phi0.3-none-q-ret0"}
     miss = [v for v in names.values() if v not in cells]
+    if world is None:
+        miss.append("gate-world")
     if miss:
         return {"verdict": "δ 미판정", "missing": miss}
+    c1 = (world.get("-1c") or {})
+    if not c1.get("delta_readable"):
+        return {"verdict": "유병률 맞춤 밖이라 δ를 읽지 않음", "src_prevalence": c1.get("src_prevalence"),
+                "note": LABEL_ARB}
     prev = {k_: _mean_or_none(cells[v]["prev"]) for k_, v in names.items()}
     pv = [p for p in prev.values() if p]
     if len(pv) < 3 or max(pv) / min(pv) > THRESHOLDS["src_ratio_max"]:
@@ -358,25 +392,33 @@ def gate_delta(cells: dict) -> dict:
     return {"verdict": verdict, "prevalence": prev, "by_src": res, "note": LABEL_ARB}
 
 
-def gate_hand(cells: dict, mix_cells: dict | None = None, expected: float = 0.05 / 1560, pop: float = 500.0) -> dict:
-    """판정 0 전체(표준 마당 칸 요약 cells, 섞은 마당 mix_cells): α·β·γ·δ·−2와 종료 코드.
-    0 = 작동 + 이득, 3 = 작동 + 이득을 가를 수 없음 또는 작동 아님, 4 = 도구 깨짐, 5 = 미판정(원자료 없음, δ 포함)."""
+def gate_hand(cells: dict, mix_cells: dict | None = None, expected: float = 0.05 / 1560, pop: float = 500.0,
+              world: dict | None = None, required=HAND_REQUIRED) -> dict:
+    """판정 0 전체(표준 마당 칸 요약 cells, 섞은 마당 mix_cells, 관문 −1 결과 world): α·β·γ·δ·−2와 종료 코드.
+    0 = 작동 + 이득, 3 = 작동 + 이득을 가를 수 없음 또는 작동 아님, 4 = 도구 깨짐, 5 = 미판정.
+    미판정(5): α가 읽는 칸이 없음, 또는 α가 "작동"인데 required 칸·base의 중립 반복(관문 −2)·N_ind·N_ind3·N_grp3의
+    태그 자료·관문 −1 결과(δ의 50% 규칙) 가운데 하나라도 없음. 원자료가 없으면 통과로 세지 않는다."""
     a = gate_alpha(cells)
     ctrl = cells.get("base", {}).get("neutral")
     det = detectability(expected, ctrl, pop) if ctrl else None
-    out = {"alpha": a, "detect": det}
+    missing = [n for n in required if n not in cells or not _clean(cells[n]["dr"])]
+    if not ctrl:
+        missing.append("base.neutral")
+    out = {"alpha": a, "detect": det, "missing": missing}
     if a["verdict"] in ("미판정",):
         out.update(case="미판정", code=5)
         return out
-    nind = n_ind(cells["hand-phi0.1"]["runs"]) if "hand-phi0.1" in cells else {}
-    nind = n_ind(cells["hand-phi0.3"]["runs"]) if "hand-phi0.3" in cells else nind
+    nind = n_ind(cells["hand-phi0.3"]["runs"]) if "hand-phi0.3" in cells else {}
     nind3 = n_ind(cells["hand3-phi0.3"]["runs"], 1, 3) if "hand3-phi0.3" in cells else {}
     ngrp = n_grp(cells["grp-1"]["runs"], cells["grp-2"]["runs"], 1, 2) if {"grp-1", "grp-2"} <= set(cells) else {}
     ngrp3 = n_grp(cells["grp-1"]["runs"], cells["grp-3"]["runs"], 1, 3) if {"grp-1", "grp-3"} <= set(cells) else {}
+    for name, lv in (("N_ind", nind), ("N_ind3", nind3), ("N_grp3", ngrp3)):
+        if lv.get("lo") is None:
+            missing.append(name)
     out.update(n_ind=nind, n_ind3=nind3, n_grp=ngrp, n_grp3=ngrp3)
     out["beta"] = gate_beta(nind, nind3, ngrp3, det)
     out["gamma"] = gate_gamma(cells)
-    out["delta"] = gate_delta(cells)
+    out["delta"] = gate_delta(cells, world)
     if mix_cells:
         out["mix"] = {"n_ind": n_ind(mix_cells["hand-phi0.3"]["runs"]) if "hand-phi0.3" in mix_cells else None,
                       "n_ind3": n_ind(mix_cells["hand3-phi0.3"]["runs"], 1, 3) if "hand3-phi0.3" in mix_cells else None}
@@ -384,6 +426,8 @@ def gate_hand(cells: dict, mix_cells: dict | None = None, expected: float = 0.05
         out.update(case="도구 깨짐", code=4)
     elif a["verdict"] != "작동":
         out.update(case="작동 아님", code=3)
+    elif missing:
+        out.update(case="미판정(원자료 없음)", code=5)
     elif out["delta"]["verdict"] == "δ 미판정":
         out.update(case="δ 미판정", code=5)
     elif out["beta"].get("ga") or out["beta"].get("na"):
@@ -394,13 +438,18 @@ def gate_hand(cells: dict, mix_cells: dict | None = None, expected: float = 0.05
 
 
 # ======================= 판정 −1(세계 점검) =======================
-def gate_world(obs: dict, arena_check: dict | None = None) -> dict:
+def gate_world(obs: dict, arena_check: dict | None = None, need: int | None = None) -> dict:
     """관문 −1. obs = {이름: [씨앗별 observe 결과]}, 이름 ∈ meas·inert·full·noimp·sig·none. 결과 사전 키는
     pop_mean·pop_min·reseeds·ledger_rel·theta_t·take_loss_frac·prevalence·vis_nonzero_frac·vis_present_frac.
     −1a(켠 무리 ≥ 끈 무리 × 0.9, 재주입 급증·멸종 없음, 장부), −1b(take_loss_frac 0.08~0.15), −1c(유병률 0.5~10%,
     세 원천이 서로 50% 이내), −1d(NORM_VIS 0 아닌 비율 ≈ 시야 안 표시 존재 비율), −1e(거주민 공격 0).
-    종료 코드: 0 통과, 3 세계 못 섬(−1a·−1c·−1d·−1e), 4 딜레마 크기 밖(−1b)."""
+    종료 코드: 0 통과, 3 세계 못 섬(−1a·−1c·−1d·−1e), 4 딜레마 크기 밖(−1b), 5 미판정(need개 씨앗에 못 미치는 세계가
+    있거나 arena_check가 없음 — 한 씨앗·빠진 원천으로 통과시키지 않는다)."""
     T = THRESHOLDS
+    names = ("meas", "inert", "full", "noimp", "sig", "none")
+    missing = [n for n in names if len(obs.get(n, [])) < (need or 1)]
+    if arena_check is None:
+        missing.append("arena-check")
 
     def mean(name, key):
         return _mean_or_none([o.get(key) for o in obs.get(name, [])])
@@ -439,7 +488,10 @@ def gate_world(obs: dict, arena_check: dict | None = None) -> dict:
     # −1e
     e_ok = bool(arena_check) and arena_check.get("take", 1) == 0 and arena_check.get("pun", 1) == 0
     out["-1e"] = {"ok": e_ok, "arena_check": arena_check}
-    if not (a_ok and c_ok and d_ok and e_ok):
+    out["missing"] = missing
+    if missing:
+        code = 5
+    elif not (a_ok and c_ok and d_ok and e_ok):
         code = 3
     elif not b_ok:
         code = 4
@@ -516,54 +568,91 @@ def arbitrary(take_runs: list[dict], sig_runs: list[dict]) -> dict:
 
 
 # ======================= 판정 나(주) =======================
+def _lo_above(d, key, thr=0.0):
+    """d[key]의 아래끝이 thr 위인가. 자료가 없으면 None(미판정)."""
+    v = (d or {}).get(key) or {}
+    return None if v.get("lo") is None else bool(v["lo"] > thr)
+
+
+def _distinct_above(on_lv: dict, null_lv: dict) -> bool | None:
+    """켠 쪽이 null보다 큰가: 둘 다 sd·n(≥ 2)이 있으면 Welch(평균 차 > t95(min n − 1) × √(sd²/n 합)), 없으면 구간
+    (켠 쪽 아래끝 > null 윗끝). 자료가 없으면 None."""
+    if not on_lv or not null_lv or on_lv.get("mean") is None or null_lv.get("mean") is None:
+        return None
+    n1, n2, s1, s2 = on_lv.get("n"), null_lv.get("n"), on_lv.get("sd"), null_lv.get("sd")
+    if n1 and n2 and n1 >= 2 and n2 >= 2 and s1 is not None and s2 is not None and np.isfinite(s1) and np.isfinite(s2):
+        edge = measure.t95(min(n1, n2) - 1) * math.sqrt(s1 * s1 / n1 + s2 * s2 / n2)
+        return bool(on_lv["mean"] - null_lv["mean"] > edge)
+    if on_lv.get("lo") is None or null_lv.get("hi") is None:
+        return None
+    return bool(on_lv["lo"] > null_lv["hi"])
+
+
 def main_judgment(on: dict, nulls: dict, noimp: dict | None, knock: dict | None = None,
                   other_seed: dict | None = None) -> dict:
     """주 판정 나. on/nulls[이름]/noimp = block-compete 결과 사전 하나(같은 씨앗)의 요약:
     {"n_ind": level, "n_ind3": level, "n_grp3": level, "selectivity": level, "r_CA": level, "r_CB": level,
      "min_detectable": float}. knock = {"on": 감각 막기 r 평균, "inert": 같은 값, "limit": 한계}.
     other_seed = 다른 씨앗의 같은 요약(두 씨앗이 같은 쪽인지).
+    조건(설계 판정 나): 수준(N_ind3, 없으면 N_ind) 아래끝 > 0 / 선택성 아래끝 > 1 / 감각 막기 겨루기가 inert 끝 무리와
+    **가를 수 있는 방향** — knockout의 r는 ln(원래 ÷ 막은 쪽)의 기울기라 양이면 막기가 해롭다(뇌가 그 감각을 쓴다):
+    켠 무리의 r − inert 무리의 r > 한계 / 같은 수준이 모든 null(inert·off 끝 무리)보다 크다(Welch, 자료가 구간뿐이면
+    아래끝 > 윗끝 — null이 0 위든 아니든 늘 검사) / 음성 대조(noimp)의 N_ind가 0 ± 한계 / 두 씨앗이 같은 쪽.
     "그 수준의 벌주기 씨앗이 개인에게 이득"은 모든 조건이 설 때만. N_grp3만 0 위면 2차 딜레마 문장을 따로 쓴다(OR 아님).
-    종료 코드: 0 = 한 바탕이라도 통과, 3 = 모두 가를 수 없음, 4 = 깨짐(음성 대조가 0 ± 한계를 벗어남), 5 = 미판정."""
+    종료 코드: 0 = 통과, 3 = 가를 수 없음, 4 = 깨짐(음성 대조가 0 ± 한계를 벗어남), 5 = 미판정(어느 조건이든 원자료 없음 —
+    noimp·막기·null·다른 씨앗 결과가 없으면 3이 아니라 5)."""
     if not on:
-        return {"verdict": "미판정(켠 끝 무리 결과 없음)", "code": 5}
-
-    def lo_pos(d, key, thr=0.0):
-        v = (d or {}).get(key) or {}
-        return v.get("lo") is not None and v["lo"] > thr
-
-    lvl3 = lo_pos(on, "n_ind3")
-    lvl2 = lo_pos(on, "n_ind")
-    sel = lo_pos(on, "selectivity", 1.0)
-    null_ok = True
-    for name, d in (nulls or {}).items():
-        for key in ("n_ind", "n_ind3"):
-            if lo_pos(d, key):         # null 끝 무리도 0 위면 켠 무리와 구분 안 됨
-                if not ((on.get(key) or {}).get("lo", -1) > ((d.get(key) or {}).get("hi") or 0)):
-                    null_ok = False
+        return {"verdict": "미판정(켠 끝 무리 결과 없음)", "code": 5, "missing": ["on"]}
+    lvl3 = _lo_above(on, "n_ind3")
+    lvl2 = _lo_above(on, "n_ind")
+    level_key = "n_ind3" if lvl3 else "n_ind"
+    if lvl3 is None and lvl2 is None:
+        lvl_ok = None
+    else:
+        lvl_ok = bool(lvl3 or lvl2)
+    sel = _lo_above(on, "selectivity", 1.0)
+    missing = []
+    if not nulls or any(d is None for d in nulls.values()):
+        null_ok = None
+        missing += [n for n, d in (nulls or {}).items() if d is None] or ["nulls"]
+    else:
+        vals = [_distinct_above(on.get(level_key) or {}, d.get(level_key) or {}) for d in nulls.values()]
+        null_ok = None if any(v is None for v in vals) else all(vals)
     neg_ok = None
     if noimp:
         v = noimp.get("n_ind") or {}
-        neg_ok = v.get("lo") is not None and v["lo"] <= 0 <= v["hi"]
+        if v.get("lo") is not None and v.get("hi") is not None:
+            neg_ok = bool(v["lo"] <= 0 <= v["hi"])
+    else:
+        missing.append("noimp")
     knock_ok = None
     if knock and knock.get("on") is not None and knock.get("inert") is not None:
-        knock_ok = abs(knock["on"] - knock["inert"]) > (knock.get("limit") or 0)
-    seeds_ok = True
+        knock_ok = bool(knock["on"] - knock["inert"] > (knock.get("limit") or 0))
+    else:
+        missing.append("knock")
+    seeds_ok = None
     if other_seed:
-        seeds_ok = (lo_pos(other_seed, "n_ind3") == lvl3) and (lo_pos(other_seed, "n_ind") == lvl2)
-    conds = {"n_ind3_or_n_ind": bool(lvl3 or lvl2), "selectivity": sel, "knock_vs_inert": knock_ok,
+        o3, o2 = _lo_above(other_seed, "n_ind3"), _lo_above(other_seed, "n_ind")
+        if not (o3 is None and o2 is None):
+            seeds_ok = (bool(o3) == bool(lvl3)) and (bool(o2) == bool(lvl2))
+    else:
+        missing.append("other_seed")
+    conds = {"n_ind3_or_n_ind": lvl_ok, "selectivity": sel, "knock_vs_inert": knock_ok,
              "null_distinct": null_ok, "negative_control": neg_ok, "seeds_agree": seeds_ok}
     if neg_ok is False:
-        return {"verdict": "깨짐(음성 대조가 0 ± 한계 밖)", "conditions": conds, "code": 4}
-    all_ok = all(v is True for v in conds.values())
-    out = {"conditions": conds}
-    if all_ok:
+        return {"verdict": "깨짐(음성 대조가 0 ± 한계 밖)", "conditions": conds, "code": 4, "missing": missing}
+    out = {"conditions": conds, "missing": missing}
+    if any(v is None for v in conds.values()):
+        out["verdict"] = "미판정(원자료 없음: " + ", ".join([k_ for k_, v in conds.items() if v is None]) + ")"
+        out["code"] = 5
+    elif all(conds.values()):
         level = "3자 집행" if lvl3 else "2자 맞대응"
         out["verdict"] = f"그 수준({level})의 벌주기 씨앗이 개인에게 이득"
         out["code"] = 0
     else:
         out["verdict"] = "가를 수 없음"
         out["code"] = 3
-    if lo_pos(on, "n_grp3") and not lvl3:
+    if _lo_above(on, "n_grp3") and not lvl3:
         out["dilemma"] = "모두가 하면 집단이 이득인데 개인이 이득이 아닌 칸(2차 딜레마가 열려 있음)"
     r = on.get("r_CA") or {}
     if r.get("mean") is not None and r["mean"] >= -(on.get("min_detectable") or 0):
