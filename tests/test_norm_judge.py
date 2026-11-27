@@ -276,6 +276,13 @@ def test_gate_alpha_beta_gamma_delta():
     # base의 중립 반복(관문 −2)이 없으면 미판정
     nb = dict(full, base=cells_working()["base"])
     assert ng.gate_hand(nb, world=wok)["code"] == 5
+    # α가 "작동 아님"이어도 필요한 칸(CORE·DELTA)이 빠지면 3이 아니라 미판정(결과 문서 "실패는 미판정")
+    notwork = dict(full, **{"hand-phi0.3": c3["hand-phi0.3"]})
+    for gone in ("grp-3", "hand-phi0.3-sig-ret0"):
+        g5 = ng.gate_hand({key: v for key, v in notwork.items() if key != gone}, world=wok)
+        assert g5["code"] == 5 and gone in g5["missing"], gone
+    g5 = ng.gate_hand(dict(notwork, base=cells_working()["base"]), world=wok)
+    assert g5["code"] == 5 and "base.neutral" in g5["missing"]
 
 
 def test_detectability_minus2_and_threshold():

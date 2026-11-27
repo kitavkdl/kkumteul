@@ -396,14 +396,16 @@ def gate_hand(cells: dict, mix_cells: dict | None = None, expected: float = 0.05
               world: dict | None = None, required=HAND_REQUIRED) -> dict:
     """판정 0 전체(표준 마당 칸 요약 cells, 섞은 마당 mix_cells, 관문 −1 결과 world): α·β·γ·δ·−2와 종료 코드.
     0 = 작동 + 이득, 3 = 작동 + 이득을 가를 수 없음 또는 작동 아님, 4 = 도구 깨짐, 5 = 미판정.
-    미판정(5): α가 읽는 칸이 없음, 또는 α가 "작동"인데 required 칸·base의 중립 반복(관문 −2)·N_ind·N_ind3·N_grp3의
-    태그 자료·관문 −1 결과(δ의 50% 규칙) 가운데 하나라도 없음. 원자료가 없으면 통과로 세지 않는다."""
+    미판정(5): α가 읽는 칸이 없음, 또는 (도구 깨짐이 아닌데) required 칸·base의 중립 반복(관문 −2) 가운데 하나라도
+    없음, 또는 α가 "작동"인데 N_ind·N_ind3·N_grp3의 태그 자료·관문 −1 결과(δ의 50% 규칙)가 없음.
+    원자료가 없으면 통과로도 "작동 아님"으로도 세지 않는다."""
     a = gate_alpha(cells)
     ctrl = cells.get("base", {}).get("neutral")
     det = detectability(expected, ctrl, pop) if ctrl else None
     missing = [n for n in required if n not in cells or not _clean(cells[n]["dr"])]
     if not ctrl:
         missing.append("base.neutral")
+    cells_missing = bool(missing)      # 칸·중립 반복이 없으면 α가 "작동 아님"이어도 미판정(아래 N_* 태그는 작동일 때만)
     out = {"alpha": a, "detect": det, "missing": missing}
     if a["verdict"] in ("미판정",):
         out.update(case="미판정", code=5)
@@ -424,6 +426,8 @@ def gate_hand(cells: dict, mix_cells: dict | None = None, expected: float = 0.05
                       "n_ind3": n_ind(mix_cells["hand3-phi0.3"]["runs"], 1, 3) if "hand3-phi0.3" in mix_cells else None}
     if a["verdict"] == "도구 깨짐":
         out.update(case="도구 깨짐", code=4)
+    elif cells_missing:
+        out.update(case="미판정(원자료 없음)", code=5)
     elif a["verdict"] != "작동":
         out.update(case="작동 아님", code=3)
     elif missing:
