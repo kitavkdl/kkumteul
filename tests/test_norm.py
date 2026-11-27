@@ -54,7 +54,8 @@ def test_norm_config_range_checks():
                 dict(norm_mark_noise=-0.1), dict(norm_mark_noise=1.1), dict(norm_mix_frac=-0.1),
                 dict(norm_mix_frac=1.1), dict(norm_mark_tau=0), dict(norm_mem_tau=0), dict(norm_impulse_len=0),
                 dict(norm_mix_period=-1), dict(norm_mode="nope"), dict(norm_mark_src="nope"), dict(norm_aim="nope"),
-                dict(norm_mem_obs_mode="nope"), dict(norm_mem_inherit=-0.1), dict(norm_mem_inherit=1.1)):
+                dict(norm_mem_obs_mode="nope"), dict(norm_mem_inherit=-0.1), dict(norm_mem_inherit=1.1),
+                dict(norm_inhibit=1.0)):
         with pytest.raises(ValueError):
             small("stage4", "conflict", **base, **bad)
     # attack_gain을 바꾸면 위 끝도 같이 움직인다
@@ -62,7 +63,8 @@ def test_norm_config_range_checks():
     with pytest.raises(ValueError):
         small("stage4", "conflict", attack_gain=0.3, norm_pun_return=0.31)
     # 끝값은 된다
-    c = small("stage4", "conflict", norm_pun_return=0.0, norm_inhibit=1.0, norm_mark_tau=1, norm_mem_tau=1,
+    # norm_inhibit = 1은 막는다: mem = 1(맞은 직후)이면 가로채기 피해가 0이 되어 친 개체가 비용만 내고 표시도 0 피해로 붙는다
+    c = small("stage4", "conflict", norm_pun_return=0.0, norm_inhibit=0.99, norm_mark_tau=1, norm_mem_tau=1,
               norm_impulse_len=1, norm_impulse=1.0)
     assert c.norm_pun_return == 0.0 and c.norm_mark_tau == 1
 
@@ -1407,8 +1409,9 @@ def test_summary_prevalence():
     w.run(300)
     out = w.summary()
     tot = w.s.norm_tab.sum(axis=0)
-    epis = sum(tot[k.NT_MARK_EPIS0 + q] for q in range(3))
-    epun = sum(tot[k.NT_MARK_EPIS_PUN0 + q] for q in range(3))
+    # 미지(종류 2: 이어 읽기 전에 붙은 표시)는 벌 여부를 모르므로 표시당 집행 확률에서 뺀다
+    epis = sum(tot[k.NT_MARK_EPIS0 + q] for q in range(2))
+    epun = sum(tot[k.NT_MARK_EPIS_PUN0 + q] for q in range(2))
     assert tot[k.NT_MARKED_STEPS] > 0 and epis > 0
     assert out["norm_mark_prevalence"] == pytest.approx(tot[k.NT_MARKED_STEPS] / tot[k.NT_ALIVE_STEPS])
     assert out["norm_punished_per_episode"] == pytest.approx(epun / epis)
@@ -1620,6 +1623,7 @@ def test_norm_sense_thread_determinism():
             outs.append(s.obs.copy())
     finally:
         numba.set_num_threads(old)
+    assert len(outs) > 1, "스레드 1과 여럿을 견줘야 한다(NUMBA_NUM_THREADS ≥ 2로 돌린다)"
     for o in outs[1:]:
         assert (o == outs[0]).all()
 
@@ -1685,16 +1689,15 @@ def test_watch_pun_order_is_deterministic():
     assert hashes[0] == hashes[1]
 
 
-def _blind_world(punish, p_saw=250.0, p_alive=1000.0):
+def _blind_world(punish, p=0.25):
     w = _watch_scene(norm_mem_obs_mode="blind")
     s = w.s
     put(w, 1, 10.0, 100.0)
     if not punish:
         s.pun_t[0] = -1
     regrid(w)
-    # 이전 스텝까지: 본 벌 250 ÷ 개체 스텝 1000(이 스텝의 산 개체 8은 attack이 이미 더했다고 친다)
-    s.norm_tab[0, k.NT_SAW_PUN] = p_saw
-    s.norm_tab[0, k.NT_ALIVE_STEPS] = p_alive + 8
+    # 이전 스텝까지의 눈가림 비율(지수평활 [합, 무게]): p
+    s.norm_blind[0], s.norm_blind[1] = p, 1.0
     return w
 
 
@@ -1708,30 +1711,64 @@ def test_mem_obs_mode_blind_and_off():
         assert ((wa.s.mem > 0) == (wb.s.mem > 0)).all(), t
         want = np.array([rngmod.u01(wa.cfg.seed, rngmod.S_NORM_BLIND, t, wa.s.ids[i]) < 0.25 for i in range(8)])
         assert ((wa.s.mem > 0) == want).all()
-        assert nt(wa, 0, k.NT_SAW_PUN) == 251 and nt(wb, 0, k.NT_SAW_PUN) == 250     # 실제 관찰은 센다
+        assert nt(wa, 0, k.NT_SAW_PUN) == 1 and nt(wb, 0, k.NT_SAW_PUN) == 0     # 실제 관찰은 센다
+        # 비율은 이 스텝의 관찰을 동전 뒤에 섞는다(이 스텝의 벌은 다음 스텝부터 비율에 든다)
+        a = 1.0 / wa.cfg.norm_mem_tau
+        assert wa.s.norm_blind[0] == pytest.approx((1 - a) * 0.25 + a * 1 / 8)
+        assert wb.s.norm_blind[0] == pytest.approx((1 - a) * 0.25)
+        assert wa.s.norm_blind[1] == pytest.approx(1.0)
     # 같은 시나리오 두 번이 같다
     w1, w2 = _blind_world(True), _blind_world(True)
     st.watch_pun(50, w1.s, w1.fs, w1.isp)
     st.watch_pun(50, w2.s, w2.fs, w2.isp)
     assert (w1.s.mem == w2.s.mem).all()
-    # 장기 평균 상승 횟수 = 본 벌 ÷ 개체 스텝(= outcome의 기대 상승 횟수)
-    w = _blind_world(False)
-    ups = 0
-    for t in range(3000):
-        w.s.mem[:] = 0.0
-        st.watch_pun(t, w.s, w.fs, w.isp)
-        ups += int((w.s.mem > 0).sum())
-    assert ups / (3000 * 8) == pytest.approx(0.25, abs=0.015)
-    # 처음(본 벌 0)에는 비율 0
-    w0 = _blind_world(True, p_saw=0.0)
+    # 처음(관찰한 스텝이 없다)에는 비율 0, 한 스텝 본 뒤에는 그 스텝의 비율(무게로 나눠 시작 편향이 없다)
+    w0 = _blind_world(True, p=0.0)
+    w0.s.norm_blind[:] = 0.0
     st.watch_pun(50, w0.s, w0.fs, w0.isp)
     assert not w0.s.mem.any()
+    assert w0.s.norm_blind[0] / w0.s.norm_blind[1] == pytest.approx(1 / 8)
     # off: 기억은 안 바뀌고 관찰 수는 센다
     wo = _watch_scene(norm_mem_obs_mode="off")
     put(wo, 1, 10.0, 100.0)
     regrid(wo)
     st.watch_pun(50, wo.s, wo.fs, wo.isp)
     assert not wo.s.mem.any() and nt(wo, 0, k.NT_SAW_PUN) == 1
+
+
+def _blind_run(w, steps, pun_every, t0=0):
+    """벌 받은 0번 곁에 1번만 있는 장면을 steps 스텝: pun_every마다 0번이 벌 받는다. (동전 상승 수, 실제 관찰 수)."""
+    ups = 0
+    saw0 = w.s.norm_tab[:, k.NT_SAW_PUN].sum()
+    for t in range(t0, t0 + steps):
+        w.s.pun_t[0] = t if pun_every and t % pun_every == 0 else -1
+        w.s.mem[:] = 0.0
+        st.watch_pun(t, w.s, w.fs, w.isp)
+        ups += int((w.s.mem > 0).sum())
+    return ups, w.s.norm_tab[:, k.NT_SAW_PUN].sum() - saw0
+
+
+def test_blind_long_run_matches_outcome_and_tracks_recent_rate():
+    # 장기 평균 상승 횟수 = 실제 본 벌 수(= outcome의 상승 횟수)
+    w = _blind_world(True, p=0.0)
+    w.s.norm_blind[:] = 0.0
+    ups, saw = _blind_run(w, 6000, 4)
+    assert saw == 1500
+    assert ups == pytest.approx(saw, rel=0.08)
+    # 비율은 최근 ~norm_mem_tau 스텝을 본다(누적 평균이면 벌이 그친 뒤에도 오래 남는다): 벌이 그치고 4τ 뒤 e^-4 배
+    tau = w.cfg.norm_mem_tau
+    p_before = w.s.norm_blind[0] / w.s.norm_blind[1]
+    assert p_before == pytest.approx(1 / 32, rel=0.3)
+    _blind_run(w, 4 * tau, 0, t0=6000)
+    p_after = w.s.norm_blind[0] / w.s.norm_blind[1]
+    assert p_after == pytest.approx(p_before * (1 - 1 / tau) ** (4 * tau), rel=1e-6)
+    assert p_after < 0.03 * p_before
+
+
+def test_blind_rate_not_reset_with_tables():
+    w = _blind_world(True)
+    w.reset_norm_tables()
+    assert w.s.norm_blind[1] == 1.0 and "norm_blind" not in k.SAVED_FIELDS and "norm_blind" in k.OTHER_SCRATCH
 
 
 def test_saw_pun_counter():
@@ -1828,5 +1865,50 @@ def test_resume_gives_same_result_for_saved_fields():
     assert (w2.s.mark_vid[w2.s.alive] == -2).all()           # 저장 안 하는 피해자는 미지(−2)로 돌아온다
     w2.run(200)
     assert w2.state_hash() == want
-    # 계수기는 다를 수 있다(PUN_UNKNOWN 등): 이어 읽은 쪽만 미지 피해자 벌을 센다
-    assert w2.s.norm_tab[:, k.NT_PUN_UNKNOWN].sum() >= 0
+    # 계수기는 다르다: 이어 읽기 전에 붙은 표시는 끊김 없는 쪽에는 없는 미지(종류 2) 에피소드로 닫히고,
+    # 표시당 집행 확률에서는 빠진다
+    assert w.s.norm_tab[:, k.NT_MARK_EPIS2].sum() == 0 and w.s.norm_tab[:, k.NT_PUN_UNKNOWN].sum() == 0
+    assert w2.s.norm_tab[:, k.NT_MARK_EPIS2].sum() > 0
+    tot = w2.s.norm_tab.sum(axis=0)
+    epis = tot[k.NT_MARK_EPIS0] + tot[k.NT_MARK_EPIS1]
+    if epis > 0:
+        want_rate = (tot[k.NT_MARK_EPIS_PUN0] + tot[k.NT_MARK_EPIS_PUN1]) / epis
+        assert w2.summary()["norm_punished_per_episode"] == pytest.approx(want_rate)
+
+
+def test_resume_marks_from_before_load_count_as_unknown():
+    """이어 읽으면 저장 안 하는 mark_pun(이 에피소드에 벌 받았나)을 모른다: 읽을 때 표시가 있던 개체는 mark_pun = 2(미지)로
+    두고, 그 에피소드는 연장되거나 다시 벌 받아도 종류 2로 닫혀 표시당 집행 확률에 안 든다. 동작(해시)은 안 바뀐다."""
+    w = hand_world("norm", norm_mark_tau=5)
+    s = w.s
+    st._attach_mark(s, 0, 10, 4, s.ids[4], 5)
+    s.mark_pun[0] = 1                         # 저장 전에 벌 받았다(이어 읽으면 잃는다)
+    st._attach_mark(s, 1, 10, 4, s.ids[4], 5)
+    w.step_no = 12
+    arrays = {kk: v.copy() for kk, v in w.state_arrays().items()}
+    w2 = World(w.cfg, populate=False)
+    w2.step_no = 12
+    w2.load_arrays(arrays)
+    s2 = w2.s
+    assert s2.mark_pun[0] == 2 and s2.mark_pun[1] == 2 and (s2.mark_pun[2:] == 0).all()
+    st._attach_mark(s2, 1, 13, 4, s2.ids[4], 5)       # 연장: 피해자는 알게 되지만 앞부분의 벌 여부는 모른다
+    for t in range(12, 25):
+        st.norm_account(t, s2, w2.fs, w2.isp)
+    assert _epis(w2, 0) == (0, 0) and _epis(w2, 1) == (0, 0) and _epis(w2, 2) == (2, 0)
+    # 만료 뒤 새로 붙으면 다시 아는 에피소드다
+    st._attach_mark(s2, 0, 30, 4, s2.ids[4], 5)
+    assert s2.mark_pun[0] == 0
+
+
+def test_punish_keeps_unknown_episode_flag():
+    """미지 에피소드(mark_pun 2) 개체를 벌해도 2로 남는다(1로 덮으면 '벌 받은 에피소드'만 골라 세는 편향)."""
+    w = hand_world("norm")
+    s = w.s
+    s.mark_t[1], s.mark_vid[1], s.mark_pun[1] = 9, -2, 2
+    put(w, 0, 100.0, 100.0)
+    put(w, 1, 101.0, 100.0)
+    s.act[0, cfgmod.ACT_ATTACK] = 1.0
+    regrid(w)
+    st.attack(10, s, w.fs, w.isp)
+    assert s.pun_t[1] == 10 and s.mark_pun[1] == 2
+

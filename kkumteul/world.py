@@ -382,6 +382,9 @@ class World:
             s.e_prev[:] = s.energy
         if self.cfg.field_cap:
             self.recount_field()
+        # 저장 안 하는 mark_pun(이 표시 에피소드에 벌 받았나)은 이어 읽으면 모른다: 표시가 있던 개체는 2(미지)로 두어
+        # 그 에피소드를 표시당 집행 확률에서 뺀다(계수만; 동작은 mark_pun을 안 읽는다)
+        s.mark_pun[(s.mark_t >= 0) & s.alive] = 2
         self.step_no = int(s.counters[k.C_STEP])
         return exact and not missing
 
@@ -565,10 +568,11 @@ class World:
                     out["norm_pun_rate_3rd"] = float((tot[k.NT_PUN_3_KIN] + tot[k.NT_PUN_3_STR]) / tot[k.NT_OPP_OTHER])
                 if alive_steps > 0:
                     out["norm_mark_prevalence"] = float(tot[k.NT_MARKED_STEPS]) / alive_steps
-                epis = float(tot[k.NT_MARK_EPIS0:k.NT_MARK_EPIS2 + 1].sum())
+                epis = float(tot[k.NT_MARK_EPIS0:k.NT_MARK_EPIS1 + 1].sum())
                 if epis > 0:
-                    # 표시당 집행 확률(만료·죽음으로 닫힌 에피소드 가운데 벌 받은 몫)
-                    out["norm_punished_per_episode"] = float(tot[k.NT_MARK_EPIS_PUN0:k.NT_MARK_EPIS_PUN2 + 1].sum()) / epis
+                    # 표시당 집행 확률(만료·죽음으로 닫힌 에피소드 가운데 벌 받은 몫). 미지(종류 2: 이어 읽기 전에 붙은
+                    # 표시)는 벌 여부를 몰라 뺀다
+                    out["norm_punished_per_episode"] = float(tot[k.NT_MARK_EPIS_PUN0:k.NT_MARK_EPIS_PUN1 + 1].sum()) / epis
         if self.cfg.huddle_enabled:
             out["huddle_cut_mean"] = float(s.huddle_cut[a].mean()) if n else 0.0
         if self.cfg.prey_enabled:

@@ -874,10 +874,12 @@ def watch_pun(step, s, fs, isp):
     순차 전용(prange 금지). 적용 순서 = 벌 받은 개체의 칸 번호 오름차순. 벌 받은 본인은 여기서 안 오른다.
     본 벌 수(SAW_PUN, 관찰자의 태그 행)는 모든 모드에서 같게 센다.
     - outcome: 본 벌마다 mem += norm_mem_obs × (1 − mem)
-    - blind: 이 스텝의 사건과 무관한 비율 p = (이전 스텝까지의 SAW_PUN 합) ÷ (이전 스텝까지의 ALIVE_STEPS 합)로 산 개체마다
-      동전(S_NORM_BLIND, (step, id))을 던져 같은 식으로 올린다. 벌이 없는 스텝에도 같은 비율이라 시간·공간 정보가 없고
-      장기 평균 상승 횟수는 outcome과 같다. 처음(SAW_PUN 0)과 계수표를 지운 직후에는 덜 오르는 편향이 있다.
-      ALIVE_STEPS는 attack이 이 스텝 산 개체마다 이미 하나씩 더했으므로 그 수를 빼서 "이전 스텝까지"로 쓴다.
+    - blind: 이 스텝의 사건과 무관한 비율 p(이전 스텝까지 산 개체 하나가 한 스텝에 본 벌 수의 지수평활, 시간 규모
+      norm_mem_tau, s.norm_blind = [합, 무게]이고 p = 합 ÷ 무게라 시작 편향이 없다)로 산 개체마다 동전(S_NORM_BLIND,
+      (step, id))을 던져 같은 식으로 올린다. 벌이 없는 스텝에도 같은 비율이라 시간·공간 정보가 없고 장기 평균 상승
+      횟수는 outcome과 같다. 이 스텝의 관찰은 동전을 던진 뒤에 평활에 섞는다. 누적 평균이 아니라 최근 ~τ스텝을 보므로
+      마당 초반의 비율이 끝까지 끌려가지 않는다. 처음 한 스텝(관찰한 스텝이 없음)만 p = 0이다(이어 읽은 직후도 같다:
+      저장하지 않는다).
     - off: 기억을 안 바꾼다."""
     n = s.x.shape[0]
     gw = isp[I_GW]
@@ -890,25 +892,17 @@ def watch_pun(step, s, fs, isp):
     obs = fs[F_NORM_MEM_OBS]
     mode = isp[I_NORM_OBS_MODE]
     tab = s.norm_tab
+    blind = s.norm_blind
     if mode == OBS_BLIND:
-        saw = 0.0
-        alive_steps = 0.0
-        for r in range(tab.shape[0]):
-            saw += tab[r, NT_SAW_PUN]
-            alive_steps += tab[r, NT_ALIVE_STEPS]
-        n_alive = 0
-        for i in range(n):
-            if s.alive[i]:
-                n_alive += 1
-        alive_steps -= n_alive
         p = 0.0
-        if alive_steps > 0.0:
-            p = saw / alive_steps
+        if blind[1] > 0.0:
+            p = blind[0] / blind[1]
         if p > 0.0:
             seed = isp[I_SEED]
             for i in range(n):
                 if s.alive[i] and u01(seed, S_NORM_BLIND, step, s.ids[i]) < p:
                     s.mem[i] += obs * (1.0 - s.mem[i])
+    saw_now = 0.0
     for j in range(n):
         if not s.alive[j] or s.pun_t[j] != step:
             continue
@@ -939,8 +933,20 @@ def watch_pun(step, s, fs, isp):
                     if ddx * ddx + ddy * ddy > rad2:
                         continue
                     tab[_norm_row(s.tag[i]), NT_SAW_PUN] += 1.0
+                    saw_now += 1.0
                     if mode == OBS_OUTCOME:
                         s.mem[i] += obs * (1.0 - s.mem[i])
+    if mode == OBS_BLIND:
+        n_alive = 0
+        for i in range(n):
+            if s.alive[i]:
+                n_alive += 1
+        rate = 0.0
+        if n_alive > 0:
+            rate = saw_now / n_alive
+        a = 1.0 / fs[F_NORM_MEM_TAU]
+        blind[0] = (1.0 - a) * blind[0] + a * rate
+        blind[1] = (1.0 - a) * blind[1] + a
 
 
 @njit(cache=True)
@@ -1185,7 +1191,8 @@ def attack(step, s, fs, isp):
         s.counters[C_ATTACKS] += 1
         if pun:
             s.pun_t[best] = step              # 집행자는 표시되지 않는다
-            s.mark_pun[best] = 1              # 이 표시 에피소드 안에 벌 받음
+            if s.mark_pun[best] != 2:
+                s.mark_pun[best] = 1          # 이 표시 에피소드 안에 벌 받음(2 = 이어 읽기 전 에피소드는 미지로 둔다)
             s.mem[best] += fs[F_NORM_MEM_RATE] * (1.0 - s.mem[best])     # 삼가기 기억(float32, [0, 1] 안)
         elif mark_take:
             _attach_mark(s, i, step, best, s.ids[best], tau)     # 가로채기가 맞으면 친 쪽에만 표시

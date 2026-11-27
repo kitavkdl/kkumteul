@@ -117,7 +117,7 @@ AGENT_FIELDS = [
     # 규범의 씨앗 계수용(저장하지 않는다). 피해자 칸·id는 −2 = 미지(이어 읽은 직후·주입·재사용), −1 = 없음(sig·잡음)
     ("mark_vslot", np.int32, (), False),      # 이 표시의 피해자 칸
     ("mark_vid", np.int64, (), False),        # 이 표시의 피해자 id(칸이 다른 개체로 바뀌었는지 가린다)
-    ("mark_pun", np.int8, (), False),         # 이 표시 에피소드 안에 벌 받았는가(0/1)
+    ("mark_pun", np.int8, (), False),         # 이 표시 에피소드 안에 벌 받았는가(0/1, 2 = 이어 읽기 전에 붙어 모름)
     ("pun_role", np.int8, (), False),         # 벌 받았을 때 집행자의 역할(0 2자, 1 3자 친족, 2 3자 남, −1 없음)
 ]
 FOOD_FIELDS = [
@@ -169,7 +169,7 @@ HASH_DEFAULTS = {"elig_in": 0, "elig_rec": 0, "a_held": -1, "f_holder": -1, "f_d
 # 저장하지 않는 필드 가운데 기본값이 0이 아닌 것(alloc_state가 채운다)
 UNSAVED_DEFAULTS = {"mark_vslot": -2, "mark_vid": -2, "pun_role": -1}
 OTHER_SCRATCH = ["a_start", "a_items", "f_start", "f_items", "cursor", "bbuf", "dbuf", "dbuf_f", "grad_tab",
-                 "norm_tab", "norm_tab_role", "norm_hist"]
+                 "norm_tab", "norm_tab_role", "norm_hist", "norm_blind"]
 
 # ---- 졸업표(grad_tab[TAG_ROWS][N_GT], 저장하지 않는 세계 배열): 행은 태그(범위 밖은 접는다), 칸은 아래 GT_* ----
 TAG_ROWS = 8
@@ -477,6 +477,8 @@ def alloc_state(cfg) -> State:
     # 구간표: 행 0~2 = 벌 받은 개체를 벌 준 집행자의 역할, 행 3 = 표시됐으나 벌 안 받음; 열 = 벌 뒤 경과 구간 넷;
     # 마지막 축 = [노출, 가로채기]
     d["norm_hist"] = np.zeros((4, 4, 2), dtype=np.float64)
+    # 눈가림(blind) 비율의 지수평활 [합, 무게](최근 ~norm_mem_tau 스텝, 무게로 나눠 시작 편향 없음). 계수표와 따로 지우지 않는다
+    d["norm_blind"] = np.zeros(2, dtype=np.float64)
     for name, v in HASH_DEFAULTS.items():
         d[name][...] = v    # 옛 체크포인트에 없는 필드는 이 값 그대로 남는다(a_held가 0이면 0번 칸을 든 꼴이 된다)
     for name, v in UNSAVED_DEFAULTS.items():
@@ -1553,17 +1555,19 @@ def _norm_row(tag):
 def _norm_close_episode(s, i):
     """i의 표시 에피소드 하나를 닫아 센다: MARK_EPIS[종류], 이 에피소드 안에 벌 받았으면(mark_pun) MARK_EPIS_PUN[종류].
     종류 = (마지막) 피해자 값: 0 가로채기(id ≥ 0), 1 피해자 없음(sig·잡음, −1), 2 미지(−2).
+    mark_pun 2(체크포인트에서 이어 읽을 때 이미 표시돼 있던 에피소드: 저장 전의 벌 여부를 모른다)는 피해자와 상관없이
+    종류 2로 닫고 벌 칸에는 안 센다(표시당 집행 확률은 종류 0·1만 쓴다).
     닫는 곳은 셋이고 한 에피소드는 한 곳에서만 닫힌다: 만료 스텝의 norm_account, 만료 스텝에 다시 붙는 _attach_mark,
     표시된 채 죽을 때 process_deaths."""
     row = _norm_row(s.tag[i])
     v = s.mark_vid[i]
     kind = 0
-    if v == -1:
-        kind = 1
-    elif v < 0:
+    if s.mark_pun[i] == 2 or (v < 0 and v != -1):
         kind = 2
+    elif v == -1:
+        kind = 1
     s.norm_tab[row, NT_MARK_EPIS0 + kind] += 1.0
-    if s.mark_pun[i] != 0:
+    if s.mark_pun[i] == 1:
         s.norm_tab[row, NT_MARK_EPIS_PUN0 + kind] += 1.0
 
 

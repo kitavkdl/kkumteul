@@ -268,7 +268,7 @@ class Config:
     norm_sig_theta: float = 0.5       # sig 원천의 문턱(출력은 이미 tanh를 지난 값). 유병률 맞춤 관문에서 조정
     norm_pun_return: float = 0.1      # 벌의 집행자가 얻는 몫. = attack_cost ÷ attack_damage(한 번 맞힐 때 본전). [0, attack_gain]
     norm_aim: str = "marked"          # 자발 공격의 대상: marked(닿는 표시된 이웃이 있으면 그쪽) / nearest(가장 가까운 이웃)
-    norm_inhibit: float = 0.8         # 위축: 가로채기 출력 × (1 − norm_inhibit × mem). 한 번 벌 받으면 0.2배. [0, 1]
+    norm_inhibit: float = 0.8         # 위축: 가로채기 출력 × (1 − norm_inhibit × mem). 한 번 벌 받으면 0.2배. [0, 1)
     norm_mem_tau: int = 50            # 삼가기 기억이 스텝마다 1/τ씩 준다. 표시와 같은 시간 규모
     norm_mem_rate: float = 1.0        # 벌 받으면 mem += rate × (1 − mem). 맞은 본인은 한 번에 최대
     norm_mem_obs: float = 0.2         # 곁 이웃이 벌 받는 것을 보면 mem += obs × (1 − mem). soc_rate 0.05보다 큼(벌은 드문 사건)
@@ -549,6 +549,9 @@ class Config:
                      "norm_mark_noise", "norm_mix_frac"):
             if not (0.0 <= getattr(self, name) <= 1.0):
                 raise ValueError(f"{name}은 0과 1 사이여야 한다")
+        if self.norm_inhibit >= 1.0:
+            # mem = 1(맞은 직후)이면 가로채기 피해·얻는 몫이 0이 되어 비용만 내고 0 피해로 표시가 붙는다
+            raise ValueError("norm_inhibit은 1보다 작아야 한다")
         for name in ("norm_mark_tau", "norm_mem_tau", "norm_impulse_len"):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name}은 1 이상이어야 한다")
