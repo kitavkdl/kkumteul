@@ -119,6 +119,10 @@ AGENT_FIELDS = [
     ("mark_vid", np.int64, (), False),        # 이 표시의 피해자 id(칸이 다른 개체로 바뀌었는지 가린다)
     ("mark_pun", np.int8, (), False),         # 이 표시 에피소드 안에 벌 받았는가(0/1, 2 = 이어 읽기 전에 붙어 모름)
     ("pun_role", np.int8, (), False),         # 벌 받았을 때 집행자의 역할(0 2자, 1 3자 친족, 2 3자 남, −1 없음)
+    # 되치기 계수용(저장하지 않는다, 계수가 켜졌을 때만 쓴다). −1 = 기록 없음(이어 읽은 직후도)
+    ("hitby_id", np.int64, (), False),        # 마지막으로 나를 친 개체의 id
+    ("hitby_t", np.int64, (), False),         # 그 스텝
+    ("hitby_own", np.int64, (), False),       # 맞을 때의 내 id(칸이 다른 개체로 바뀌면 기록을 안 쓴다)
 ]
 FOOD_FIELDS = [
     ("fx", np.float64, True),
@@ -167,7 +171,7 @@ PERTURB_FLEX = ("elig_in", "elig_rec")
 HASH_DEFAULTS = {"elig_in": 0, "elig_rec": 0, "a_held": -1, "f_holder": -1, "f_dropped": 0, "taste_m": 0, "taste_g": 0, "soc_g": 0,
                  "show_g": 0, "feed_g": 0, "know_age": -1, "mark_t": -1, "pun_t": -1, "mem": 0}
 # 저장하지 않는 필드 가운데 기본값이 0이 아닌 것(alloc_state가 채운다)
-UNSAVED_DEFAULTS = {"mark_vslot": -2, "mark_vid": -2, "pun_role": -1}
+UNSAVED_DEFAULTS = {"mark_vslot": -2, "mark_vid": -2, "pun_role": -1, "hitby_id": -1, "hitby_t": -1, "hitby_own": -1}
 OTHER_SCRATCH = ["a_start", "a_items", "f_start", "f_items", "cursor", "bbuf", "dbuf", "dbuf_f", "grad_tab",
                  "norm_tab", "norm_tab_role", "norm_hist", "norm_blind"]
 
@@ -194,10 +198,14 @@ TAG_ROWS_NORM = 5
  NT_OPP_OTHER_SIM3, NT_OPP_OTHER_LINE, NT_OPP_MARKED, NT_OPP_PLAIN, NT_ATK_VOL_MARKED, NT_ATK_VOL_PLAIN,
  NT_MARK_EPIS0, NT_MARK_EPIS1, NT_MARK_EPIS2, NT_MARK_EPIS_PUN0, NT_MARK_EPIS_PUN1, NT_MARK_EPIS_PUN2,
  NT_ALIVE_STEPS, NT_MARKED_STEPS, NT_SAW_PUN, NT_TAKE_DMG_RECV, NT_PUN_DMG_RECV, NT_VIOL_DMG_RECV,
- NT_TAKE_GAIN, NT_PUN_FINE, NT_PUN_COST, NT_ATK_COST, NT_EATEN_DEAD, NT_LIVES_DONE, N_NT) = range(54)
+ NT_TAKE_GAIN, NT_PUN_FINE, NT_PUN_COST, NT_ATK_COST, NT_EATEN_DEAD, NT_LIVES_DONE,
+ NT_HIT, NT_MUTUAL, NT_RET1, NT_RET5, NT_RET20, N_NT) = range(59)
 # 칸 뜻: TAKE = 벌이 아닌 공격이 맞음(KIN 친족 = 계보만, SIM 닮음 구간, LINE 계보 = 부모·자식·형제 — KIN과 같은 값),
 # ATK_COST = 모든 공격 비용(빗나감 포함), PUN_COST = 그 가운데 벌의 몫,
 # VIOL_DMG_RECV = 때린 순간 표시가 없던 대상이 받은 피해(위반 피해율의 분자; 표시가 없는 측정 세계는 모든 피해)
+# HIT = 맞은 공격(벌·가로채기 모두), MUTUAL = 같은 스텝에 서로 친 쌍(뒤 차례 쪽 행에 한 번),
+# RET<k> = 친 대상이 경과 0~k스텝 안에 나를 마지막으로 친 개체였던 공격(되치기; 같은 스텝 맞공격의 뒤 차례도 든다)
+RET_KS = (1, 5, 20)
 NT_NAMES = ("take", "take_kin", "take_sim0", "take_sim1", "take_sim2", "take_sim3", "take_line", "take_imp",
             "take_on_marked", "pun", "take_kill", "pun_kill", "pun_2nd", "pun_3_kin", "pun_3_str",
             "pun_3_sim0", "pun_3_sim1", "pun_3_sim2", "pun_3_sim3", "pun_3_line", "pun_novict", "pun_unknown",
@@ -205,7 +213,8 @@ NT_NAMES = ("take", "take_kin", "take_sim0", "take_sim1", "take_sim2", "take_sim
             "opp_other_sim3", "opp_other_line", "opp_marked", "opp_plain", "atk_vol_marked", "atk_vol_plain",
             "mark_epis0", "mark_epis1", "mark_epis2", "mark_epis_pun0", "mark_epis_pun1", "mark_epis_pun2",
             "alive_steps", "marked_steps", "saw_pun", "take_dmg_recv", "pun_dmg_recv", "viol_dmg_recv",
-            "take_gain", "pun_fine", "pun_cost", "atk_cost", "eaten_dead", "lives_done")
+            "take_gain", "pun_fine", "pun_cost", "atk_cost", "eaten_dead", "lives_done",
+            "hit", "mutual", "ret1", "ret5", "ret20")
 # 집행 역할별 표(norm_tab_role[3][N_RT]): 행 = 2자·3자 친족·3자 남. 지킨 피해의 추정은 판정 도구가 norm_hist로 낸다
 (RT_PUN_FINE, RT_PUN_COST, RT_N_PUN, N_RT) = range(4)
 RT_ROLES = ("self", "kin", "stranger")

@@ -157,7 +157,8 @@ def test_old_configs_validate():
 # ======================= 과제 2: 난수·저장 필드·계수 배열·설정 칸·옛 호환 =======================
 NORM_SAVED = {"mark_t": (np.int32, -1), "pun_t": (np.int32, -1), "mem": (np.float32, 0)}
 NORM_UNSAVED = {"mark_vslot": (np.int32, -2), "mark_vid": (np.int64, -2), "mark_pun": (np.int8, 0),
-                "pun_role": (np.int8, -1)}
+                "pun_role": (np.int8, -1), "hitby_id": (np.int64, -1), "hitby_t": (np.int64, -1),
+                "hitby_own": (np.int64, -1)}
 
 
 def _assert_norm_fresh(s, j):
@@ -196,7 +197,8 @@ def test_norm_scratch_arrays():
              "OPP_OTHER_SIM3", "OPP_OTHER_LINE", "OPP_MARKED", "OPP_PLAIN", "ATK_VOL_MARKED", "ATK_VOL_PLAIN",
              "MARK_EPIS0", "MARK_EPIS1", "MARK_EPIS2", "MARK_EPIS_PUN0", "MARK_EPIS_PUN1", "MARK_EPIS_PUN2",
              "ALIVE_STEPS", "MARKED_STEPS", "SAW_PUN", "TAKE_DMG_RECV", "PUN_DMG_RECV", "VIOL_DMG_RECV",
-             "TAKE_GAIN", "PUN_FINE", "PUN_COST", "ATK_COST", "EATEN_DEAD", "LIVES_DONE")
+             "TAKE_GAIN", "PUN_FINE", "PUN_COST", "ATK_COST", "EATEN_DEAD", "LIVES_DONE",
+             "HIT", "MUTUAL", "RET1", "RET5", "RET20")
     assert k.N_NT == len(order)
     for idx, name in enumerate(order):
         assert getattr(k, "NT_" + name) == idx, name
@@ -2588,3 +2590,102 @@ def test_fight_extra_config_checks():
     with pytest.raises(ValueError):
         Config().with_overrides(["fight_extra=0.16"])           # 공격이 꺼진 세계에서는 쓸 수 없다
     assert small("stage3", "conflict", fight_extra=0.16).fight_extra == 0.16
+
+
+# ======================= 추가: 맞공격·되치기 계수(측정만) =======================
+def _cnt(w, col):
+    return float(w.s.norm_tab[:, col].sum())
+
+
+def _hit(w, step, who):
+    """who만 공격 출력 1로 두고 한 스텝 attack을 돌린다."""
+    s = w.s
+    s.act[:, cfgmod.ACT_ATTACK] = 0.0
+    for q in who:
+        s.act[q, cfgmod.ACT_ATTACK] = 1.0
+    st.attack(step, s, w.fs, w.isp)
+
+
+def test_retal_ks_and_columns():
+    assert k.RET_KS == (1, 5, 20)
+    assert (k.NT_RET1, k.NT_RET5, k.NT_RET20) == (k.NT_MUTUAL + 1, k.NT_MUTUAL + 2, k.NT_MUTUAL + 3)
+
+
+def test_mutual_counted_when_both_hit_same_step():
+    for fx in (0.0, 0.16):
+        w, cfg, i, j = _duel(norm_measure=True, fight_extra=fx)
+        _hit(w, 0, (i, j))
+        assert _cnt(w, k.NT_HIT) == 2 and _cnt(w, k.NT_MUTUAL) == 1
+        # 같은 스텝(경과 0)에 앞 차례가 나를 쳤으면 뒤 차례는 되치기이기도 하다(모든 창에 든다)
+        assert _cnt(w, k.NT_RET1) == 1 and _cnt(w, k.NT_RET5) == 1 and _cnt(w, k.NT_RET20) == 1
+
+
+def test_one_sided_hit_is_not_mutual_or_retal():
+    w, cfg, i, j = _duel(norm_measure=True)
+    _hit(w, 0, (i,))
+    assert _cnt(w, k.NT_HIT) == 1 and _cnt(w, k.NT_MUTUAL) == 0 and _cnt(w, k.NT_RET20) == 0
+    assert w.s.hitby_id[j] == w.s.ids[i] and w.s.hitby_t[j] == 0 and w.s.hitby_own[j] == w.s.ids[j]
+    _hit(w, 1, (i,))                 # 같은 쪽이 또 쳐도 되치기가 아니다
+    assert _cnt(w, k.NT_HIT) == 2 and _cnt(w, k.NT_RET20) == 0
+
+
+@pytest.mark.parametrize("dt,want", [(1, (1, 1, 1)), (3, (0, 1, 1)), (5, (0, 1, 1)), (6, (0, 0, 1)),
+                                     (20, (0, 0, 1)), (21, (0, 0, 0))])
+def test_retaliation_within_k_steps(dt, want):
+    w, cfg, i, j = _duel(norm_measure=True)
+    _hit(w, 100, (i,))
+    _hit(w, 100 + dt, (j,))
+    got = (_cnt(w, k.NT_RET1), _cnt(w, k.NT_RET5), _cnt(w, k.NT_RET20))
+    assert got == want
+    assert _cnt(w, k.NT_MUTUAL) == 0 and _cnt(w, k.NT_HIT) == 2
+
+
+def test_retaliation_needs_same_hitter_and_same_owner():
+    w, cfg, i, j = _duel(norm_measure=True)
+    s = w.s
+    _hit(w, 0, (i,))
+    s.ids[j] = s.ids[j] + 1000       # j 칸에 다른 개체가 들어섰다(칸 재사용): 앞 개체가 맞은 기록은 안 센다
+    _hit(w, 2, (j,))
+    assert _cnt(w, k.NT_RET20) == 0
+    w, cfg, i, j = _duel(norm_measure=True)
+    s = w.s
+    _hit(w, 0, (i,))
+    s.ids[i] = s.ids[i] + 1000       # 나를 친 개체가 아닌 개체를 친다
+    _hit(w, 2, (j,))
+    assert _cnt(w, k.NT_RET20) == 0
+
+
+def test_mutual_and_retal_not_counted_when_measure_off():
+    w, cfg, i, j = _duel(fight_extra=0.16)
+    _hit(w, 0, (i, j))
+    assert not w.s.norm_tab.any()
+    assert (w.s.hitby_id == -1).all() and (w.s.hitby_t == -1).all() and (w.s.hitby_own == -1).all()
+
+
+def test_mutual_counters_keep_hash():
+    for fx in (0.0, 0.16):
+        hashes = []
+        for kw in (dict(), dict(norm_measure=True)):
+            w = World(small("stage3", "conflict", fight_extra=fx, **kw))
+            w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+            w.run(300)
+            hashes.append(w.state_hash())
+            if kw:
+                assert _cnt(w, k.NT_HIT) > 0 and _cnt(w, k.NT_RET20) > 0
+                assert _cnt(w, k.NT_HIT) == w.s.counters[k.C_ATTACKS]
+        assert hashes[0] == hashes[1], fx
+    # 박은 해시: 계수를 켠 공격 세계도 박아 둔 값 그대로
+    w = World(small("stage4", "conflict", "kinds", norm_measure=True))
+    w.run(300)
+    assert w.state_hash() == PINNED_HASH_300[("stage4", "conflict", "kinds")]
+
+
+def test_summary_mutual_keys():
+    w = World(small("stage3", "conflict", norm_measure=True))
+    w.s.bout[:, cfgmod.ACT_ATTACK] = 0.5
+    w.run(100)
+    out = w.summary()
+    tab = w.s.norm_tab.sum(axis=0)
+    assert out["norm_hits"] == tab[k.NT_HIT] and out["norm_mutual"] == tab[k.NT_MUTUAL]
+    for kk, col in zip(k.RET_KS, (k.NT_RET1, k.NT_RET5, k.NT_RET20)):
+        assert out[f"norm_ret{kk}"] == tab[col]

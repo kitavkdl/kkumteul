@@ -575,6 +575,11 @@ class World:
             if alive_steps > 0:
                 out["norm_expo_frac"] = float(tot[k.NT_EXPO]) / alive_steps      # 설계의 θ_t: 닿는 이웃이 있는 개체 스텝 비율
                 out["norm_take_per_step"] = float(tot[k.NT_TAKE]) / alive_steps
+            # 맞공격·되치기 계수(누적, 계수표를 지운 뒤부터): 맞은 공격·같은 스텝 서로 친 쌍·경과 k스텝 안 되치기
+            out["norm_hits"] = float(tot[k.NT_HIT])
+            out["norm_mutual"] = float(tot[k.NT_MUTUAL])
+            for kk, col in zip(k.RET_KS, (k.NT_RET1, k.NT_RET5, k.NT_RET20)):
+                out[f"norm_ret{kk}"] = float(tot[col])
             if self.cfg.norm_enabled:
                 # p2 = 2자 벌 ÷ 내가 피해자인 표시된 이웃이 닿은 기회, p3 = 3자 벌 ÷ 산 남이 피해자인 기회(분모가 없으면 안 낸다)
                 if tot[k.NT_OPP_SELF] > 0:

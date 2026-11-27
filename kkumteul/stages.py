@@ -25,6 +25,7 @@ from .kernels import (C_ATTACKS, C_FERTILE, C_GIFTS, C_NFIELD, C_NFOOD, KIND_A, 
                       RT_N_PUN, RT_PUN_COST, RT_PUN_FINE,
                       NT_TAKE, NT_TAKE_DMG_RECV, NT_TAKE_GAIN, NT_TAKE_IMP, NT_TAKE_KILL, NT_TAKE_KIN, NT_TAKE_LINE,
                       NT_MARKED_STEPS, NT_SAW_PUN, NT_TAKE_ON_MARKED, NT_TAKE_SIM0, NT_VIOL_DMG_RECV,
+                      NT_HIT, NT_MUTUAL, NT_RET1, NT_RET5, NT_RET20,
                       TOUCH_HIT, _kin_class, _norm_close_episode, _norm_row, _place_food, _wdiff, _wrap, make_room, pick_kind)
 from .rng import (S_ATTACK_ORDER, S_FERTILE, S_NORM_BLIND, S_NORM_IMPULSE, S_NORM_MIX, S_NORM_NOISE, S_PERTURB,
                   normal, u01)
@@ -1136,9 +1137,11 @@ def attack(step, s, fs, isp):
     blk3 = isp[I_NORM_BLOCK3]
     # 맞공격 추가 손실(fight_extra): 이 스텝에 각 개체가 친 대상의 칸을 적어 두고, 내가 친 대상이 이미 이 스텝에 나를
     # 쳤으면(서로 친 쌍) 둘 다 fx를 더 잃는다. 개체마다 차례가 한 번이라 한 쌍은 한 스텝에 한 번만. 난수 없음.
-    # 꺼져 있으면(0) 길이 1짜리 빈 배열만 만들고 아무것도 안 한다(옛 동작·해시 그대로)
+    # 꺼져 있으면(0) 길이 1짜리 빈 배열만 만들고 아무것도 안 한다(옛 동작·해시 그대로). 계수가 켜지면 같은 배열로
+    # 맞공격 쌍을 센다(읽기만 해서 동작은 같다)
     fx = fs[F_FIGHT_EXTRA]
-    hit_tgt = np.full(n if fx > 0.0 else 1, -1, dtype=np.int64)
+    track = fx > 0.0 or count
+    hit_tgt = np.full(n if track else 1, -1, dtype=np.int64)
     for q in range(n):
         i = start + q
         if i >= n:
@@ -1279,8 +1282,25 @@ def attack(step, s, fs, isp):
                 tab[rb, NT_VIOL_DMG_RECV] += dmg
         # 5. 맞공격 추가 손실(fight_extra, 계수 뒤: 이 차례의 피해·죽음 계수는 맞은 순간의 값 그대로).
         #    best가 이 스텝 앞 차례에 나를 쳤으면 서로 친 쌍 → 둘 다 fx를 더 잃는다(가진 것까지, L_LOST로)
-        if fx > 0.0:
+        if count:
+            # 맞공격·되치기 계수(측정만): 되치기 = best가 경과 0~k스텝 안에 나를 마지막으로 친 개체(칸 재사용은 id로 가린다)
+            tab[ri, NT_HIT] += 1.0
+            if hit_tgt[best] == i:
+                tab[ri, NT_MUTUAL] += 1.0
+            if s.hitby_own[i] == s.ids[i] and s.hitby_id[i] == s.ids[best]:
+                dt = step - s.hitby_t[i]
+                if dt <= 1:
+                    tab[ri, NT_RET1] += 1.0
+                if dt <= 5:
+                    tab[ri, NT_RET5] += 1.0
+                if dt <= 20:
+                    tab[ri, NT_RET20] += 1.0
+            s.hitby_id[best] = s.ids[i]
+            s.hitby_t[best] = step
+            s.hitby_own[best] = s.ids[best]
+        if track:
             hit_tgt[i] = best
+        if fx > 0.0:
             if hit_tgt[best] == i:
                 x = fx if fx < s.energy[i] else s.energy[i]
                 if x > 0.0:
