@@ -220,6 +220,9 @@ class World:
         inv_cell = fp[k.P_INV_CELL]
         grass, basal, sn, cs = self.season(t)
         g = grass       # 풀 몫의 배수. 사냥감이 켜지면 유입의 사냥감 몫을 먼저 떼어 낸다
+        mix_t = isp[st.I_NORM_MIX_PERIOD]
+        if mix_t > 0 and t > 0 and t % mix_t == 0:
+            st.norm_mix(t, s, fs, isp)       # 섞기: 스텝 맨 앞(첫 build_grid 앞)이라 낡은 격자를 보는 커널이 없다
         if cfg.prey_enabled:
             an.prey_inflow(s, self.fa, self.ia, grass)
             g = grass * (1.0 - cfg.prey_inflow_frac)

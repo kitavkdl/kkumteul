@@ -26,7 +26,8 @@ from .kernels import (C_ATTACKS, C_FERTILE, C_GIFTS, C_NFIELD, C_NFOOD, KIND_A, 
                       NT_TAKE, NT_TAKE_DMG_RECV, NT_TAKE_GAIN, NT_TAKE_IMP, NT_TAKE_KILL, NT_TAKE_KIN, NT_TAKE_LINE,
                       NT_MARKED_STEPS, NT_SAW_PUN, NT_TAKE_ON_MARKED, NT_TAKE_SIM0, NT_VIOL_DMG_RECV,
                       TOUCH_HIT, _kin_class, _norm_close_episode, _norm_row, _place_food, _wdiff, _wrap, make_room, pick_kind)
-from .rng import S_ATTACK_ORDER, S_FERTILE, S_NORM_BLIND, S_NORM_IMPULSE, S_NORM_NOISE, S_PERTURB, normal, u01
+from .rng import (S_ATTACK_ORDER, S_FERTILE, S_NORM_BLIND, S_NORM_IMPULSE, S_NORM_MIX, S_NORM_NOISE, S_PERTURB,
+                  normal, u01)
 
 # 거름 먹이의 종류를 뽑는 난수 번호의 밑. S_KIND 흐름에서 보통 먹이는 (일련번호, 0), 어느 쪽이 독인지는
 # (구간, 1)을 쓴다. 거름 먹이는 (스텝, 이 값 + 그 스텝의 몇 번째인지)를 써서 둘과 겹치지 않게 한다.
@@ -727,6 +728,29 @@ def norm_tick(s, fs, isp):
         if m < floor:
             m = 0.0
         s.mem[i] = m
+
+
+@njit(cache=True)
+def norm_mix(step, s, fs, isp):
+    """섞기: 산 개체마다 확률 norm_mix_frac로 세계 안 무작위 자리로 옮기고 속도를 0으로 한다(에너지·나이·표시·기억은 그대로).
+    난수는 한 개체에 셋 — u01(seed, S_NORM_MIX, step, 3 × id + k), k = 0 옮길지, 1 x, 2 y(서로 다른 해시라 x·y가 상관되지
+    않는다). world.step 맨 앞(첫 build_grid 앞)에서 step > 0이고 주기의 배수일 때만 부른다.
+    한계: 친족 곁(혈연 선택)과 같은 상대와의 반복 만남(맞대응) 두 몫을 함께 깬다 — 이 장치로는 둘을 따로 못 가른다."""
+    n = s.x.shape[0]
+    seed = isp[I_SEED]
+    f = fs[F_NORM_MIX_FRAC]
+    w = fs[F_W]
+    h = fs[F_H]
+    for i in range(n):
+        if not s.alive[i]:
+            continue
+        b = 3 * s.ids[i]
+        if u01(seed, S_NORM_MIX, step, b) >= f:
+            continue
+        s.x[i] = u01(seed, S_NORM_MIX, step, b + 1) * w
+        s.y[i] = u01(seed, S_NORM_MIX, step, b + 2) * h
+        s.vx[i] = 0.0
+        s.vy[i] = 0.0
 
 
 @njit(cache=True, inline="always")

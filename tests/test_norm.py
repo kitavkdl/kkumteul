@@ -2329,3 +2329,151 @@ def test_hand_requires_vision_sectors_8():
     g = measure.extract_genomes(World(cfg))
     with pytest.raises(ValueError):
         nh.plant_enforcer(g, cfg, enforcer=True)
+
+
+# ======================= 과제 16: 섞기(norm_mix) =======================
+def _mix_world(n=600, **kw):
+    """개체가 꽉 찬 작은 세계(섞기만 켬). 직접 st.norm_mix를 불러 본다."""
+    return World(small("stage4", "conflict", max_agents=n, init_agents=n, min_agents=0, **kw))
+
+
+def _mix_expect(w, step):
+    """개체마다 (옮길지, 새 x, 새 y)를 난수 정의에서 바로 계산한다(인자 배치: 3 × id + k)."""
+    s, c = w.s, w.cfg
+    out = {}
+    for i in np.flatnonzero(s.alive):
+        aid = int(s.ids[i])
+        go = rngmod.u01(c.seed, rngmod.S_NORM_MIX, step, 3 * aid) < c.norm_mix_frac
+        out[int(i)] = (go, rngmod.u01(c.seed, rngmod.S_NORM_MIX, step, 3 * aid + 1) * c.world_w,
+                       rngmod.u01(c.seed, rngmod.S_NORM_MIX, step, 3 * aid + 2) * c.world_h)
+    return out
+
+
+def test_mix_only_on_period_steps_with_probability_f(monkeypatch):
+    calls = []
+    orig = st.norm_mix
+    monkeypatch.setattr(st, "norm_mix", lambda step, *a: (calls.append(int(step)), orig(step, *a))[1])
+    w = World(small("stage4", "conflict", norm_mix_period=5))
+    w.run(21)
+    assert calls == [5, 10, 15, 20]            # 스텝 0은 안 옮긴다
+    # 개체마다 확률 f: 난수 정의와 정확히 같고, 큰 표본에서 비율 ≈ f
+    w = _mix_world(norm_mix_period=200, norm_mix_frac=0.2)
+    s = w.s
+    moved = trials = 0
+    for step in range(200, 2200, 200):
+        exp = _mix_expect(w, step)
+        x0, y0 = s.x.copy(), s.y.copy()
+        st.norm_mix(step, s, w.fs, w.isp)
+        for i, (go, nx, ny) in exp.items():
+            if go:
+                assert s.x[i] == nx and s.y[i] == ny
+            else:
+                assert s.x[i] == x0[i] and s.y[i] == y0[i]
+            moved += go
+            trials += 1
+    assert trials >= 5000
+    assert abs(moved / trials - 0.2) < 4 * math.sqrt(0.2 * 0.8 / trials)
+
+
+def test_mix_xy_independent_and_uniform():
+    w = _mix_world(norm_mix_period=200, norm_mix_frac=1.0)
+    s, c = w.s, w.cfg
+    xs, ys = [], []
+    for step in range(200, 2200, 200):
+        st.norm_mix(step, s, w.fs, w.isp)
+        xs.append(s.x[s.alive].copy())
+        ys.append(s.y[s.alive].copy())
+    x, y = np.concatenate(xs), np.concatenate(ys)
+    assert len(x) >= 5000
+    assert abs(np.corrcoef(x, y)[0, 1]) < 0.05
+    assert x.min() >= 0 and x.max() < c.world_w and y.min() >= 0 and y.max() < c.world_h
+    for v, side in ((x, c.world_w), (y, c.world_h)):
+        hist, _ = np.histogram(v, bins=8, range=(0, side))
+        assert (np.abs(hist / (len(v) / 8) - 1) < 0.15).all()
+
+
+def test_mix_conserves_energy_and_zeroes_velocity():
+    w = _mix_world(norm_mix_period=200, norm_mix_frac=0.5)
+    s = w.s
+    s.vx[:] = 0.3
+    s.vy[:] = -0.2
+    s.mark_t[:] = 7
+    s.mem[:] = 0.4
+    before = {f: getattr(s, f).copy() for f in ("energy", "age", "mark_t", "pun_t", "mem", "heading", "ids", "alive")}
+    led = s.ledger.copy()
+    e0 = float(s.energy[s.alive].sum())
+    exp = _mix_expect(w, 400)
+    st.norm_mix(400, s, w.fs, w.isp)
+    moved = [i for i, (go, _, _) in exp.items() if go]
+    still = [i for i, (go, _, _) in exp.items() if not go]
+    assert moved and still
+    assert (s.vx[moved] == 0).all() and (s.vy[moved] == 0).all()
+    assert (s.vx[still] == 0.3).all() and (s.vy[still] == -0.2).all()
+    for f, v in before.items():
+        assert np.array_equal(getattr(s, f), v), f
+    assert np.array_equal(s.ledger, led)
+    assert float(s.energy[s.alive].sum()) == e0
+
+
+def test_mix_runs_before_first_build_grid(monkeypatch):
+    calls = []
+    for mod, name in ((st, "norm_mix"), (st, "niche_world"), (k, "spawn_food"), (k, "build_grid")):
+        orig = getattr(mod, name)
+
+        def wrap(*a, _o=orig, _n=name):
+            calls.append(_n)
+            return _o(*a)
+        monkeypatch.setattr(mod, name, wrap)
+    w = World(small("stage4", "conflict", norm_mix_period=3))
+    w.run(4)
+    assert calls.count("norm_mix") == 1
+    i = calls.index("norm_mix")
+    assert calls[i + 1:i + 3] == ["niche_world", "spawn_food"]
+    assert "build_grid" in calls[i + 1:]
+    # 그 스텝(3)의 앞 호출은 직전 스텝의 끝이다: norm_mix 앞에 이번 스텝의 niche_world가 없다
+    assert calls[:i].count("niche_world") == 3
+
+
+def test_mix_deterministic_same_hash(monkeypatch):
+    presets = ("stage4", "conflict", "kinds")
+    a = World(small(*presets, norm_mix_period=50))
+    a.run(300)
+    b = World(small(*presets, norm_mix_period=50))
+    b.run(300)
+    assert a.state_hash() == b.state_hash()
+    calls = []
+    orig = st.norm_mix
+    monkeypatch.setattr(st, "norm_mix", lambda *x: (calls.append(1), orig(*x))[1])
+    off = World(small(*presets, norm_mix_period=0))
+    off.run(300)
+    assert not calls
+    assert off.state_hash() == PINNED_HASH_300[presets]
+    assert a.state_hash() != off.state_hash()
+
+
+def test_mix_breaks_parent_child_adjacency():
+    n = 600
+    w = World(small("stage4", "conflict", max_agents=n, init_agents=n, min_agents=0, norm_mix_period=200,
+                    norm_mix_frac=0.2))
+    s = w.s
+    assert int(s.alive.sum()) == n
+    for q in range(n // 2):       # 부모·자식 쌍을 서로 닿게(거리 1) 놓는다
+        px, py = 8.0 + 12.0 * (q % 20), 8.0 + 16.0 * (q // 20)
+        s.x[2 * q], s.y[2 * q] = px, py
+        s.x[2 * q + 1], s.y[2 * q + 1] = px + 1.0, py
+        s.parent[2 * q + 1] = s.ids[2 * q]
+    st.norm_mix(200, s, w.fs, w.isp)
+    W_, H_ = w.cfg.world_w, w.cfg.world_h
+    dx = np.abs(s.x[0::2] - s.x[1::2])
+    dy = np.abs(s.y[0::2] - s.y[1::2])
+    dx, dy = np.minimum(dx, W_ - dx), np.minimum(dy, H_ - dy)
+    frac = float(np.mean(np.hypot(dx, dy) < 2.5))
+    assert abs(frac - 0.8 ** 2) < 0.1
+
+
+def test_mix_incompatible_with_carry_and_teach():
+    with pytest.raises(ValueError, match="carry"):
+        small("stage4", "conflict", "harsh2", norm_mix_period=200)
+    with pytest.raises(ValueError, match="teach"):
+        small("stage2", "kinds", "taste", soc_taste_enabled=True, juv_enabled=True, teach_enabled=True,
+              conflict_enabled=True, norm_mix_period=200)
