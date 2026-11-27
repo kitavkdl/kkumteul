@@ -6,6 +6,7 @@
 #
 #   ROOT=<레포 원래 폴더> CODE=<커밋한 코드 사본 폴더> [WAIT_FOR=<pgrep -f 패턴>] [DRY=1] \
 #     <메모리 상한 도구> --max 1500M --bg teach-chain --log "$ROOT/runs/teach-exp/chain.log" -- bash wayfinder/stage2-4/teach_chain.sh
+# 셋째 판은 OUT=<레포>/runs/teach-exp-f1을 꼭 준다(기본 기록 폴더 runs/teach-exp에는 둘째 판 w-*.json이 있어 세계 점검이 건너뛰어진다).
 # 상한은 묶음 전체에 걸린다. 갈래·판정마다 done/json 표시가 있어 다시 불러도 이어 간다.
 # DRY=1이면 명령만 찍고(표준출력) 아무것도 돌리지 않는다. 이때 기록 폴더는 임시 폴더(OUT으로 바꿀 수 있다).
 #   DRY=1 EXP_OK=1이면 정보 비싼 세계(−1c 통과) 칸까지 찍는다.

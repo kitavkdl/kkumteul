@@ -13,13 +13,13 @@
 2. **가르침 — 셋째 판 체인 도는 중(19:04 ET~).** 속도 상한 0.3·0.1 모두 곁 부족(0.382·0.446 < 0.5) → 설계 6-1절 **따름 반응 F1 `juv_follow`**(부모와 3 넘게 떨어지면 부모 쪽으로 끌림, 이동 비용 매김, 부여) 구현(`3417010`, 시험 10) → 관문 −1b′ **통과**: `juv_follow=0.5 juv_move_floor=1.0`에서 곁 1.0·기대 관찰 1.356/1.354·무리 비 ~1, 대신 새끼 자기 끼니 절반(3.5→1.7). **도는 것**: 유닛 `teach-chain-f1`(코드 사본 `runs/code-d2bb1bf`, 기록 `runs/teach-exp-f1/progress.txt`, 갈래 `runs/t-f1-*`, 판정 0 → 관문 → 진화 갈래, 약 8시간 추정). 끝나면 `results.md`에 판정 0·관문·판정 나를 적고 status 갱신(예측은 둘째 판 표, 위쪽 끝 예상). 결과 문서 머리에 "곁 머무름도 부여(F1)". F2(`follow_g` 유전자)·F3(부모 방향 입력)은 판정 0 "작동" 때만.
 3. **규범의 씨앗 구현 — 과제 0~12 끝**(`179fdd5`까지, 따름 가지와 합친 `5124522`에서 전체 시험 **707 통과**). sonnet 검토(치명 0)의 지적을 **다음 묶음(과제 13~18) 구현자가 먼저 고친다**: ①[중요] `blind` 대조 비율이 누적 평균이라 마당 초반 편향(`stages.py` ~899-906) → 최근 ~`mem_tau` 지수평활로 ②[중요] 과제 13의 취소 점검은 `marked_t` 계산을 비용(`ATK_COST`·`ATK_VOL_*`, ~1155) **앞**으로 올리고 그 앞에 둔다 ③[중요] 이어 읽은 직후 τ스텝 집행 확률이 낮게 나옴(`mark_vid`·`mark_pun`·`pun_role` 비저장) → 이어 읽은 뒤 `reset_norm_tables` 또는 첫 τ+1 제외 ④[사소] `norm_inhibit=1`·mem=1이면 dmg 0 가로채기 → 설정 검사로 1.0 막기 ⑤[사소] 시험 `test_norm.py:1832`의 `>= 0` 항상 참, `:1616` 스레드 1이면 비교 없음(`len(outs) > 1`) ⑥ 결과 문서 메모: 운석·passive 사망은 표시 에피소드를 못 닫음, `VIOL_DMG_RECV` 비대칭은 `TAKE_DMG_RECV` 총량도 같이, `compete_multi` 순수입은 선물·출산 이동 안 셈. 그다음 과제 13~18 → sonnet 검토 → **추가 과제 `fight_extra`**(맞공격 때 추가 손실, 기본 꺼짐) → 규범 체인 두 판(지금 구조·매-비둘기). 구현은 서브에이전트(opus) 묶음 하나씩.
 4. **develop 창의성 실측**(`sessions/develop/kkumteul-communication.md` "2바퀴"): 2 `saweat` 막기 **끝 — 가를 수 없음**(0 지우기 +0.010, 섞기 +0.008, 한계 0.057; `results.md`). 다음 3(방언 지도, 읽기 전용)·4(쌍둥이·심은 효과 눈금자, `measure.py` TDD — 규범 13~18과 같은 파일이라 그 뒤). 5단계 시험판 검토는 아직.
-4b. **시험 돌리는 법**: memcap 안에서는 시스템 python에 pytest가 없다 → `NUMBA_NUM_THREADS=2 ~/.local/bin/memcap --max 2G -E NUMBA_NUM_THREADS -- env -C <작업 폴더> nice <레포>/.venv/bin/python -m pytest -q tests/`(전체 약 14분). `--bg` 유닛에는 ROOT·CODE 같은 변수를 `env -C <사본> ROOT=… CODE=… bash …`로 명령 안에 넣는다(바깥 변수는 안 넘어간다).
+4b. **시험 돌리는 법**: memcap 안에서는 시스템 python에 pytest가 없다 → `NUMBA_NUM_THREADS=2 <메모리 상한 도구> --max 2G -E NUMBA_NUM_THREADS -- env -C <작업 폴더> nice <레포>/.venv/bin/python -m pytest -q tests/`(전체 약 14분). `--bg` 유닛에는 ROOT·CODE 같은 변수를 `env -C <사본> ROOT=… CODE=… bash …`로 명령 안에 넣는다(바깥 변수는 안 넘어간다).
 5b. 주의: 코드 사본 `runs/code-faf9852`의 `soc_chain.sh`는 옛 판이라 같은 기록 폴더로 DRY 돌리면 갈래 로그를 자른다(레포 판은 `5dda27e`로 고침).
 6. 이전 계획(11/09 이전, 위 순서 뒤): 11/06 판 "다음 할 일"(맛 기억 다음·사냥·2부-다·암수) → `grep -n '2026-11-09 대청소' archive/kkumteul-history.md`. 일하는 방식·서버 세계 재개 명령 → `grep -n '^## 일하는 방식\|^## 현재 상태' archive/kkumteul-history.md`.
 7. 11/06 판 "먼저 할 것"(다시 보기 새 파일 올리기 — `runs/replay-two.html` 14MB라 통째 읽기 불가) — 상태 미확인.
 
 ## 결정 대기 (사용자)
-- 밤샘 가지(`night/2026-11-26-kkumteul`, 07b·맛 기억 포함)를 main에 합칠지 — `cd ~/git/kkumteul && bash scripts/merge-into-main.sh night/2026-11-26-kkumteul && echo 저장됨`
+- 밤샘 가지(`night/2026-11-26-kkumteul`, 07b·맛 기억 포함)를 main에 합칠지 — `cd <레포> && bash scripts/merge-into-main.sh night/2026-11-26-kkumteul && echo 저장됨`
 - 상주 세션(announcement·insight·research)을 tmux로 띄울지, 세션 안 예약 작업을 둘지(앱 백그라운드 세션 8시간 자동 정리 — 메모리 `bg-sessions-retire-after-8h`)
 
 ## 막다른 길
@@ -28,8 +28,8 @@
 - world4에서 공짜 단서 `saweat`가 신호 자리를 차지한다는 가설 → 막아도 가를 수 없음(19:0x ET).
 
 ## 시작 때 확인
-- `systemctl --user is-active teach-chain-f1; tail -3 ~/git/kkumteul/runs/teach-exp-f1/progress.txt` — 가르침 셋째 판 체인
-- `git -C ~/git/kkumteul/.claude/worktrees/night-2026-11-26 log --oneline -5` — 이 파일 뒤 새 커밋(`규범의 씨앗 N:`로 구현 진도)
+- `systemctl --user is-active teach-chain-f1; tail -3 <레포>/runs/teach-exp-f1/progress.txt` — 가르침 셋째 판 체인
+- `git -C <레포>/.claude/worktrees/night-2026-11-26 log --oneline -5` — 이 파일 뒤 새 커밋(`규범의 씨앗 N:`로 구현 진도)
 - `free -m | sed -n 2p; uptime` — 시뮬레이션 한 번에 하나(1.5GB·2스레드), 시험 2GB
 - 끝난 것: 아침 브리핑용 정리(5번) · 정렬 시험 셋 `a7f61b7`·`db96d54`(4b) · 가르침 관문 None 고침 `57c1ce8`
 - 끝난 것: 사회 학습 판정 나 다섯 갈래 `c3c7e50` 뒤 · 가르침 구현 1~9 `2030141` · 규범 계획 `f0a1cca`
