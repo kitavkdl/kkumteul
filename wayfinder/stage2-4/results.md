@@ -1195,6 +1195,6 @@ r > 0이면 B(안 치는 쪽)가 이김. 400마리씩 8,000스텝 6회, 중립�
 
 #### 두 판 관문 −1 결과와 조정 (2026-11-27 01:0x ET, 다시 띄우기 전 기록)
 - 잰 값(`runs/norm-exp-t50-i0.015{,-fx0.08-hawk}/gate-world.json`): 두 판 모두 −1a·−1c·−1d 통과(무리 1,238 / 1,242, 재주입 0, 유병률 2.7% / 2.6%, 세 원천 맞음). **−1b `take_loss_frac` 0.0476 / 0.0475**(문턱 0.08~0.15) — 못 넘음, 권고 "norm_impulse를 올린다". θ_t 0.145 / 0.150. **−1e는 미판정**: `arena-check.json` 첫 줄에 체크포인트의 "다른 계산 코드" 경고가 stdout으로 섞여 json으로 못 읽음(로그상 거주민 공격 0 — 통과였을 값).
-- −1e 고침: 경고를 stderr로 보낸다(`kkumteul/checkpoint.py`, 시험 `test_old_code_warning_goes_to_stderr_so_json_stdout_stays_clean`). 같은 체크포인트를 읽고 stdout을 json으로 받는 체인 명령(knock-norm·knock-vis·hand-dose 등)도 같이 막힌다.
+- −1e 고침: 경고를 stderr로 보낸다(`kkumteul/checkpoint.py`, 시험 `test_old_code_warning_goes_to_stderr_so_json_stdout_stays_clean`). 같은 체크포인트를 읽고 stdout을 json으로 받는 체인 명령(knock-norm·knock-vis·hand-dose 등)도 같이 막힌다 — 체크포인트 읽기의 stdout 출력은 이 한 곳뿐이라 그 경로는 함께 풀린다. knockout·measure 등 다른 명령이 json 앞에 따로 stdout을 내는지는 미확인.
 - **조정 1/3: `norm_impulse` 0.015 → 0.035.** 근거(추정): 충동 구간 확률이 자발 공격 빈도에 곧장 곱해지고 다른 길은 그대로이므로 손실 몫이 대략 비례한다고 보면 0.0476 × 0.035 / 0.015 ≈ 0.111(문턱 가운데). 설계 때 0.015가 14%를 낼 거라 어림했으나 실제는 4.8%였다(3배 빗나감) — 비례도 빗나갈 수 있어 조정 횟수를 남겨 둔다. 유병률(−1c)이 함께 오를 수 있다(지금 2.7%, 상한 10%).
 - 다시 띄우기: 같은 바탕에서 `IMP=0.035`로 두 판(꼬리표 `t50-i0.035`, 새 기록 폴더). 앞 판 폴더는 그대로 둔다.
