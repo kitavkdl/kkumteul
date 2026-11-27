@@ -722,3 +722,18 @@ def test_migrate_failure_leaves_no_half_made_run(tmp_path):
     r = Runner.resume(tmp_path / "a5")
     assert info["tag"] == 3 and int((r.world.s.tag[r.world.s.alive] == 3).sum()) == 5
     r.close()
+
+
+def test_old_code_warning_goes_to_stderr_so_json_stdout_stays_clean(tmp_path, capsys):
+    """판정 도구는 stdout을 json 파일로 받는다. 옛 코드 경고가 stdout에 섞이면 관문이 미판정이 된다(11/27 −1e)."""
+    w = World(small())
+    w.run(5)
+    path = ckpt.save(w, tmp_path / "c")
+    meta_path = path.with_suffix(".json")
+    meta = json.loads(meta_path.read_text())
+    meta["source_hash"] = "0" * 64
+    meta_path.write_text(json.dumps(meta))
+    capsys.readouterr()
+    ckpt.load(path)
+    out, err = capsys.readouterr()
+    assert out == "" and "다른 계산 코드" in err

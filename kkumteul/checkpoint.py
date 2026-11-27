@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -113,7 +114,7 @@ def load(path: Path, cfg: Config | None = None, verify: bool = True) -> tuple[Wo
     meta["lifetime_reset"] = list(world.lifetime_reset)    # 크기를 올려 읽어 0에서 다시 시작한 평생 학습 배열
     if meta.get("source_hash") not in (None, SOURCE_HASH):
         print(f"주의: {path.name}은 지금과 다른 계산 코드로 저장됐다. 이어 돌린 결과가 "
-              "끊지 않고 돌린 결과와 달라질 수 있다.", flush=True)
+              "끊지 않고 돌린 결과와 달라질 수 있다.", file=sys.stderr, flush=True)
     return world, meta
 
 
